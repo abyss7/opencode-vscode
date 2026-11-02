@@ -1,0 +1,9 @@
+.git/**
+.github/**
+.vscode/**
+.gitignore
+test/**
+scripts/**
+install.sh
+*.vsix
+.DS_Store

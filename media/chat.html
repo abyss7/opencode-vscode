@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}}; script-src 'nonce-{{nonce}}'; img-src {{cspSource}} data:; font-src {{cspSource}};">
+  <link rel="stylesheet" href="{{styleUri}}">
+  <title>OpenCode</title>
+</head>
+<body>
+  <div id="app">
+    <header id="header">
+      <div class="brand">
+        <svg class="logo" viewBox="0 0 512 512" aria-hidden="true">
+          <path class="logo-inner" d="M320 224V352H192V224H320Z"/>
+          <path class="logo-frame" fill-rule="evenodd" clip-rule="evenodd" d="M384 416H128V96H384V416ZM320 160H192V352H320V160Z"/>
+        </svg>
+        <div class="titles">
+          <div id="title" class="title">OpenCode</div>
+          <div id="subtitle" class="subtitle">ACP session</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <span id="status" class="status connecting"><span class="dot"></span><span id="status-text">Connecting…</span></span>
+      </div>
+    </header>
+
+    <div id="subagents" class="subagents" hidden>
+      <button id="subagents-summary" class="subagents-summary" type="button" aria-expanded="false">
+        <span class="subagents-label">Sub-agents</span>
+        <span id="subagents-summary-text" class="subagents-summary-text"></span>
+        <span class="subagents-chevron" aria-hidden="true">▸</span>
+      </button>
+      <ul id="subagents-list" class="subagents-list" hidden></ul>
+    </div>
+
+    <main id="messages" class="messages">
+      <div id="empty" class="empty">
+        <svg class="empty-logo" viewBox="0 0 512 512" aria-hidden="true">
+          <path class="logo-inner" d="M320 224V352H192V224H320Z"/>
+          <path class="logo-frame" fill-rule="evenodd" clip-rule="evenodd" d="M384 416H128V96H384V416ZM320 160H192V352H320V160Z"/>
+        </svg>
+        <h2>OpenCode</h2>
+        <p>Ask anything about the current workspace.</p>
+      </div>
+    </main>
+
+    <footer id="composer" class="composer">
+      <div id="slash-menu" class="slash-menu" role="listbox" aria-label="Commands and skills" hidden></div>
+      <div id="config-bar" class="config-bar" hidden></div>
+      <div class="input-row">
+        <div class="input-stack">
+          <div id="attachments" class="attachments" hidden></div>
+          <div class="usage-bar">
+            <span id="usage" class="usage-item"></span>
+            <span id="usage-cost" class="usage-item"></span>
+            <span id="usage-reset" class="usage-item"></span>
+          </div>
+          <textarea id="input" rows="1" placeholder="Ask OpenCode…" disabled></textarea>
+        </div>
+        <button id="send" class="btn primary icon-btn" type="button" title="Send" aria-label="Send" disabled>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 2.2 13.8 8h-4.1v5.8H6.3V8H2.2L8 2.2Z"/>
+          </svg>
+        </button>
+        <button id="stop" class="btn danger icon-btn" type="button" title="Stop" aria-label="Stop" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1.4"/>
+          </svg>
+        </button>
+      </div>
+      <div class="hint">
+        <span>Enter to send · Shift+Enter for a new line · / for commands and skills</span>
+      </div>
+    </footer>
+  </div>
+  <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
+</body>
+</html>
