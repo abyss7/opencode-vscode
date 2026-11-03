@@ -3,6 +3,9 @@
 .vscode/**
 .gitignore
 test/**
+node_modules/**
+test-results/**
+package-lock.json
 scripts/**
 install.sh
 *.vsix

@@ -538,6 +538,10 @@
   "scripts": {
     "check": "node --check src/extension.js && node --check src/acp.js && node --check src/api.js && node --check src/session-panel.js && node --check src/sessions-view.js && node --check src/session-folders.js && node --check src/file-links.js && node --check src/jsonc.js && node --check src/opencode-config.js && node --check src/opencode-sync.js && node --check src/usage.js && node --check src/balance.js && node --check scripts/generate-configuration.js && node --check scripts/package.js && node --check media/chat.js",
     "generate": "node scripts/generate-configuration.js",
+    "test:ui": "playwright test --config=test/ui/playwright.config.js",
     "test": "node test/usage.js && node test/balance.js && node test/file-links.js && node test/turn-stats.js && node test/jsonc.js && node test/opencode-config.js && node test/opencode-settings.js && node test/opencode-sync.js && node test/folders.js && node test/groups.js && node test/open-file.js && node test/slash.js && node test/acp.js && node test/child-updates.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
   }
 }
