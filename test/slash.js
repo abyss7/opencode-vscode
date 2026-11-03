@@ -186,6 +186,7 @@ global.acquireVsCodeApi = () => ({
   setState: () => {},
 });
 global.document = {
+  compatMode: 'CSS1Compat',
   title: '',
   getElementById: (id) => ids[id],
   createElement: (tagName) => new Element(tagName),

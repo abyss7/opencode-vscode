@@ -960,6 +960,7 @@
       assistant.wrap.hidden = false;
       assistant.body.classList.add('md');
       assistant.body.innerHTML = renderMarkdown(assistant.text);
+      OpenCodeRichText.hydrate(assistant.body, scrollToBottom);
       scheduleFileChecks();
       // The answer is printed outside the chevron: close the block that holds
       // the steps before it, so later steps open a new one below the text.

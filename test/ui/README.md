@@ -38,7 +38,11 @@ host-side tests and an extension smoke check when changed.
 ## Bundled renderers
 
 Browser dependencies are pinned in `package-lock.json`. Edit
-`src/webview/rich-text.js`, then run `npm run build:ui` and commit the generated
-`media/rich-text.js` and its license file with the source. The extension and
+`src/webview/`, then run `npm run build:ui` and commit the generated
+`media/rich-text.*`, `media/diagrams.js*`, `media/fonts/` and
+`media/THIRD_PARTY_LICENSES.txt` with the source. The extension and
 offline host tests use this checked-in bundle without Node dependencies at
 runtime. The webview never fetches rendering libraries from a CDN.
+Mermaid loads only when a diagram is shown. KaTeX CSS and fonts are local.
+Inline styles are allowed for library-generated SVG/math; scripts still require
+the webview nonce and raw Markdown HTML remains disabled.

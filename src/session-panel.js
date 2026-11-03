@@ -41,6 +41,12 @@ function buildHtml(webview, extensionUri) {
     .replace(/\{\{richTextUri\}\}/g, String(webview.asWebviewUri(
       vscode.Uri.joinPath(extensionUri, 'media', 'rich-text.js')
     )))
+    .replace(/\{\{richTextStyleUri\}\}/g, String(webview.asWebviewUri(
+      vscode.Uri.joinPath(extensionUri, 'media', 'rich-text.css')
+    )))
+    .replace(/\{\{diagramsUri\}\}/g, String(webview.asWebviewUri(
+      vscode.Uri.joinPath(extensionUri, 'media', 'diagrams.js')
+    )))
     .replace(/\{\{styleUri\}\}/g, String(styleUri))
     .replace(/\{\{scriptUri\}\}/g, String(scriptUri));
 }

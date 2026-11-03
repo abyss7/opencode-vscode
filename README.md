@@ -30,6 +30,11 @@ editor tab as an ACP chat.
 - File references in answers (`src/api.js:42`, markdown links to files, and tool-call locations)
   open in an editor tab beside the chat at that line and column. A reference becomes a link only
   after the extension confirms that the file exists; everything else stays plain text.
+- Answers support nested Markdown lists, task lists, footnotes and GitHub-style callouts.
+- Code blocks have syntax highlighting and a copy button.
+- Fenced `mermaid` blocks render as diagrams with zoom, fit and source controls.
+- LaTeX formulas render with KaTeX: `$...$`, `$$...$$`, `\(...\)` and `\[...\]`.
+  Display formulas expose their LaTeX source. Rendering libraries and fonts work offline.
 - Opening or revealing a session tab scrolls to the newest message and focuses the composer.
 - The tab icon is orange while the session works and green when an answer is waiting; it returns
   to the default icon as soon as you open the tab.

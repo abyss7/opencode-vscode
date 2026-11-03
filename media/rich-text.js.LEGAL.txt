@@ -2,3 +2,6 @@ Bundled license information:
 
 markdown-it/dist/markdown-it.cjs.js:
   /*! markdown-it 15.0.3 https://github.com/markdown-it/markdown-it @license MIT */
+
+@mdit/plugin-katex/dist/index.js:
+  /* istanbul ignore else -- @preserve */

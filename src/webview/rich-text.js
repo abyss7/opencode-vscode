@@ -4,10 +4,24 @@ const MarkdownIt = require('markdown-it');
 const footnote = require('markdown-it-footnote');
 const taskLists = require('markdown-it-task-lists');
 const hljs = require('highlight.js/lib/common');
+const { katex } = require('@mdit/plugin-katex');
+require('katex/dist/katex.css');
+const visuals = require('./visuals');
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false })
   .use(footnote)
-  .use(taskLists);
+  .use(taskLists)
+  .use(katex, {
+    delimiters: 'all',
+    trust: false,
+    strict: 'ignore',
+    throwOnError: false,
+    maxExpand: 1000,
+    maxSize: 20,
+    transformer: (html, display) => display
+      ? `<div class="math-block">${html}<details class="math-source"><summary>LaTeX source</summary><pre><code></code></pre></details></div>`
+      : html,
+  });
 const escape = md.utils.escapeHtml;
 
 function highlight(code, language) {
@@ -20,9 +34,17 @@ function highlight(code, language) {
 md.renderer.rules.fence = (tokens, index) => {
   const token = tokens[index];
   const language = token.info.trim().split(/\s+/)[0] || 'text';
-  return `<div class="code-block"><div class="code-toolbar"><span class="code-language">${escape(language)}</span>` +
+  const code = `<div class="code-block"><div class="code-toolbar"><span class="code-language">${escape(language)}</span>` +
     '<button type="button" class="code-copy" aria-label="Copy code">Copy</button></div>' +
     `<pre><code data-lang="${escape(language)}">${highlight(token.content.replace(/\n$/, ''), language)}</code></pre></div>\n`;
+  if (language.toLowerCase() !== 'mermaid') return code;
+  return '<figure class="visual-block diagram"><div class="visual-toolbar"><span>Diagram</span>' +
+    '<span class="visual-actions"><button type="button" data-diagram-zoom="out" aria-label="Zoom out">−</button>' +
+    '<button type="button" data-diagram-zoom="in" aria-label="Zoom in">+</button>' +
+    '<button type="button" data-diagram-zoom="fit" aria-label="Fit diagram">Fit</button>' +
+    '<button type="button" class="visual-source-toggle" aria-pressed="false">Source</button></span></div>' +
+    '<div class="diagram-preview" role="img" aria-label="Mermaid diagram">Rendering diagram…</div>' +
+    `<div class="visual-source-panel" hidden>${code}</div></figure>`;
 };
 
 md.renderer.rules.code_inline = (tokens, index, options, env) => {
@@ -110,4 +132,4 @@ function render(source, options = {}) {
   });
 }
 
-module.exports = { render, highlight };
+module.exports = { render, highlight, hydrate: visuals.hydrate };

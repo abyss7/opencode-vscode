@@ -1064,6 +1064,22 @@ select {
 .vscode-light .hljs-deletion { color: #a1260d; }
 .vscode-high-contrast [class^="hljs-"], .vscode-high-contrast-light [class^="hljs-"] { color: inherit; }
 
+.visual-block { margin: 12px 0; border: 1px solid var(--oc-border); border-radius: 6px; overflow: hidden; }
+.visual-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--oc-border-soft); color: var(--oc-secondary); font-size: 0.85em; }
+.visual-toolbar button { border: 0; padding: 4px 8px; border-radius: 3px; color: var(--vscode-textLink-foreground); background: transparent; cursor: pointer; }
+.visual-toolbar button:hover { background: var(--vscode-list-hoverBackground); }
+.visual-toolbar button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.visual-actions { display: flex; align-items: center; gap: 2px; }
+.diagram-preview { padding: 16px; overflow: auto; min-height: 60px; max-height: 520px; }
+.diagram-preview svg { display: block; margin: auto; height: auto; }
+.visual-source-panel .code-block { margin: 0; border: 0; border-radius: 0; }
+.visual-error { color: var(--vscode-errorForeground); }
+.math-block { overflow-x: auto; margin: 12px 0; padding: 8px 10px; border: 1px solid var(--oc-border-soft); border-radius: 6px; }
+.math-source { color: var(--oc-secondary); font-size: 0.85em; }
+.math-source summary { cursor: pointer; }
+.md .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+.md .katex-display > .katex { white-space: nowrap; }
+
 /* Composer */
 
 .composer {
