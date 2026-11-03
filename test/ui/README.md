@@ -34,3 +34,11 @@ Add new scenarios through `chat.send()` / `chat.update()`, using the same
 messages as the extension host. `chat.snapshot(name)` records intermediate
 states. This tests webview behavior; native VS Code commands still need their
 host-side tests and an extension smoke check when changed.
+
+## Bundled renderers
+
+Browser dependencies are pinned in `package-lock.json`. Edit
+`src/webview/rich-text.js`, then run `npm run build:ui` and commit the generated
+`media/rich-text.js` and its license file with the source. The extension and
+offline host tests use this checked-in bundle without Node dependencies at
+runtime. The webview never fetches rendering libraries from a CDN.

@@ -2538,33 +2538,8 @@
     return '<span class="file-ref"' + attributes + '>' + label + '</span>';
   }
 
-  function renderInline(value) {
-    let text = escapeHtml(value);
-    const tokens = [];
-    const protect = (html) => {
-      tokens.push(html);
-      return '\u0001' + (tokens.length - 1) + '\u0001';
-    };
-
-    text = text.replace(/`([^`\n]+)`/g, (match, code) => {
-      const parts = fileLinkParts(code);
-      if (parts) return protect(fileToken(parts, code));
-      return protect('<code>' + code + '</code>');
-    });
-
-    text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, label, target) => {
-      if (/^https?:\/\//i.test(target)) {
-        return protect('<a href="#" data-href="' + target + '">' + label + '</a>');
-      }
-      const parts = fileLinkParts(target);
-      if (!parts) return match;
-      return protect(fileToken(parts, label));
-    });
-
-    // Bare URLs must not be mistaken for local paths.
-    text = text.replace(/https?:\/\/[^\s<>"']+/g, (url) => protect(url));
-
-    text = text.replace(
+  function renderFileText(value) {
+    return escapeHtml(value).replace(
       FILE_REF,
       (match, prefix, file, hashLine, colonLine, column) => {
         const line = hashLine || colonLine || '';
@@ -2576,13 +2551,6 @@
       }
     );
 
-    text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-    text = text.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
-    text = text.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
-    text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-    text = text.replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>');
-    text = text.replace(/\u0001(\d+)\u0001/g, (match, index) => tokens[Number(index)]);
-    return text;
   }
 
   function fileRefKey(node) {
@@ -2641,203 +2609,14 @@
     applyFileChecks();
   }
 
-  function splitTableRow(line) {
-    let value = String(line || '').trim();
-    if (value.startsWith('|')) value = value.slice(1);
-    if (value.endsWith('|') && !value.endsWith('\\|')) value = value.slice(0, -1);
-    const cells = [];
-    let current = '';
-    let inCode = false;
-    for (let index = 0; index < value.length; index += 1) {
-      const character = value[index];
-      if (character === '\\' && value[index + 1] === '|') {
-        current += '|';
-        index += 1;
-        continue;
-      }
-      if (character === '`') inCode = !inCode;
-      if (character === '|' && !inCode) {
-        cells.push(current.trim());
-        current = '';
-        continue;
-      }
-      current += character;
-    }
-    cells.push(current.trim());
-    return cells;
-  }
-
-  function tableAlignments(line) {
-    const cells = splitTableRow(line);
-    const alignments = [];
-    for (const cell of cells) {
-      if (!/^:?-+:?$/.test(cell)) return null;
-      const left = cell.startsWith(':');
-      const right = cell.endsWith(':');
-      alignments.push(left && right ? 'center' : right ? 'right' : left ? 'left' : '');
-    }
-    return alignments.length > 0 ? alignments : null;
-  }
-
-  function tableAlignmentClass(alignment) {
-    return alignment ? ' class="align-' + alignment + '"' : '';
-  }
-
-  function renderTable(headerLine, rows, alignments) {
-    const header = splitTableRow(headerLine);
-    const columns = alignments.length;
-    const cellText = (cells, index) => (index < cells.length ? cells[index] : '');
-    const head = [];
-    for (let index = 0; index < columns; index += 1) {
-      head.push(
-        '<th' + tableAlignmentClass(alignments[index]) + '>' +
-          renderInline(cellText(header, index)) +
-          '</th>'
-      );
-    }
-    const body = rows.map((row) => {
-      const cells = splitTableRow(row);
-      const rendered = [];
-      for (let index = 0; index < columns; index += 1) {
-        rendered.push(
-          '<td' + tableAlignmentClass(alignments[index]) + '>' +
-            renderInline(cellText(cells, index)) +
-            '</td>'
-        );
-      }
-      return '<tr>' + rendered.join('') + '</tr>';
-    });
-    return (
-      '<div class="table-wrap"><table><thead><tr>' +
-      head.join('') +
-      '</tr></thead>' +
-      (body.length > 0 ? '<tbody>' + body.join('') + '</tbody>' : '') +
-      '</table></div>'
-    );
-  }
-
   function renderMarkdown(source) {
-    const text = String(source || '').replace(/\r\n/g, '\n');
-    const codeBlocks = [];
-    const withoutFences = text.replace(/```([^\n`]*)\n([\s\S]*?)```/g, (match, language, code) => {
-      const languageName = String(language || '').trim();
-      const attribute = languageName ? ' data-lang="' + escapeHtml(languageName) + '"' : '';
-      codeBlocks.push(
-        '<pre><code' + attribute + '>' + escapeHtml(code.replace(/\n$/, '')) + '</code></pre>'
-      );
-      return '\u0000CODE' + (codeBlocks.length - 1) + '\u0000';
+    return OpenCodeRichText.render(source, {
+      text: renderFileText,
+      file: (target, label) => {
+        const parts = fileLinkParts(escapeHtml(target));
+        return parts ? fileToken(parts, label) : null;
+      },
     });
-
-    const lines = withoutFences.split('\n');
-    const output = [];
-    let paragraph = [];
-    let listType = null;
-    let listItems = [];
-    let quote = [];
-
-    function flushParagraph() {
-      if (paragraph.length > 0) {
-        output.push('<p>' + paragraph.map(renderInline).join('<br>') + '</p>');
-        paragraph = [];
-      }
-    }
-
-    function flushList() {
-      if (listType) {
-        output.push(
-          '<' + listType + '>' +
-            listItems.map((item) => '<li>' + renderInline(item) + '</li>').join('') +
-            '</' + listType + '>'
-        );
-        listType = null;
-        listItems = [];
-      }
-    }
-
-    function flushQuote() {
-      if (quote.length > 0) {
-        output.push('<blockquote>' + quote.map(renderInline).join('<br>') + '</blockquote>');
-        quote = [];
-      }
-    }
-
-    function flushAll() {
-      flushParagraph();
-      flushList();
-      flushQuote();
-    }
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index];
-      const trimmed = line.trim();
-      if (/^\u0000CODE\d+\u0000$/.test(trimmed)) {
-        flushAll();
-        output.push(trimmed);
-        continue;
-      }
-      if (!trimmed) {
-        flushAll();
-        continue;
-      }
-      const heading = line.match(/^(#{1,6})\s+(.*)$/);
-      if (heading) {
-        flushAll();
-        const level = heading[1].length;
-        output.push('<h' + level + '>' + renderInline(heading[2]) + '</h' + level + '>');
-        continue;
-      }
-      if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-        flushAll();
-        output.push('<hr>');
-        continue;
-      }
-      const quoteMatch = line.match(/^\s*>\s?(.*)$/);
-      if (quoteMatch) {
-        flushParagraph();
-        flushList();
-        quote.push(quoteMatch[1]);
-        continue;
-      }
-      const listMatch = line.match(/^\s*([-*+]|\d+\.)\s+(.*)$/);
-      if (listMatch) {
-        flushParagraph();
-        flushQuote();
-        const nextType = /^\d+\.$/.test(listMatch[1]) ? 'ol' : 'ul';
-        if (listType && listType !== nextType) flushList();
-        listType = nextType;
-        listItems.push(listMatch[2]);
-        continue;
-      }
-      const nextLine = index + 1 < lines.length ? lines[index + 1] : '';
-      const alignments = nextLine.includes('|') ? tableAlignments(nextLine) : null;
-      if (alignments && splitTableRow(line).length === alignments.length) {
-        flushAll();
-        const rows = [];
-        let rowIndex = index + 2;
-        for (; rowIndex < lines.length; rowIndex += 1) {
-          const rowLine = lines[rowIndex];
-          const rowTrimmed = rowLine.trim();
-          if (!rowTrimmed || !rowTrimmed.includes('|')) break;
-          if (/^\u0000CODE\d+\u0000$/.test(rowTrimmed)) break;
-          if (/^(#{1,6})\s+/.test(rowTrimmed)) break;
-          if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(rowLine)) break;
-          if (/^\s*>/.test(rowLine)) break;
-          if (/^\s*([-*+]|\d+\.)\s+/.test(rowLine)) break;
-          rows.push(rowLine);
-        }
-        output.push(renderTable(line, rows, alignments));
-        index = rowIndex - 1;
-        continue;
-      }
-      flushList();
-      flushQuote();
-      paragraph.push(line);
-    }
-    flushAll();
-
-    return output
-      .join('\n')
-      .replace(/\u0000CODE(\d+)\u0000/g, (match, index) => codeBlocks[Number(index)]);
   }
 
   inputEl.addEventListener('input', () => {
@@ -2921,9 +2700,21 @@
     state.autoScroll = distance < 120;
   });
 
-  messagesEl.addEventListener('click', (event) => {
+  messagesEl.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+
+    const copy = target.closest('.code-copy');
+    if (copy) {
+      try {
+        await navigator.clipboard.writeText(copy.closest('.code-block').querySelector('pre code').textContent);
+        copy.textContent = 'Copied';
+        setTimeout(() => { copy.textContent = 'Copy'; }, 2000);
+      } catch {
+        addError('Could not copy code to the clipboard.');
+      }
+      return;
+    }
 
     const fileLink = target.closest('.file-link[data-file]');
     if (fileLink) {

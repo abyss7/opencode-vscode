@@ -197,6 +197,7 @@ global.window = {
   },
 };
 global.Element = Element;
+global.OpenCodeRichText = require('../media/rich-text.js');
 
 require('../media/chat.js');
 
@@ -786,4 +787,3 @@ assert.ok(notices.includes('The turn was stopped before the model wrote an answe
 assert.ok(!notices.includes('Stopped by user.'), 'the notice must not be duplicated');
 
 console.log('SLASH OK');
-

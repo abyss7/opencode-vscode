@@ -38,6 +38,9 @@ function buildHtml(webview, extensionUri) {
     .readFileSync(HTML_PATH, 'utf8')
     .replace(/\{\{cspSource\}\}/g, webview.cspSource)
     .replace(/\{\{nonce\}\}/g, nonce)
+    .replace(/\{\{richTextUri\}\}/g, String(webview.asWebviewUri(
+      vscode.Uri.joinPath(extensionUri, 'media', 'rich-text.js')
+    )))
     .replace(/\{\{styleUri\}\}/g, String(styleUri))
     .replace(/\{\{scriptUri\}\}/g, String(scriptUri));
 }

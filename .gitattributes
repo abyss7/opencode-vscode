@@ -1,0 +1,2 @@
+# Bundled grammars contain significant whitespace inside template literals.
+media/rich-text.js linguist-generated=true -whitespace

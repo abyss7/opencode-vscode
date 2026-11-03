@@ -5,7 +5,7 @@ const path = require('node:path');
 const { test: base, expect } = require('@playwright/test');
 
 const root = path.resolve(__dirname, '../..');
-const origin = 'http://opencode.test';
+const origin = 'https://opencode.test';
 
 function themeCss(theme) {
   const dark = theme === 'dark';
@@ -83,6 +83,7 @@ const test = base.extend({
           .replaceAll('{{cspSource}}', origin)
           .replaceAll('{{nonce}}', 'test-nonce')
           .replaceAll('{{styleUri}}', `${origin}/media/chat.css`)
+          .replaceAll('{{richTextUri}}', `${origin}/media/rich-text.js`)
           .replaceAll('{{scriptUri}}', `${origin}/media/chat.js`)
           .replace('<body>', `<body class="vscode-${testInfo.project.metadata.theme}">`)
           .replace('<title>', '<link rel="stylesheet" href="/theme.css"><title>');
