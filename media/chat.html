@@ -22,6 +22,7 @@
         </div>
       </div>
       <div class="header-right">
+        <button id="artifacts-toggle" type="button" hidden aria-expanded="false" aria-controls="artifacts">Artifacts</button>
         <span id="status" class="status connecting"><span class="dot"></span><span id="status-text">Connecting…</span></span>
       </div>
     </header>
@@ -35,6 +36,7 @@
       <ul id="subagents-list" class="subagents-list" hidden></ul>
     </div>
 
+    <div id="workspace">
     <main id="messages" class="messages">
       <div id="empty" class="empty">
         <svg class="empty-logo" viewBox="0 0 512 512" aria-hidden="true">
@@ -45,6 +47,8 @@
         <p>Ask anything about the current workspace.</p>
       </div>
     </main>
+    <aside id="artifacts" aria-label="Artifacts" hidden></aside>
+    </div>
 
     <footer id="composer" class="composer">
       <div id="slash-menu" class="slash-menu" role="listbox" aria-label="Commands and skills" hidden></div>

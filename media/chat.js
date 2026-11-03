@@ -22,6 +22,12 @@
   const subagentsSummaryEl = document.getElementById('subagents-summary');
   const subagentsSummaryTextEl = document.getElementById('subagents-summary-text');
   const subagentsListEl = document.getElementById('subagents-list');
+  const artifacts = OpenCodeRichText.createArtifacts({
+    root: document.getElementById('artifacts'), toggle: document.getElementById('artifacts-toggle'),
+    renderMarkdown, hydrate: (root) => { OpenCodeRichText.hydrate(root); scheduleFileChecks(); }, post: (message) => vscode.postMessage(message),
+    preferences: vscode.getState?.()?.artifacts,
+    save: (value) => vscode.setState({ ...vscode.getState?.(), artifacts: value }),
+  });
 
   const STATUS_LABELS = {
     connecting: 'Connecting…',
@@ -195,7 +201,7 @@
       subtitleEl.title = state.sessionId;
     }
     try {
-      vscode.setState({ sessionId: state.sessionId, cwd: state.cwd });
+      vscode.setState({ ...vscode.getState?.(), sessionId: state.sessionId, cwd: state.cwd });
     } catch {
       // Ignore state persistence errors.
     }
@@ -963,6 +969,7 @@
       assistant.body.classList.add('md');
       assistant.body.innerHTML = renderMarkdown(assistant.text);
       OpenCodeRichText.hydrate(assistant.body, scrollToBottom);
+      artifacts.ingest(assistant.body);
       scheduleFileChecks();
       // The answer is printed outside the chevron: close the block that holds
       // the steps before it, so later steps open a new one below the text.
@@ -2255,6 +2262,7 @@
         if (state.slashOpen) refreshSlashMenu();
         break;
       case 'historyReset':
+        artifacts.reset();
         resetTranscript();
         break;
       case 'sessionInfo':
@@ -2570,7 +2578,7 @@
   function applyFileChecks() {
     if (!messagesEl || typeof messagesEl.querySelectorAll !== 'function') return;
     const pending = [];
-    for (const node of messagesEl.querySelectorAll('.file-ref')) {
+    for (const node of (document.getElementById('workspace') || messagesEl).querySelectorAll('.file-ref')) {
       if (!node.dataset || !node.dataset.file) continue;
       const key = fileRefKey(node);
       const exists = state.fileChecks.get(key);
@@ -2704,7 +2712,7 @@
     state.autoScroll = distance < 120;
   });
 
-  messagesEl.addEventListener('click', async (event) => {
+  (document.getElementById('workspace') || messagesEl).addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
 

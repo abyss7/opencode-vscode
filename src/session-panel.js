@@ -6,6 +6,7 @@ const path = require('node:path');
 const vscode = require('vscode');
 const { AcpClient } = require('./acp');
 const { DiffDocuments } = require('./diff-documents');
+const { exportArtifact } = require('./artifact-export');
 const { withClientContext } = require('./client-context');
 const { resolveFileTarget } = require('./file-links');
 const { getBalance } = require('./balance');
@@ -341,6 +342,9 @@ class SessionPanel {
           this.deps.log(`Failed to open diff: ${error.message}`);
           this._post({ type: 'error', message: `Failed to open diff: ${error.message}` });
         });
+        break;
+      case 'exportArtifact':
+        exportArtifact(message).catch((error) => this._post({ type: 'error', message: `Export failed: ${error.message}` }));
         break;
       case 'checkFiles':
         this._checkFiles(Array.isArray(message.files) ? message.files : []);

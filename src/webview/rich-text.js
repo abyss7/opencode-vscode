@@ -8,6 +8,7 @@ const { katex } = require('@mdit/plugin-katex');
 require('katex/dist/katex.css');
 const visuals = require('./visuals');
 const toolResults = require('./tool-results');
+const artifacts = require('./artifacts');
 const { visiblePrompt } = require('../client-context');
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false })
@@ -36,6 +37,7 @@ function highlight(code, language) {
 md.renderer.rules.fence = (tokens, index) => {
   const token = tokens[index];
   const language = token.info.trim().split(/\s+/)[0] || 'text';
+  if (language === 'opencode-artifact') return `<section class="artifact-reference"><pre hidden>${escape(token.content)}</pre></section>`;
   const code = `<div class="code-block"><div class="code-toolbar"><span class="code-language">${escape(language)}</span>` +
     '<button type="button" class="code-copy" aria-label="Copy code">Copy</button></div>' +
     `<pre><code data-lang="${escape(language)}">${highlight(token.content.replace(/\n$/, ''), language)}</code></pre></div>\n`;
@@ -134,4 +136,4 @@ function render(source, options = {}) {
   });
 }
 
-module.exports = { render, highlight, hydrate: visuals.hydrate, visiblePrompt, renderToolResult: toolResults.render };
+module.exports = { render, highlight, hydrate: visuals.hydrate, visiblePrompt, renderToolResult: toolResults.render, createArtifacts: artifacts.create };
