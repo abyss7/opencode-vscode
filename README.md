@@ -46,6 +46,12 @@ editor tab as an ACP chat.
 - Versioned [artifacts](docs/artifacts.md) stay available beside the conversation:
   Markdown, Mermaid, tables, diffs, images and data-backed line/bar charts. The panel
   supports version selection, Preview/Source, export and links back to the message/file.
+- The plan's current step and completion count stay visible above the conversation.
+  Finished sub-agents expose a result excerpt and a link to their session.
+- **Aa** opens view options: compact/comfortable density and optional completed-block
+  streaming (off by default). Incomplete tables and fences wait; the final answer is
+  rendered as a whole for document-wide references. Long answers have a keyboard-accessible
+  outline. Prose stays within a readable measure while diagrams and tables use available width.
 - Opening or revealing a session tab scrolls to the newest message and focuses the composer.
 - The tab icon is orange while the session works and green when an answer is waiting; it returns
   to the default icon as soon as you open the tab.

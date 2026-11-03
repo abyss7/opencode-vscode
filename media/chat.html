@@ -22,10 +22,19 @@
         </div>
       </div>
       <div class="header-right">
+        <button id="view-toggle" type="button" aria-label="View options" aria-expanded="false" aria-controls="view-options">Aa</button>
         <button id="artifacts-toggle" type="button" hidden aria-expanded="false" aria-controls="artifacts">Artifacts</button>
         <span id="status" class="status connecting"><span class="dot"></span><span id="status-text">Connecting…</span></span>
       </div>
     </header>
+    <div id="view-options" hidden>
+      <label>Density <select id="density" aria-label="Density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
+      <label><input id="stream-blocks" type="checkbox"> Render completed blocks while streaming</label>
+    </div>
+    <button id="plan-progress" type="button" hidden aria-label="Show plan">
+      <progress id="plan-meter" max="1" value="0" aria-label="Plan completion"></progress>
+      <span id="plan-progress-text" aria-live="polite"></span>
+    </button>
 
     <div id="subagents" class="subagents" hidden>
       <button id="subagents-summary" class="subagents-summary" type="button" aria-expanded="false">

@@ -211,7 +211,7 @@ select {
 .message.assistant .body {
   min-width: 0;
   width: 100%;
-  max-width: 860px;
+  max-width: 100%;
   color: var(--vscode-foreground);
   line-height: 1.55;
   overflow-wrap: anywhere;
@@ -1144,6 +1144,26 @@ select {
 .artifact-offer button { color: var(--vscode-textLink-foreground); background: transparent; border: 1px solid var(--oc-border); border-radius: 4px; padding: 4px 7px; cursor: pointer; }
 .artifact-offer { margin: 6px; }
 .user-images figure { margin: 4px 0; }
+
+#view-toggle { color: var(--oc-secondary); border: 1px solid var(--oc-border); background: transparent; border-radius: 4px; cursor: pointer; }
+#view-options { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--oc-border-soft); font-size: 12px; }
+#view-options select { color: inherit; background: var(--vscode-input-background); border: 1px solid var(--oc-border); }
+#view-options label { display: flex; align-items: center; gap: 5px; }
+#plan-progress { display: flex; align-items: center; gap: 8px; flex-shrink: 0; width: 100%; padding: 5px 16px; color: var(--vscode-foreground); background: transparent; border: 0; border-bottom: 1px solid var(--oc-border-soft); cursor: pointer; text-align: left; font-size: 12px; }
+#plan-progress progress { width: 65px; height: 5px; flex-shrink: 0; accent-color: var(--vscode-progressBar-background, #0078d4); }
+#plan-progress-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.answer-outline { margin: 8px 0 18px; padding: 7px 10px; border-left: 2px solid var(--oc-border); color: var(--oc-secondary); font-size: 12px; }
+.answer-outline nav { display: flex; flex-direction: column; align-items: flex-start; margin-top: 6px; }
+.answer-outline button { border: 0; padding: 3px 0; text-align: left; color: var(--vscode-textLink-foreground); background: transparent; cursor: pointer; }
+.answer-outline button[data-level="3"] { margin-left: 12px; }
+.md > p, .md > ul, .md > ol, .md > blockquote, .stream-block > p { max-width: 75ch; }
+.md > h1, .md > h2 { letter-spacing: -0.02em; }
+.subagent-result { color: var(--vscode-foreground); margin: 4px 0 0 18px; font-size: 12px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+body[data-density="compact"] .messages { padding: 10px 12px 24px; }
+body[data-density="compact"] .message { padding-block: 2px; }
+body[data-density="compact"] .message.assistant .body { line-height: 1.4; }
+body[data-density="compact"] .md p { margin-block: 6px; }
+body[data-density="compact"] .tool-entry { margin-block: 2px; }
 
 /* Composer */
 

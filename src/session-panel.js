@@ -1299,6 +1299,7 @@ class SessionPanel {
           title: child.title || child.agent || 'Sub-agent',
           running: isRunning(child),
           action: stats.action,
+          result: stats.result,
           tokens: exactTokens || stats.tokens,
           exact: exactTokens > 0,
           cost: Number(child.cost) || 0,
@@ -1381,6 +1382,7 @@ class SessionPanel {
         item.title,
         item.running,
         item.action,
+        item.result,
         item.tokens,
         item.exact === true,
         item.cost,
@@ -1442,9 +1444,12 @@ class SessionPanel {
       const messages = (Array.isArray(recent) ? recent : []).slice().reverse();
       let action = '';
       let tokens = 0;
+      let result = '';
       for (const message of messages) {
         if (!message || message.type !== 'assistant') continue;
         const parts = Array.isArray(message.content) ? message.content : [];
+        const text = parts.filter((part) => part?.type === 'text' && typeof part.text === 'string').map((part) => part.text).join(' ').trim();
+        if (text) result = text.replace(/\s+/g, ' ').slice(0, 240);
         let lastTool = '';
         for (const part of parts) {
           if (!part || typeof part !== 'object') continue;
@@ -1453,7 +1458,7 @@ class SessionPanel {
         }
         if (lastTool) action = lastTool;
       }
-      return { action: subagentAction(action), tokens };
+      return { action: subagentAction(action), tokens, result };
     } catch (error) {
       this.deps.log(`Failed to load sub-agent stats for ${childId}: ${error.message}`);
       return { action: '', tokens: 0 };

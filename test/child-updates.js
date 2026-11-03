@@ -236,6 +236,17 @@ function childUpdate(update, extra = {}) {
     sessionPanel.dispose();
   }
 
+  {
+    const { sessionPanel } = createSessionPanel();
+    sessionPanel.deps.api.listMessages = async () => [
+      { type: 'assistant', content: [{ type: 'text', text: 'Final result.\nAll checks passed.' }] },
+      { type: 'assistant', content: [{ type: 'text', text: 'Earlier progress' }] },
+    ];
+    const stats = await sessionPanel._subagentStats(CHILD);
+    assert.strictEqual(stats.result, 'Final result. All checks passed.');
+    sessionPanel.dispose();
+  }
+
   console.log('CHILD UPDATES OK');
 })().catch((error) => {
   console.error(error.stack || error);
