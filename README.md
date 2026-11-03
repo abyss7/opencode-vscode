@@ -38,6 +38,11 @@ editor tab as an ACP chat.
 - The extension automatically appends a short description of its presentation formats to
   regular and queued prompts, including image prompts. You do not need to repeat it.
   This context is stored with the prompt but omitted from the extension's transcript view.
+- Tool results preserve typed ACP diffs, images and text resources. Diffs show line numbers,
+  fold unchanged context, and open immutable before/after documents in VS Code's diff editor.
+  Structured output supports sortable record tables and expandable objects. Explicit
+  `{type: "search" | "diagnostics", items: [{path, line, column, text, message, severity}]}`
+  output groups locations by file with editor links; unknown result types remain inspectable.
 - Opening or revealing a session tab scrolls to the newest message and focuses the composer.
 - The tab icon is orange while the session works and green when an answer is waiting; it returns
   to the default icon as soon as you open the tab.

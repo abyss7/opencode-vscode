@@ -1080,6 +1080,29 @@ select {
 .md .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
 .md .katex-display > .katex { white-space: nowrap; }
 
+.result-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px; flex-wrap: wrap; }
+.result-toolbar strong { overflow-wrap: anywhere; }
+.tool-content button { color: var(--vscode-textLink-foreground); background: transparent; border: 1px solid var(--oc-border); border-radius: 3px; padding: 3px 6px; cursor: pointer; }
+.tool-content button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.result-scroll { overflow: auto; max-height: 460px; max-width: 100%; }
+.tool-diff { border: 1px solid var(--oc-border); border-radius: 4px; margin: 4px 0; }
+.diff-lines { border-collapse: collapse; width: 100%; font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; }
+.diff-lines td { padding: 1px 5px; white-space: pre; }
+.diff-lines .line-number { color: var(--oc-secondary); text-align: right; user-select: none; width: 1%; border-right: 1px solid var(--oc-border-soft); }
+.diff-lines .added { background: var(--vscode-diffEditor-insertedLineBackground, #3fb95026); }
+.diff-lines .removed { background: var(--vscode-diffEditor-removedLineBackground, #f8514926); }
+.diff-gap { text-align: center; }
+.result-table { border-collapse: collapse; width: 100%; }
+.result-table td, .result-table th { padding: 5px 8px; border: 1px solid var(--oc-border-soft); text-align: left; white-space: nowrap; }
+.result-table th[aria-sort="ascending"]::after { content: ' ↑'; }
+.result-table th[aria-sort="descending"]::after { content: ' ↓'; }
+.result-tree details { padding-left: 10px; overflow-wrap: anywhere; }
+.tool-image { margin: 6px 0; }
+.tool-image img { display: block; max-width: 100%; }
+.tool-image.zoomed img { max-width: none; }
+.result-location { display: flex; gap: 8px; align-items: start; margin: 4px 0; }
+.result-location pre { flex: 1; min-width: 0; }
+
 /* Composer */
 
 .composer {

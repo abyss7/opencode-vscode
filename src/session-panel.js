@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
 const { AcpClient } = require('./acp');
+const { DiffDocuments } = require('./diff-documents');
 const { withClientContext } = require('./client-context');
 const { resolveFileTarget } = require('./file-links');
 const { getBalance } = require('./balance');
@@ -330,6 +331,16 @@ class SessionPanel {
           Number(message.line) || null,
           Number(message.column) || null
         );
+        break;
+      case 'openDiff':
+        if (!this._diffDocuments) {
+          this._diffDocuments = new DiffDocuments();
+          this._disposables.push(this._diffDocuments);
+        }
+        this._diffDocuments.open(message).catch((error) => {
+          this.deps.log(`Failed to open diff: ${error.message}`);
+          this._post({ type: 'error', message: `Failed to open diff: ${error.message}` });
+        });
         break;
       case 'checkFiles':
         this._checkFiles(Array.isArray(message.files) ? message.files : []);

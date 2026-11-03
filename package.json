@@ -540,11 +540,12 @@
     "generate": "node scripts/generate-configuration.js",
     "build:ui": "node scripts/build-ui.js",
     "test:ui": "playwright test --config=test/ui/playwright.config.js",
-    "test": "node test/usage.js && node test/balance.js && node test/file-links.js && node test/turn-stats.js && node test/jsonc.js && node test/opencode-config.js && node test/opencode-settings.js && node test/opencode-sync.js && node test/folders.js && node test/groups.js && node test/open-file.js && node test/slash.js && node test/acp.js && node test/child-updates.js && node test/client-context.js"
+    "test": "node test/usage.js && node test/balance.js && node test/file-links.js && node test/turn-stats.js && node test/jsonc.js && node test/opencode-config.js && node test/opencode-settings.js && node test/opencode-sync.js && node test/folders.js && node test/groups.js && node test/open-file.js && node test/slash.js && node test/acp.js && node test/child-updates.js && node test/client-context.js && node test/diff-documents.js"
   },
   "devDependencies": {
     "@mdit/plugin-katex": "1.1.5",
     "@playwright/test": "1.56.1",
+    "diff": "9.0.0",
     "esbuild": "0.28.2",
     "highlight.js": "11.12.0",
     "katex": "0.19.1",

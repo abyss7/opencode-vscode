@@ -1367,10 +1367,11 @@
       card.inputText = input;
       setToolPre(card.rows.input, input);
     }
-    const text = toolContentText(update);
-    if (text && card.rows.output) {
-      card.outputText = text;
-      setToolPre(card.rows.output, text);
+    if (card.rows.output && (Array.isArray(update.content) || update.rawOutput !== undefined)) {
+      card.outputText = toolContentText(update);
+      card.rows.output.row.hidden = !OpenCodeRichText.renderToolResult(
+        card.rows.output.contentEl, update, (message) => vscode.postMessage(message)
+      );
     }
     card.tokens =
       estimateTokens(card.inputText) + estimateTokens(card.outputText);
