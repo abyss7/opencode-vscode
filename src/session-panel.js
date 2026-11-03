@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
 const { AcpClient } = require('./acp');
+const { withClientContext } = require('./client-context');
 const { resolveFileTarget } = require('./file-links');
 const { getBalance } = require('./balance');
 const { buildTurnStats, estimatePartTokens } = require('./turn-stats');
@@ -552,6 +553,10 @@ class SessionPanel {
 
     this._startTurn();
 
+    const textBlock = blocks.find((block) => block.type === 'text');
+    if (textBlock) textBlock.text = withClientContext(textBlock.text);
+    else blocks.unshift({ type: 'text', text: withClientContext('') });
+
     let stopReason = null;
     let usage = null;
     let promptError = null;
@@ -613,7 +618,7 @@ class SessionPanel {
     if (!this.sessionId || !text) return;
     this._queuedCount += 1;
     try {
-      await this.deps.api.prompt(this.sessionId, text, { delivery: 'queue' });
+      await this.deps.api.prompt(this.sessionId, withClientContext(text), { delivery: 'queue' });
       if (this._disposed) return;
       this._post({
         type: 'info',

@@ -7,6 +7,7 @@ const hljs = require('highlight.js/lib/common');
 const { katex } = require('@mdit/plugin-katex');
 require('katex/dist/katex.css');
 const visuals = require('./visuals');
+const { visiblePrompt } = require('../client-context');
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false })
   .use(footnote)
@@ -132,4 +133,4 @@ function render(source, options = {}) {
   });
 }
 
-module.exports = { render, highlight, hydrate: visuals.hydrate };
+module.exports = { render, highlight, hydrate: visuals.hydrate, visiblePrompt };

@@ -884,8 +884,9 @@
 
     if (messageId && state.lastUser && state.lastUser.messageId === messageId) {
       state.lastUser.text += text;
-      state.lastUser.body.textContent = state.lastUser.text;
-      state.lastUser.body.hidden = !state.lastUser.text;
+      const visible = OpenCodeRichText.visiblePrompt(state.lastUser.text);
+      state.lastUser.body.textContent = visible;
+      state.lastUser.body.hidden = !visible;
       scrollToBottom();
       return;
     }
@@ -894,8 +895,9 @@
     beginTurn();
 
     const wrap = el('div', 'message user');
-    const body = el('div', 'body', text);
-    body.hidden = !text;
+    const visible = OpenCodeRichText.visiblePrompt(text);
+    const body = el('div', 'body', visible);
+    body.hidden = !visible;
     wrap.appendChild(body);
     if (Array.isArray(images) && images.length > 0) {
       const gallery = el('div', 'user-images');
