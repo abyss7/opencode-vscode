@@ -20,8 +20,9 @@ editor tab as an ACP chat.
 - Session history is restored with `session/load` (text, reasoning, tool calls).
 - Streaming responses, compact Claude-style message and tool blocks with IN/OUT sections.
 - All intermediate output between your question and the final answer is folded under one summary.
-- A live line under that summary shows the current action and its approximate token use.
-- While a shell command runs, a short prefix of the command is shown; otherwise the line falls back to `working …`.
+- A live line under that summary shows the current action, its approximate token use, and how
+  long the turn has been running (for example `working for 1m 37s`).
+- While a shell command runs, a short prefix of the command is shown; otherwise the line falls back to `working`.
 - Model output is buffered and rendered only once the message is complete, so the text never
   flickers from raw chunks into formatted markdown.
 - Paste images from the clipboard directly into the composer; they are sent as ACP image blocks.

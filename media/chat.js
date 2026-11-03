@@ -62,6 +62,9 @@
     imageSupport: false,
     currentAction: null,
     liveToolId: null,
+    liveStartedAt: null,
+    liveKey: null,
+    liveClock: null,
     subagentsRunning: 0,
     autoScroll: true,
     acpCommands: [],
@@ -110,6 +113,9 @@
     state.planEl = null;
     state.currentAction = null;
     state.liveToolId = null;
+    state.liveStartedAt = null;
+    state.liveKey = null;
+    stopLiveClock();
     state.subagentCost = 0;
     state.userMessageCount = 0;
     state.replaySeen = new Set();
@@ -162,6 +168,11 @@
     statusTextEl.textContent = text || STATUS_LABELS[kind] || kind;
     stopBtn.disabled = kind === 'cancelling';
     syncLiveFallback();
+    if (!state.busy) {
+      stopLiveClock();
+      state.liveStartedAt = null;
+      state.liveKey = null;
+    }
     updateComposer();
   }
 
@@ -427,6 +438,10 @@
     closeSlashMenu();
     if (!wasBusy) {
       state.busy = true;
+      if (!state.liveStartedAt) {
+        state.liveStartedAt = Date.now();
+        state.liveKey = 'working';
+      }
       setStatus('busy');
     }
     updateComposer();
@@ -470,6 +485,9 @@
     state.turnId = `turn-${state.turnSeq}`;
     state.turnHadText = false;
     state.turnEnded = false;
+    state.liveStartedAt = null;
+    state.liveKey = null;
+    stopLiveClock();
   }
 
   function ensureTurnSteps() {
@@ -490,9 +508,11 @@
     liveEl.hidden = true;
     const liveKindEl = el('span', 'live-kind');
     const liveTextEl = el('span', 'live-text');
+    const liveTimeEl = el('span', 'live-time');
     const liveTokensEl = el('span', 'tokens');
     liveEl.appendChild(liveKindEl);
     liveEl.appendChild(liveTextEl);
+    liveEl.appendChild(liveTimeEl);
     liveEl.appendChild(liveTokensEl);
     summary.appendChild(liveEl);
     const body = el('div', 'body');
@@ -508,22 +528,63 @@
       liveEl,
       liveKindEl,
       liveTextEl,
+      liveTimeEl,
       liveTokensEl,
     };
     syncLiveFallback();
     return state.turnSteps;
   }
 
-  function setLiveAction(kind, text, tokens) {
+  /**
+   * The live line shows how long the current turn has been working, e.g.
+   * "working for 1m 37s". The clock starts with the first update of a turn and
+   * is refreshed once a second while the line is visible.
+   */
+  function renderLiveElapsed() {
+    const steps = state.turnSteps;
+    if (!steps) {
+      stopLiveClock();
+      return;
+    }
+    steps.liveTimeEl.textContent = state.liveStartedAt
+      ? `for ${formatElapsed(Date.now() - state.liveStartedAt)}`
+      : '';
+  }
+
+  function startLiveClock() {
+    if (state.liveClock) return;
+    state.liveClock = setInterval(renderLiveElapsed, 1000);
+  }
+
+  function stopLiveClock() {
+    if (!state.liveClock) return;
+    clearInterval(state.liveClock);
+    state.liveClock = null;
+  }
+
+  function markLiveStart(key) {
+    const next = key || 'action';
+    // A new action restarts the clock; updates of the same tool keep it.
+    if (!state.liveStartedAt || state.liveKey !== next) {
+      state.liveStartedAt = Date.now();
+      state.liveKey = next;
+    }
+    startLiveClock();
+    renderLiveElapsed();
+  }
+
+  function setLiveAction(kind, text, tokens, key) {
     const steps = state.turnSteps;
     if (!steps) return;
     state.currentAction = { kind, text, tokens };
     steps.liveKindEl.textContent = kind;
     steps.liveTextEl.textContent = text || '';
+    steps.liveTextEl.hidden = !text;
     steps.liveTextEl.title = state.currentAction.text || '';
     steps.liveTokensEl.textContent = tokens ? formatTokens(tokens) : '';
     steps.liveTokensEl.title = 'Estimated from streamed content';
     steps.liveEl.hidden = false;
+    markLiveStart(key);
   }
 
   function syncLiveFallback() {
@@ -532,11 +593,13 @@
     if (state.currentAction) return;
     if (state.busy) {
       steps.liveKindEl.textContent = 'working';
-      steps.liveTextEl.textContent = '…';
+      steps.liveTextEl.textContent = '';
+      steps.liveTextEl.hidden = true;
       steps.liveTextEl.title = '';
       steps.liveTokensEl.textContent = '';
       steps.liveTokensEl.title = '';
       steps.liveEl.hidden = false;
+      markLiveStart('working');
     } else {
       steps.liveEl.hidden = true;
     }
@@ -609,6 +672,9 @@
     syncTurnSteps();
     state.currentAction = null;
     state.liveToolId = null;
+    state.liveStartedAt = null;
+    state.liveKey = null;
+    stopLiveClock();
     steps.liveEl.hidden = true;
     state.turnSteps = null;
   }
@@ -1354,7 +1420,8 @@
           : isRun
             ? prefixLine(toolCommand(update))
             : describeTool(update),
-        card.tokens
+        card.tokens,
+        update.toolCallId
       );
     } else if (state.liveToolId === update.toolCallId) {
       clearLiveAction();
@@ -1956,6 +2023,17 @@
     if (hours > 0) return `${hours}h ${minutes}m`;
     if (minutes > 0) return `${minutes}m`;
     return `${seconds}s`;
+  }
+
+  /** Short elapsed label for the live line, e.g. "12s", "1m 37s", "2h 5m". */
+  function formatElapsed(ms) {
+    const seconds = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const rest = seconds % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${rest}s`;
+    return `${rest}s`;
   }
 
   function estimateTokens(text) {

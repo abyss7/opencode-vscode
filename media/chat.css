@@ -401,6 +401,14 @@ select {
   white-space: nowrap;
 }
 
+.live-time {
+  flex: none;
+  font-family: var(--oc-mono);
+  font-size: 10px;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
 .turn-steps > summary .live .tokens {
   margin-left: auto;
 }
