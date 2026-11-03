@@ -293,7 +293,8 @@ class SessionPanel {
       case 'prompt':
         this._prompt(
           String(message.text || ''),
-          Array.isArray(message.images) ? message.images : []
+          Array.isArray(message.images) ? message.images : [],
+          message.selection || null
         );
         break;
       case 'command':
@@ -537,7 +538,7 @@ class SessionPanel {
     this.deps.onSessionChanged();
   }
 
-  async _prompt(text, images) {
+  async _prompt(text, images, selection) {
     const value = text.trim();
     const blocks = [];
     if (value) blocks.push({ type: 'text', text: value });
@@ -562,15 +563,15 @@ class SessionPanel {
     // ACP has no way to send a second prompt while a turn is running, so route
     // busy-time submissions through the REST endpoint as a queued request.
     if (this._busy) {
-      await this._queuePrompt(value);
+      await this._queuePrompt(value, selection);
       return;
     }
 
     this._startTurn();
 
     const textBlock = blocks.find((block) => block.type === 'text');
-    if (textBlock) textBlock.text = withClientContext(textBlock.text);
-    else blocks.unshift({ type: 'text', text: withClientContext('') });
+    if (textBlock) textBlock.text = withClientContext(textBlock.text, selection);
+    else blocks.unshift({ type: 'text', text: withClientContext('', selection) });
 
     let stopReason = null;
     let usage = null;
@@ -629,11 +630,11 @@ class SessionPanel {
     this._refreshSubagents();
   }
 
-  async _queuePrompt(text) {
+  async _queuePrompt(text, selection) {
     if (!this.sessionId || !text) return;
     this._queuedCount += 1;
     try {
-      await this.deps.api.prompt(this.sessionId, withClientContext(text), { delivery: 'queue' });
+      await this.deps.api.prompt(this.sessionId, withClientContext(text, selection), { delivery: 'queue' });
       if (this._disposed) return;
       this._post({
         type: 'info',

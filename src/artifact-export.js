@@ -3,7 +3,7 @@
 const vscode = require('vscode');
 
 async function exportArtifact(message) {
-  if (typeof message.content !== 'string' || message.content.length > 2000000) return;
+  if (typeof message.content !== 'string' || message.content.length > 16000000) return;
   const name = String(message.name || 'artifact.json').replace(/[^\w.-]/g, '_');
   const uri = await vscode.window.showSaveDialog({ title: `Export ${name}`, saveLabel: 'Export', filters: { JSON: ['json'] } });
   if (uri) await vscode.workspace.fs.writeFile(uri, Buffer.from(message.content, 'utf8'));

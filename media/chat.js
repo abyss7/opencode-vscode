@@ -26,6 +26,7 @@
     root: document.getElementById('artifacts'), toggle: document.getElementById('artifacts-toggle'),
     renderMarkdown, hydrate: (root) => { OpenCodeRichText.hydrate(root); scheduleFileChecks(); }, post: (message) => vscode.postMessage(message),
     preferences: vscode.getState?.()?.artifacts,
+    onAsk: selectContext,
     save: (value) => vscode.setState({ ...vscode.getState?.(), artifacts: value }),
   });
 
@@ -38,6 +39,9 @@
   };
 
   const state = {
+    selection: null,
+    selectionImages: [],
+    artifactSeq: 0,
     connected: false,
     busy: false,
     statusKind: 'connecting',
@@ -106,6 +110,7 @@
   }
 
   function resetTranscript() {
+    state.artifactSeq = 0;
     state.currentAssistant = null;
     state.currentThought = null;
     state.lastUser = null;
@@ -210,7 +215,7 @@
 
   function updateComposer() {
     const canType = state.connected;
-    const hasImages = state.images.length > 0;
+    const hasImages = state.images.length + state.selectionImages.length > 0;
     inputEl.disabled = !canType;
     inputEl.placeholder = !canType
       ? state.statusKind === 'connecting'
@@ -254,6 +259,30 @@
       chip.appendChild(remove);
       attachmentsEl.appendChild(chip);
     }
+  }
+
+  function selectContext(context, images = []) {
+    state.selection = context;
+    state.selectionImages = images;
+    const chip = document.getElementById('selection-context');
+    chip.replaceChildren();
+    chip.hidden = !context;
+    if (context) {
+      chip.appendChild(el('span', '', `${context.artifact.title} · v${context.artifact.version} · ${context.selection.type}`));
+      const clear = el('button', '', 'Remove selection');
+      clear.type = 'button';
+      clear.addEventListener('click', () => selectContext(null));
+      chip.appendChild(clear);
+      chip.title = JSON.stringify(context.selection, null, 2);
+      for (const image of images) {
+        const thumb = el('img');
+        thumb.src = image.dataUrl;
+        thumb.alt = image.name;
+        chip.appendChild(thumb);
+      }
+    }
+    updateComposer();
+    inputEl.focus();
   }
 
   function addImageFiles(files) {
@@ -423,7 +452,8 @@
 
   function sendPrompt() {
     const text = inputEl.value.trim();
-    const images = state.images.slice();
+    const images = [...state.images, ...state.selectionImages];
+    const selection = state.selection;
     const wasBusy = state.busy;
     if ((!text && images.length === 0) || !state.connected) return;
     if (wasBusy && images.length > 0) {
@@ -431,7 +461,7 @@
       return;
     }
     const command =
-      wasBusy || images.length > 0 ? null : knownCommand(text);
+      wasBusy || images.length > 0 || selection ? null : knownCommand(text);
     addUserMessage(text, null, images);
     if (command) {
       state.commandEchoIndex = state.userMessageCount - 1;
@@ -439,6 +469,7 @@
     }
     inputEl.value = '';
     state.images = [];
+    if (selection) selectContext(null);
     renderAttachments();
     resizeInput();
     closeSlashMenu();
@@ -461,6 +492,7 @@
       vscode.postMessage({
         type: 'prompt',
         text,
+        ...(selection ? { selection } : {}),
         images: images.map((image) => ({
           data: image.data,
           mimeType: image.mimeType,
@@ -893,6 +925,7 @@
       const visible = OpenCodeRichText.visiblePrompt(state.lastUser.text);
       state.lastUser.body.textContent = visible;
       state.lastUser.body.hidden = !visible;
+      addUserImages(state.lastUser.wrap, images, messageId);
       scrollToBottom();
       return;
     }
@@ -905,22 +938,27 @@
     const body = el('div', 'body', visible);
     body.hidden = !visible;
     wrap.appendChild(body);
-    if (Array.isArray(images) && images.length > 0) {
-      const gallery = el('div', 'user-images');
-      for (const image of images) {
-        const thumb = document.createElement('img');
-        thumb.src = image.dataUrl;
-        thumb.alt = image.name || 'image';
-        thumb.title = image.name || 'image';
-        thumb.addEventListener('load', () => scrollToBottom());
-        gallery.appendChild(thumb);
-      }
-      wrap.appendChild(gallery);
-    }
+    addUserImages(wrap, images, messageId);
     messagesEl.appendChild(wrap);
     state.userMessageCount += 1;
-    state.lastUser = { messageId: messageId || null, body, text };
+    state.lastUser = { messageId: messageId || null, wrap, body, text };
     scrollToBottom();
+  }
+
+  function addUserImages(wrap, images, messageId) {
+    if (!Array.isArray(images) || !images.length) return;
+    const gallery = el('div', 'user-images');
+    for (const image of images) {
+      const figure = el('figure');
+      const thumb = el('img');
+      thumb.src = image.dataUrl;
+      thumb.alt = image.name || 'image';
+      thumb.addEventListener('load', scrollToBottom);
+      figure.appendChild(thumb);
+      artifacts.offer({ id: `image-${++state.artifactSeq}`, title: image.name || 'Image', kind: 'image', dataUrl: image.dataUrl, origin: { messageId } }, figure);
+      gallery.appendChild(figure);
+    }
+    wrap.appendChild(gallery);
   }
 
   function createAssistant(messageId) {
@@ -970,6 +1008,9 @@
       assistant.body.innerHTML = renderMarkdown(assistant.text);
       OpenCodeRichText.hydrate(assistant.body, scrollToBottom);
       artifacts.ingest(assistant.body);
+      for (const block of assistant.body.querySelectorAll('.diagram')) {
+        artifacts.offer({ id: `diagram-${++state.artifactSeq}`, title: 'Diagram', kind: 'mermaid', content: block.querySelector('.visual-source-panel code').textContent, origin: { messageId: assistant.messageId } }, block);
+      }
       scheduleFileChecks();
       // The answer is printed outside the chevron: close the block that holds
       // the steps before it, so later steps open a new one below the text.
@@ -1379,6 +1420,13 @@
       card.rows.output.row.hidden = !OpenCodeRichText.renderToolResult(
         card.rows.output.contentEl, update, (message) => vscode.postMessage(message)
       );
+      const diffItems = (update.content || []).filter((item) => item?.type === 'diff' && typeof item.newText === 'string');
+      for (const [index, block] of [...card.rows.output.contentEl.querySelectorAll('.tool-diff')].entries()) {
+        artifacts.offer({ ...diffItems[index], id: `diff-${++state.artifactSeq}`, title: diffItems[index].path || 'Diff', kind: 'diff', origin: { toolCallId: update.toolCallId } }, block);
+      }
+      for (const block of card.rows.output.contentEl.querySelectorAll('.tool-image')) {
+        artifacts.offer({ id: `image-${++state.artifactSeq}`, title: 'Tool image', kind: 'image', dataUrl: block.querySelector('img').src, origin: { toolCallId: update.toolCallId } }, block);
+      }
     }
     card.tokens =
       estimateTokens(card.inputText) + estimateTokens(card.outputText);
@@ -2207,6 +2255,8 @@
         if (isSkippedReplayUser(update)) break;
         if (update.content && update.content.type === 'text' && typeof update.content.text === 'string') {
           addUserMessage(update.content.text, update.messageId || null);
+        } else if (update.content?.type === 'image' && typeof update.content.data === 'string' && /^image\/(png|jpeg|gif|webp)$/.test(update.content.mimeType)) {
+          addUserMessage('', update.messageId || null, [{ name: 'Image', dataUrl: `data:${update.content.mimeType};base64,${update.content.data}` }]);
         }
         break;
       case 'agent_message_chunk':

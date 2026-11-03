@@ -1126,6 +1126,25 @@ select {
   .artifact-content { padding: 6px; }
 }
 
+.selection-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; font-size: 12px; }
+.selection-toolbar span { color: var(--oc-secondary); }
+.artifact-chart [data-series], .diagram-preview .node, .diff-lines tr[role="button"] { cursor: pointer; }
+.element-selected { outline: 2px solid var(--vscode-focusBorder, #0078d4); outline-offset: -2px; }
+.artifact-chart .element-selected { filter: drop-shadow(0 0 2px currentColor); }
+.region-controls { display: flex; gap: 5px; flex-wrap: wrap; margin: 6px 0; }
+.region-controls label { display: flex; flex-direction: column; font-size: 11px; }
+.region-controls input { width: 65px; color: inherit; background: var(--vscode-input-background); border: 1px solid var(--oc-border); }
+.region-controls input[type="text"] { width: 100%; padding: 4px; }
+.image-selection-stage { position: relative; display: inline-block; max-width: 100%; touch-action: none; cursor: crosshair; }
+.zoomed .image-selection-stage { max-width: none; }
+.image-region { position: absolute; border: 2px solid #ff3050; background: #ff305018; pointer-events: none; }
+#selection-context { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px; font-size: 12px; border: 1px solid var(--oc-border); border-radius: 4px; }
+#selection-context button { color: var(--vscode-textLink-foreground); background: transparent; border: 0; cursor: pointer; }
+#selection-context img { max-width: 48px; max-height: 32px; }
+.artifact-offer button { color: var(--vscode-textLink-foreground); background: transparent; border: 1px solid var(--oc-border); border-radius: 4px; padding: 4px 7px; cursor: pointer; }
+.artifact-offer { margin: 6px; }
+.user-images figure { margin: 4px 0; }
+
 /* Composer */
 
 .composer {

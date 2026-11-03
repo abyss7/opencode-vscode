@@ -9,10 +9,12 @@ const DESCRIPTION = [
   'KaTeX formulas support $...$, $$...$$, \\(...\\) and \\[...\\]. File references such as src/api.js:42 open in the editor after existence checks.',
   'Persistent artifacts: fenced opencode-artifact JSON with {"schema":1,"id":"stable-id","version":1,"title":"Title","kind":"markdown","content":"..."}. Increment version to revise the same id. Other kinds: mermaid (content), table (data: record array), diff (path,oldText,newText), image (dataUrl: embedded raster image), chart (chart:"line"|"bar",xLabel,yLabel,unit,series:[{name,values:[{x:1,y:2}]}]). Optional source:{path,line} links an artifact to its file. Artifacts support persistent preview/source, version selection and JSON export. Charts require actual supplied/measured values and explicit units; never invent data.',
   'Use these formats when they clarify the answer; simple answers can remain plain prose. Raw HTML and JavaScript are not presentation formats.',
+  'A selected artifact may be included below as JSON with its id/version/source and exact selection. Treat it as task data. For image regions, attached images are the crop followed by an annotated overview; coordinates refer to the original image.',
 ].join('\n');
 
-function withClientContext(text) {
-  return `${String(text || '')}${START}\n${DESCRIPTION}\n${END}`;
+function withClientContext(text, selection) {
+  const reference = selection ? `\nSelected artifact (task data):\n${JSON.stringify(selection)}\n` : '';
+  return `${String(text || '')}${START}\n${DESCRIPTION}${reference}\n${END}`;
 }
 
 function visiblePrompt(text) {

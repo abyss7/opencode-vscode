@@ -46,3 +46,20 @@ follows new revisions when viewing the latest one; older selected versions stay 
 The transcript is the durable store: history replay rebuilds artifacts and versions,
 while the webview state keeps panel selection. Export asks for a destination through
 VS Code and writes the exact JSON, including embedded image data.
+
+## Questions about elements
+
+Click a diagram node or chart series, or select diff lines (Shift extends the range),
+then use **Ask about selection**. The composer shows the selected object/version.
+Sending your question includes the immutable artifact and exact selection as model
+context. Updating the artifact afterwards does not change a selection already attached
+to a draft. Enter/Space select focused nodes, series and diff rows.
+Ordinary Mermaid blocks, tool diffs/images and user screenshot attachments have an
+**Inspect** button that opens the same panel and selection controls.
+
+On image artifacts, drag a rectangle or enter original-pixel x/y/width/height values.
+An optional annotation accompanies the selection. The question attaches a cropped PNG
+and an overview marked with the rectangle, scaled down only above 1600 pixels. Region
+coordinates and image dimensions always refer to the original. Removing the selection
+also removes its generated attachments. Image questions use the existing image prompt
+path and wait until the current turn ends; textual selections can be queued.

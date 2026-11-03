@@ -3,6 +3,7 @@
 const { parseArtifact } = require('../artifact-contract');
 const { chart, colors } = require('./charts');
 const tools = require('./tool-results');
+const selection = require('./selection');
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -17,13 +18,14 @@ function button(label, action) {
   return el;
 }
 
-function create({ root, toggle, renderMarkdown, hydrate, post, save, preferences = {} }) {
-  if (!root) return { ingest() {}, reset() {} };
+function create({ root, toggle, renderMarkdown, hydrate, post, save, onAsk, preferences = {} }) {
+  if (!root) return { ingest() {}, reset() {}, offer() {} };
   const objects = new Map();
   let selected = preferences.id;
   let version = preferences.version;
   let opened = preferences.open === true;
   let sourceMode = false;
+  let interaction;
   const toolbar = node('div', 'artifact-toolbar');
   const picker = node('select');
   picker.setAttribute('aria-label', 'Artifact');
@@ -49,6 +51,7 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, preferences
     persist();
   }
   function draw() {
+    interaction?.dispose();
     picker.replaceChildren(...[...objects].map(([id, revisions]) => {
       const option = node('option', '', [...revisions.values()].at(-1).value.title);
       option.value = id;
@@ -64,6 +67,7 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, preferences
     versions.value = String(version);
     content.replaceChildren();
     links.replaceChildren();
+    if (!opened) { sync(); return; }
     const entry = current();
     if (!entry) { sync(); return; }
     const value = entry.value;
@@ -100,6 +104,7 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, preferences
       const match = value.dataUrl.match(/^data:([^;]+);base64,(.*)$/s);
       tools.render(content, { content: [{ type: 'image', mimeType: match[1], data: match[2], name: value.title }] }, post);
     }
+    if (!sourceMode && onAsk) interaction = selection.attach(content, value, onAsk);
     sync();
   }
   picker.addEventListener('change', () => { selected = picker.value; version = Math.max(...objects.get(selected).keys()); draw(); });
@@ -130,7 +135,17 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, preferences
   }
   return {
     ingest,
-    reset() { objects.clear(); content.replaceChildren(); root.hidden = true; toggle.hidden = true; },
+    offer(value, container) {
+      const reference = node('section', 'artifact-reference artifact-offer');
+      const raw = node('pre', '', JSON.stringify({ schema: 1, version: 1, ...value }));
+      raw.hidden = true;
+      reference.append(raw);
+      container.append(reference);
+      ingest(container);
+      const inspect = reference.querySelector('button');
+      if (inspect) inspect.textContent = `Inspect ${value.title}`;
+    },
+    reset() { interaction?.dispose(); objects.clear(); content.replaceChildren(); root.hidden = true; toggle.hidden = true; },
   };
 }
 

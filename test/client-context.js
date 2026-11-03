@@ -44,5 +44,13 @@ function panel() {
   await instance._prompt('Follow up', []);
   assert.deepEqual(queued, [['ses_test', withClientContext('Follow up'), { delivery: 'queue' }]]);
   assert.equal(sent.length, 2, 'busy input uses the queue, not a second ACP prompt');
+  const selection = { artifact: { id: 'flow', version: 2 }, selection: { type: 'diagram-node', id: 'A', label: 'Queue' } };
+  await instance._prompt('Explain this node', [], selection);
+  assert.equal(queued[1][1], withClientContext('Explain this node', selection));
+  assert.equal(visiblePrompt(queued[1][1]), 'Explain this node');
+  instance._busy = false;
+  await instance._prompt('Explain this area', [{ data: 'crop', mimeType: 'image/png' }], selection);
+  assert.equal(sent[2][0].text, withClientContext('Explain this area', selection));
+  assert.equal(sent[2][1].data, 'crop');
   console.log('CLIENT CONTEXT OK');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

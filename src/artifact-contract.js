@@ -2,8 +2,9 @@
 
 // Versioned, declarative presentation data. No executable HTML or scripts.
 function parseArtifact(source) {
-  if (source.length > 2000000) throw new Error('Artifact exceeds 2 MB');
+  if (source.length > 16000000) throw new Error('Artifact exceeds 16 MB');
   const value = JSON.parse(source);
+  if (source.length > 2000000 && value?.kind !== 'image') throw new Error('Artifact exceeds 2 MB');
   if (!value || value.schema !== 1 || typeof value.id !== 'string' || !/^[\w.-]{1,100}$/.test(value.id) ||
       !Number.isSafeInteger(value.version) || value.version < 1 || typeof value.title !== 'string') {
     throw new Error('Expected schema:1, id, positive version and title');
