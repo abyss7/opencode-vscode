@@ -10,10 +10,12 @@ const { SessionPanel } = require('./session-panel');
 const { OpenCodeSync } = require('./opencode-sync');
 const { refreshSettingEnums } = require('./setting-enums');
 const { resolveCommand } = require('./util');
+const { PermissionService } = require('./permission-service');
+const { SessionsSidebar } = require('./sessions-sidebar');
+const { agentLabel } = require('./agent-label');
 
 const VIEW_ID = 'opencode.sessions';
 const PANEL_VIEW_TYPE = 'opencode.session';
-const DRAG_MIME_TYPE = 'application/vnd.code.tree.opencode.sessions';
 
 function isFolderNode(node) {
   return Boolean(node) && node.kind === 'folder';
@@ -51,6 +53,7 @@ function activate(context) {
   };
 
   const api = new OpenCodeApi({ command: getConfig().command, log });
+  const permissions = new PermissionService({ vscode, api, command: getConfig().command, log });
   const sync = new OpenCodeSync({ vscode, command: getConfig().command, log });
   context.subscriptions.push(sync);
   sync.start().catch((error) => {
@@ -77,29 +80,18 @@ function activate(context) {
   }
 
   const folders = new SessionFolders(context.globalState);
+  function defaultAgent(cwd) {
+    const uri = cwd ? vscode.Uri.file(cwd) : undefined;
+    return vscode.workspace.getConfiguration('opencodeSessions', uri).get('defaultAgent', '') ||
+      vscode.workspace.getConfiguration('opencode', uri).get('default_agent', 'build') || 'build';
+  }
   const provider = new SessionsProvider(api, getCwd, log, folders);
-  const dragAndDropController = {
-    dragMimeTypes: [DRAG_MIME_TYPE],
-    dropMimeTypes: [DRAG_MIME_TYPE],
-    handleDrag(source, dataTransfer) {
-      const sessions = (source || []).filter(isSessionNode);
-      if (sessions.length > 0) dataTransfer.set(DRAG_MIME_TYPE, sessions);
-    },
-    async handleDrop(target, dataTransfer) {
-      if (!isFolderNode(target)) return;
-      const items = dataTransfer.get(DRAG_MIME_TYPE) || [];
-      for (const item of items) {
-        const session = sessionFrom(item);
-        if (session) await moveSessionToFolder(session, target.id);
-      }
-    },
-  };
-  const treeView = vscode.window.createTreeView(VIEW_ID, {
-    treeDataProvider: provider,
-    showCollapseAll: false,
-    dragAndDropController,
-  });
-  context.subscriptions.push(treeView, provider);
+  const sidebar = new SessionsSidebar({ vscode, extensionUri: context.extensionUri,
+    api, provider, getCwd, defaultAgent, setDefaultAgent, log, moveToFolder: moveSessionToFolder,
+    actions: { openSession, newSession, renameSession, deleteSession, archiveSession,
+      restoreSession, moveSessionTo, deleteFolder, showLog: () => output.show(true) } });
+  context.subscriptions.push(provider,
+    vscode.window.registerWebviewViewProvider(VIEW_ID, sidebar, { webviewOptions: { retainContextWhenHidden: true } }));
 
   const panels = new Map();
   const allPanels = new Set();
@@ -107,12 +99,12 @@ function activate(context) {
 
   function updateViewDescription() {
     const cwd = getCwd();
-    treeView.description = cwd ? path.basename(cwd) : undefined;
+    sidebar.description = cwd ? path.basename(cwd) : undefined;
   }
 
   async function refreshSessions() {
     updateViewDescription();
-    await provider.refresh();
+    await sidebar.refresh();
   }
 
   function scheduleRefresh() {
@@ -128,6 +120,8 @@ function activate(context) {
     api,
     log,
     getConfig,
+    permissions,
+    defaultAgent,
     openSession: (sessionId, cwd) => openSession(sessionId, cwd),
     onSessionCreated(panel, sessionId, cwd) {
       log(`Session created: ${sessionId} (${cwd})`);
@@ -202,6 +196,37 @@ function activate(context) {
       return;
     }
     openPanel(null, cwd);
+  }
+
+  async function selectDefaultAgent() {
+    const cwd = getCwd();
+    if (!cwd) return;
+    try {
+      const agents = await api.listAgents(cwd);
+      const selected = await vscode.window.showQuickPick(agents
+        .filter((agent) => !agent.hidden && ['primary', 'all'].includes(agent.mode))
+        .map((agent) => ({ label: agentLabel(agent.id, agent.name), agentID: agent.id, description: agent.description,
+          picked: agent.id === defaultAgent(cwd) })),
+      { title: 'Agent for new sessions', placeHolder: 'Existing sessions keep their agent' });
+      if (!selected) return;
+      await setDefaultAgent(selected.agentID);
+      await refreshSessions();
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to select agent: ${error.message}`);
+    }
+  }
+
+  async function setDefaultAgent(id) {
+    const cwd = getCwd();
+    if (!cwd) throw new Error('Open a workspace folder first.');
+    const agents = await api.listAgents(cwd);
+    if (!agents.some((agent) => agent.id === id && !agent.hidden && ['primary', 'all'].includes(agent.mode))) {
+      throw new Error('This agent is not available for new sessions.');
+    }
+    const uri = vscode.Uri.file(cwd);
+    const target = vscode.workspace.getWorkspaceFolder(uri)
+      ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Global;
+    await vscode.workspace.getConfiguration('opencodeSessions', uri).update('defaultAgent', id, target);
   }
 
   async function deleteSession(sessionOrItem) {
@@ -418,20 +443,28 @@ function activate(context) {
     await openConfigFile(sync.projectConfigFile(folder.uri) || path.join(folder.uri.fsPath, 'opencode.jsonc'));
   }
 
+  const withSidebarContext = (handler) => (item, ...args) => handler(sidebar.resolveContext(item) || item, ...args);
   context.subscriptions.push(
     vscode.commands.registerCommand('opencode.newSession', newSession),
+    vscode.commands.registerCommand('opencode.selectDefaultAgent', selectDefaultAgent),
     vscode.commands.registerCommand('opencode.refreshSessions', refreshSessions),
-    vscode.commands.registerCommand('opencode.openSession', openSession),
-    vscode.commands.registerCommand('opencode.deleteSession', deleteSession),
+    vscode.commands.registerCommand('opencode.openSession', withSidebarContext(openSession)),
+    vscode.commands.registerCommand('opencode.deleteSession', withSidebarContext(deleteSession)),
     vscode.commands.registerCommand('opencode.newFolder', newFolder),
-    vscode.commands.registerCommand('opencode.deleteFolder', deleteFolder),
-    vscode.commands.registerCommand('opencode.renameSession', renameSession),
-    vscode.commands.registerCommand('opencode.archiveSession', archiveSession),
-    vscode.commands.registerCommand('opencode.restoreSession', restoreSession),
-    vscode.commands.registerCommand('opencode.moveSessionTo', moveSessionTo),
+    vscode.commands.registerCommand('opencode.deleteFolder', withSidebarContext(deleteFolder)),
+    vscode.commands.registerCommand('opencode.renameSession', withSidebarContext(renameSession)),
+    vscode.commands.registerCommand('opencode.archiveSession', withSidebarContext(archiveSession)),
+    vscode.commands.registerCommand('opencode.restoreSession', withSidebarContext(restoreSession)),
+    vscode.commands.registerCommand('opencode.moveSessionTo', withSidebarContext(moveSessionTo)),
     vscode.commands.registerCommand('opencode.showLog', () => output.show(true)),
     vscode.commands.registerCommand('opencode.openSettings', openSettings),
     vscode.commands.registerCommand('opencode.openGlobalConfig', openGlobalConfig),
+    vscode.commands.registerCommand('opencode.openPermissionRules', async () => {
+      const cwd = getCwd();
+      if (!cwd) { vscode.window.showWarningMessage('Open a workspace folder first.'); return; }
+      try { await permissions.openRules(cwd); }
+      catch (error) { vscode.window.showErrorMessage(`Cannot open permission rules: ${error.message}`); }
+    }),
     vscode.commands.registerCommand('opencode.openProjectConfig', openProjectConfig)
   );
 
@@ -481,6 +514,8 @@ function activate(context) {
       ) {
         const command = getConfig().command;
         api.setCommand(command);
+        permissions.command = command;
+        permissions.installation = null;
         sync.restart(command).catch((error) => {
           log(`Settings sync restart failed: ${error.stack || error.message}`);
         });
@@ -491,14 +526,11 @@ function activate(context) {
       ) {
         scheduleRefresh();
       }
-    }),
-    treeView.onDidChangeVisibility((event) => {
-      if (event.visible) scheduleRefresh();
     })
   );
 
   updateViewDescription();
-  if (treeView.visible) refreshSessions();
+  if (sidebar.visible) refreshSessions();
 
   // The Settings dropdowns come from `contributes.configuration`, which is read
   // once per extension host, so the model and agent lists are refreshed here and

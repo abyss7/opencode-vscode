@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}}; script-src 'nonce-{{nonce}}';">
+  <title>OpenCode sessions</title>
+  <link rel="stylesheet" href="{{styleUri}}">
+</head>
+<body>
+  <main id="sessions-scroll" aria-label="Sessions">
+    <ul id="sessions-tree" role="tree" aria-label="OpenCode sessions"></ul>
+    <div id="sessions-empty" hidden>No sessions yet. <button id="new-session">New Session</button></div>
+  </main>
+  <footer class="defaults-footer">
+  <section class="defaults-card" aria-label="New session defaults">
+    <label for="default-agent">Agent for new sessions</label>
+    <select id="default-agent" disabled><option>Loading…</option></select>
+    <p class="hint">Existing sessions keep their agent.</p>
+    <p id="defaults-error" role="status" hidden></p>
+  </section>
+  </footer>
+  <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
+</body>
+</html>

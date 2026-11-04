@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
 const { AcpClient } = require('./acp');
+const { normalizeAgentOptions } = require('./agent-label');
 const { DiffDocuments } = require('./diff-documents');
 const { exportArtifact } = require('./artifact-export');
 const { withClientContext } = require('./client-context');
@@ -135,6 +136,10 @@ class SessionPanel {
     this.deps = options.deps;
     this.sessionId = options.sessionId || null;
     this.cwd = options.cwd;
+    this._initialAgent = !this.sessionId && this.deps.defaultAgent
+      ? this.deps.defaultAgent(this.cwd) : null;
+    this._permissionState = null;
+    this._permissionUpdating = false;
 
     this._client = null;
     this._started = false;
@@ -275,6 +280,9 @@ class SessionPanel {
 
   _post(message) {
     if (this._disposed) return;
+    if (message.type === 'config' && Array.isArray(message.configOptions)) {
+      message = { ...message, configOptions: normalizeAgentOptions(message.configOptions) };
+    }
     this.panel.webview.postMessage(message).then(undefined, (error) => {
       this.deps.log(`Webview postMessage failed: ${error.message}`);
     });
@@ -312,6 +320,12 @@ class SessionPanel {
       case 'permissionResponse':
         this._answerPermission(message.requestId, message.optionId || null);
         break;
+      case 'savePermissionRule':
+        this._rememberPermission(message);
+        break;
+      case 'openPermissionRules':
+        this._openPermissionRules();
+        break;
       case 'elicitationResponse':
         this._answerElicitation(
           message.requestId,
@@ -323,6 +337,9 @@ class SessionPanel {
         break;
       case 'setConfigOption':
         this._setConfigOption(String(message.configId || ''), String(message.value || ''));
+        break;
+      case 'setPermissionProfile':
+        this._changePermissions(message);
         break;
       case 'openExternal':
         this._openExternal(String(message.url || ''));
@@ -380,6 +397,7 @@ class SessionPanel {
     client.on('exit', (info) => this._onExit(info));
 
     try {
+      if (this.deps.permissions) await this.deps.permissions.ready(this.cwd);
       await client.start();
       if (this._disposed) return;
       this._post({
@@ -403,6 +421,14 @@ class SessionPanel {
       } else {
         const result = await client.newSession();
         this.sessionId = result.sessionId;
+        if (this._initialAgent) {
+          const mode = client.configOptions.find((option) =>
+            option.id === 'mode' || option.id === 'agent' || option.category === 'mode');
+          if (!mode) throw new Error('The server does not expose agent selection for new sessions');
+          if (mode.currentValue !== this._initialAgent) {
+            await client.setConfigOption(mode.id, this._initialAgent);
+          }
+        }
         if (this._disposed) {
           this.deps.onSessionCreated(this, result.sessionId, this.cwd);
           return;
@@ -417,6 +443,7 @@ class SessionPanel {
         this.deps.onSessionCreated(this, this.sessionId, this.cwd);
       }
 
+      if (this.deps.permissions) await this._refreshPermissionProfile();
       this._post({ type: 'config', configOptions: client.configOptions || [] });
       this._syncModelOptions(client.configOptions || []);
       this._post({ type: 'historyEnd' });
@@ -464,14 +491,14 @@ class SessionPanel {
     this._post({ type: 'update', update: params.update || {} });
   }
 
-  _onPermission(request) {
+  async _onPermission(request) {
     if (this._disposed) {
       request.respond(null);
       return;
     }
 
     const config = this.deps.getConfig();
-    if (config.autoApprovePermissions === 'allowAll') {
+    if (!this.deps.permissions && config.autoApprovePermissions === 'allowAll') {
       const option =
         request.options.find((item) => String(item.kind || '').startsWith('allow')) ||
         request.options.find((item) => /allow|approve/i.test(String(item.name || '')));
@@ -488,19 +515,73 @@ class SessionPanel {
     }
 
     this._permissions.set(request.requestId, request);
+    if (this.deps.permissions) {
+      try {
+        request.policy = await this.deps.permissions.describe(this.sessionId, this.cwd, request.toolCall?.toolCallId);
+      } catch (error) {
+        request.policy = { reason: `Rule details unavailable: ${error.message}`, choices: [] };
+      }
+    }
+    if (this._disposed || !this._permissions.has(request.requestId)) return;
     this._post({
       type: 'permission',
       requestId: request.requestId,
       toolCall: request.toolCall,
-      options: request.options,
+      policy: request.policy,
+      // Project-wide Always would escape the session/profile boundary.
+      options: this.deps.permissions
+        ? request.options.filter((option) => !String(option.kind).endsWith('_always'))
+        : request.options,
     });
   }
 
   _answerPermission(requestId, optionId) {
     const request = this._permissions.get(requestId);
-    if (!request) return;
+    if (!request || request.saving) return;
+    if (optionId !== null && !request.options.some((option) => option.optionId === optionId)) return;
+    if (this.deps.permissions && request.options.some((option) =>
+      option.optionId === optionId && String(option.kind).endsWith('_always'))) return;
     this._permissions.delete(requestId);
     request.respond(optionId);
+  }
+
+  async _rememberPermission(message) {
+    const request = this._permissions.get(message.requestId);
+    if (!request || request.saving || !this.deps.permissions) return;
+    request.saving = true;
+    try {
+      if (!request.policy?.revision || !['allow', 'deny'].includes(message.effect)) throw new Error('Rule details unavailable');
+      const kind = message.effect === 'allow' ? 'allow_once' : 'reject_once';
+      const option = request.options.find((item) => item.kind === kind);
+      if (!option) throw new Error('This request does not support that decision');
+      // Refresh settings too; the plugin rejects an outdated description rather than
+      // authorizing a request under a different profile or newly edited project rules.
+      await this._refreshPermissionProfile();
+      await this.deps.permissions.remember(this.sessionId, this.cwd, request.toolCall?.toolCallId,
+        request.policy, message.choiceId, message.effect);
+      if (this._disposed || !this._permissions.has(message.requestId)) return;
+      request.saving = false;
+      this._answerPermission(message.requestId, option.optionId);
+      this._post({ type: 'permissionRuleResult', requestId: message.requestId,
+        note: `${message.effect === 'allow' ? 'Allow' : 'Forbid'} saved for this project · ${request.policy.profileLabel}` });
+    } catch (error) {
+      try {
+        request.policy = await this.deps.permissions.describe(this.sessionId, this.cwd, request.toolCall?.toolCallId);
+      } catch {
+        request.policy = { reason: 'This request is no longer available for saving.', choices: [] };
+      }
+      if (!this._disposed && this._permissions.has(message.requestId)) this._post({
+        type: 'permissionRuleResult', requestId: message.requestId, error: error.message, policy: request.policy,
+      });
+    } finally {
+      request.saving = false;
+    }
+  }
+
+  async _openPermissionRules() {
+    if (!this.deps.permissions) return;
+    try { await this.deps.permissions.openRules(this.cwd); }
+    catch (error) { this._post({ type: 'error', message: error.message }); }
   }
 
   _onElicitation(request) {
@@ -559,6 +640,7 @@ class SessionPanel {
     if (blocks.length === 0 || !this._client || !this.sessionId) {
       return;
     }
+    if (this.deps.permissions && !(await this._permissionsBeforePrompt())) return;
 
     // ACP has no way to send a second prompt while a turn is running, so route
     // busy-time submissions through the REST endpoint as a queued request.
@@ -628,6 +710,7 @@ class SessionPanel {
     this._refreshBalance();
     this._refreshLastTurnStats();
     this._refreshSubagents();
+    this._refreshSmartReviews();
   }
 
   async _queuePrompt(text, selection) {
@@ -701,6 +784,7 @@ class SessionPanel {
   async _runCommand(name, text) {
     const command = name.replace(/^\/+/, '').trim();
     if (!command || !this.sessionId || !this._client || this._busy) return;
+    if (this.deps.permissions && !(await this._permissionsBeforePrompt())) return;
 
     this._startTurn();
 
@@ -800,6 +884,12 @@ class SessionPanel {
 
   async _setConfigOption(configId, value) {
     if (!this._client || !configId || !value) return;
+    const option = (this._client.configOptions || []).find((item) => item.id === configId);
+    if (configId === 'mode' || configId === 'agent' || option?.category === 'mode') {
+      this._post({ type: 'error', message: 'The agent is fixed when the session is created.' });
+      this._post({ type: 'config', configOptions: this._client.configOptions || [] });
+      return;
+    }
     try {
       const options = await this._client.setConfigOption(configId, value);
       if (this._disposed) return;
@@ -813,6 +903,52 @@ class SessionPanel {
         type: 'config',
         configOptions: this._client.configOptions || [],
       });
+    }
+  }
+
+  async _refreshPermissionProfile(change = {}) {
+    const mode = (this._client.configOptions || []).find((item) =>
+      item.id === 'mode' || item.id === 'agent' || item.category === 'mode');
+    const state = await this.deps.permissions.configure(this.sessionId, this.cwd,
+      mode?.currentValue || 'build', change);
+    this._permissionState = state;
+    this._post({ type: 'permissionProfile', ...state });
+  }
+
+  async _permissionsBeforePrompt() {
+    if (this._permissionUpdating) {
+      this._post({ type: 'error', message: 'Permissions are being updated. Please send again when the selectors are ready.' });
+      this._post({ type: 'turnEnd', stopReason: 'error' });
+      return false;
+    }
+    if (this._busy) return Boolean(this._permissionState);
+    this._permissionUpdating = true;
+    try {
+      await this._refreshPermissionProfile();
+      return true;
+    } catch (error) {
+      this._post({ type: 'error', message: `Permissions not applied: ${error.message}` });
+      this._post({ type: 'turnEnd', stopReason: 'error' });
+      return false;
+    } finally {
+      this._permissionUpdating = false;
+    }
+  }
+
+  async _changePermissions(message) {
+    if (!this.deps.permissions || !this.sessionId || this._permissionUpdating) return;
+    this._permissionUpdating = true;
+    try {
+      if (this._busy || this._permissions.size) throw new Error('Change permissions between turns.');
+      const change = {};
+      if (typeof message.profile === 'string') change.selected = message.profile;
+      if (typeof message.newActions === 'string') change.newActions = message.newActions;
+      await this._refreshPermissionProfile(change);
+    } catch (error) {
+      this._post({ type: 'error', message: error.message });
+      if (this._permissionState) this._post({ type: 'permissionProfile', ...this._permissionState });
+    } finally {
+      this._permissionUpdating = false;
     }
   }
 
@@ -1284,8 +1420,28 @@ class SessionPanel {
   _startSubagentsPolling() {
     if (this._subagentsTimer || this._disposed) return;
     this._refreshSubagents();
-    this._subagentsTimer = setInterval(() => this._refreshSubagents(), 3000);
+    this._refreshSmartReviews();
+    this._subagentsTimer = setInterval(() => {
+      this._refreshSubagents();
+      this._refreshSmartReviews();
+    }, 3000);
     if (this._subagentsTimer.unref) this._subagentsTimer.unref();
+  }
+
+  async _refreshSmartReviews() {
+    if (this._disposed || !this.sessionId || !this.deps.permissions ||
+        !this._permissionState || this._smartReviewsRefreshing) return;
+    this._smartReviewsRefreshing = true;
+    try {
+      const result = await this.deps.api.permissionProfiles('reviews', { sessionID: this.sessionId }, this.cwd);
+      if (!this._disposed) this._post({ type: 'smartReviews', reviews: result.reviews || [] });
+      this._smartReviewErrorLogged = false;
+    } catch (error) {
+      if (!this._smartReviewErrorLogged) this.deps.log(`Smart review status unavailable: ${error.message}`);
+      this._smartReviewErrorLogged = true;
+    } finally {
+      this._smartReviewsRefreshing = false;
+    }
   }
 
   async _refreshSubagents() {

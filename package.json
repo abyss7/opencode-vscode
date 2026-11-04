@@ -40,7 +40,7 @@
         {
           "id": "opencode.sessions",
           "name": "Sessions",
-          "type": "tree"
+          "type": "webview"
         }
       ]
     },
@@ -51,6 +51,11 @@
       }
     ],
     "commands": [
+      {
+        "command": "opencode.selectDefaultAgent",
+        "title": "Select Agent for New Sessions",
+        "category": "OpenCode"
+      },
       {
         "command": "opencode.newSession",
         "title": "New Session",
@@ -122,6 +127,11 @@
         "category": "OpenCode"
       },
       {
+        "command": "opencode.openPermissionRules",
+        "title": "Open Permission Rules (JSON)",
+        "category": "OpenCode"
+      },
+      {
         "command": "opencode.openProjectConfig",
         "title": "Open Project Config (JSON)",
         "category": "OpenCode"
@@ -174,6 +184,43 @@
           "command": "opencode.refreshSessions",
           "when": "view == opencode.sessions",
           "group": "navigation@3"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "opencode.openSession",
+          "when": "webviewId == opencode.sessions && sidebarKind == session",
+          "group": "navigation@1"
+        },
+        {
+          "command": "opencode.renameSession",
+          "when": "webviewId == opencode.sessions && sidebarKind == session && !sidebarSubagent",
+          "group": "1_manage@1"
+        },
+        {
+          "command": "opencode.moveSessionTo",
+          "when": "webviewId == opencode.sessions && sidebarKind == session && !sidebarSubagent",
+          "group": "1_manage@2"
+        },
+        {
+          "command": "opencode.archiveSession",
+          "when": "webviewId == opencode.sessions && sidebarKind == session && !sidebarSubagent && !sidebarArchived",
+          "group": "1_manage@3"
+        },
+        {
+          "command": "opencode.restoreSession",
+          "when": "webviewId == opencode.sessions && sidebarKind == session && sidebarArchived",
+          "group": "1_manage@3"
+        },
+        {
+          "command": "opencode.deleteSession",
+          "when": "webviewId == opencode.sessions && sidebarKind == session",
+          "group": "2_delete@1"
+        },
+        {
+          "command": "opencode.deleteFolder",
+          "when": "webviewId == opencode.sessions && sidebarKind == folder && sidebarCustom",
+          "group": "2_delete@1"
         }
       ],
       "view/item/context": [
@@ -504,12 +551,94 @@
             "type": "object"
           }
         },
+        "opencodeSessions.defaultAgent": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Agent for newly created VS Code sessions. Empty uses opencode.default_agent. Existing sessions keep their agent."
+        },
+        "opencodeSessions.defaultPermissionProfile": {
+          "type": "string",
+          "default": "workspace",
+          "scope": "resource",
+          "description": "Permission profile for a new session unless its agent has a profile assignment. Built-ins: read-only, workspace, host, all. Host currently behaves like All."
+        },
+        "opencodeSessions.smartTimeoutSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 120,
+          "scope": "resource",
+          "description": "Maximum duration of permission-classifier review for Smart new actions. Timeout blocks the operation."
+        },
+        "opencodeSessions.agentPermissionProfiles": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "additionalProperties": { "type": "string" },
+          "description": "Agent ID to default permission profile ID. Used only when initializing a session."
+        },
+        "opencodeSessions.permissionProfiles": {
+          "type": "object",
+          "default": {},
+          "scope": "application",
+          "additionalProperties": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "label": { "type": "string" },
+              "newActions": { "type": "string", "enum": ["forbid", "ask", "smart", "permit"] },
+              "rules": { "type": "array", "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["action", "resource", "effect"],
+                "properties": { "action": { "type": "string", "minLength": 1 }, "resource": { "type": "string", "minLength": 1 }, "effect": { "type": "string", "enum": ["allow", "ask", "deny"] }, "match": { "type": "string", "enum": ["glob", "exact"], "default": "glob" } }
+              } }
+            }
+          },
+          "markdownDescription": "User permission layers. Built-ins: `read-only`, `workspace`, `host`, `all`. Each profile has `rules: [{action, resource, effect, match?}]` and optional `newActions: forbid | ask | smart | permit`. `match` defaults to `glob`; `exact` treats resource wildcards literally. Project remembered decisions can answer asks but cannot override explicit denies. See docs/permission-profiles.md."
+        },
+        "opencodeSessions.hostPermissionProfiles": {
+          "type": "object",
+          "default": {},
+          "scope": "machine",
+          "additionalProperties": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "label": { "type": "string" },
+              "newActions": { "type": "string", "enum": ["forbid", "ask", "smart", "permit"] },
+              "rules": { "type": "array", "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["action", "resource", "effect"],
+                "properties": { "action": { "type": "string", "minLength": 1 }, "resource": { "type": "string", "minLength": 1 }, "effect": { "type": "string", "enum": ["allow", "ask", "deny"] }, "match": { "type": "string", "enum": ["glob", "exact"], "default": "glob" } }
+              } }
+            }
+          },
+          "markdownDescription": "Host permission layer (Remote settings in a remote window). Combined with User restrictions, never replaced by workspace rules."
+        },
+        "opencodeSessions.workspacePermissionProfiles": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "additionalProperties": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "label": { "type": "string" },
+              "newActions": { "type": "string", "enum": ["forbid", "ask", "smart", "permit"] },
+              "rules": { "type": "array", "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["action", "resource", "effect"],
+                "properties": { "action": { "type": "string", "minLength": 1 }, "resource": { "type": "string", "minLength": 1 }, "effect": { "type": "string", "enum": ["allow", "ask", "deny"] }, "match": { "type": "string", "enum": ["glob", "exact"], "default": "glob" } }
+              } }
+            }
+          },
+          "markdownDescription": "Additional Workspace / Folder restrictions. Only these explicit scopes are read. Use User or Host keys for earlier layers. Resource paths are relative to the session directory; `${workspace}/*` means inside it."
+        },
         "opencodeSessions.command": {
           "type": "string",
           "default": "opencode",
           "description": "Command used to launch OpenCode (for `acp` and `service status`)."
         },
         "opencodeSessions.autoApprovePermissions": {
+          "deprecationMessage": "Managed sessions use Permissions / New actions instead. This legacy option is ignored for them.",
           "type": "string",
           "enum": [
             "ask",
@@ -525,6 +654,10 @@
       }
     },
     "jsonValidation": [
+      {
+        "fileMatch": "**/.opencode/permission-rules.json",
+        "url": "./src/schema/permission-rules.schema.json"
+      },
       {
         "fileMatch": "**/opencode.json",
         "url": "./src/schema/config.schema.json"

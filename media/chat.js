@@ -145,6 +145,7 @@
   }
 
   function resetTranscript() {
+    state.smartReviews = new Map();
     if (state.currentAssistant?.streamTimer) clearTimeout(state.currentAssistant.streamTimer);
     if (planProgress) planProgress.hidden = true;
     state.artifactSeq = 0;
@@ -1604,6 +1605,142 @@
     scrollToBottom();
   }
 
+  function renderPermissionDetails(card, toolCall) {
+    const update = toolCall || {};
+    const input = toolInputObject(update);
+    const content = Array.isArray(update.content) ? update.content : [];
+    const diffs = content.filter((item) => item?.type === 'diff' && typeof item.newText === 'string');
+    const operation = { read: 'Read files', edit: 'Edit files', delete: 'Delete files',
+      move: 'Move files', search: 'Search', execute: 'Run command', fetch: 'Fetch URL' }[update.kind];
+    if (operation || update.name) {
+      card.appendChild(el('div', 'permission-operation', [operation, update.name].filter(Boolean).join(' · ')));
+    }
+
+    const files = new Map();
+    for (const location of Array.isArray(update.locations) ? update.locations : []) {
+      if (typeof location?.path === 'string') files.set(location.path, { line: location.line });
+    }
+    for (const diff of diffs) {
+      if (typeof diff.path !== 'string') continue;
+      files.set(diff.path, { ...files.get(diff.path), action: diff.oldText === null ? 'Create' :
+        diff.newText === '' ? 'Remove contents' : 'Change' });
+    }
+    const inputPath = input?.filePath || input?.path;
+    if (!files.size && typeof inputPath === 'string') files.set(inputPath, {});
+    if (files.size) {
+      const list = el('ul', 'permission-files');
+      for (const [path, info] of files) {
+        const item = el('li');
+        if (info.action) item.appendChild(el('span', 'permission-file-action', info.action + ' · '));
+        const line = Number(info.line) || null;
+        const link = el('span', 'file-ref', line ? `${path}:${line}` : path);
+        link.dataset.file = path;
+        if (line) link.dataset.line = String(line);
+        item.appendChild(link);
+        list.appendChild(item);
+      }
+      card.appendChild(list);
+    }
+
+    if (typeof input?.command === 'string') {
+      card.appendChild(el('pre', 'permission-command', input.command));
+      const cwd = input.workdir || input.cwd;
+      if (typeof cwd === 'string') card.appendChild(el('div', 'permission-directory', 'Working directory: ' + cwd));
+    }
+    if (content.length) {
+      const preview = el('div', 'permission-preview');
+      OpenCodeRichText.renderToolResult(preview, { content }, (message) => vscode.postMessage(message));
+      card.appendChild(preview);
+    }
+    if (!diffs.length && (['edit', 'delete', 'move'].includes(update.kind) || !content.length && !input)) {
+      card.appendChild(el('div', 'permission-note', 'No change preview was provided by OpenCode.'));
+    }
+    const raw = toolInputText(update);
+    if (raw) {
+      const details = el('details', 'permission-input');
+      details.open = !content.length && typeof input?.command !== 'string';
+      details.appendChild(el('summary', '', 'Operation arguments'));
+      details.appendChild(el('pre', '', raw));
+      card.appendChild(details);
+    }
+  }
+
+  function permissionBusy(card, busy) {
+    card.dataset.busy = busy ? '1' : '0';
+    for (const control of card.querySelectorAll('.permission-actions button, .permission-remember button, .permission-remember select')) {
+      control.disabled = busy;
+    }
+  }
+
+  function renderRememberRule(card, message) {
+    let holder = card.querySelector('.permission-remember');
+    if (!holder) { holder = el('div', 'permission-remember'); card.appendChild(holder); }
+    holder.replaceChildren();
+    const policy = message.policy;
+    if (!policy) return;
+    if (!policy.choices?.length) {
+      holder.appendChild(el('div', 'permission-note', 'No precise saved rule is available for this request.'));
+      return;
+    }
+    const details = el('details');
+    details.appendChild(el('summary', '', 'Save rule…'));
+    details.appendChild(el('div', 'permission-note', `All sessions in this project · ${policy.profileLabel}`));
+    const choice = document.createElement('select');
+    choice.setAttribute('aria-label', 'Rule target');
+    for (const item of policy.choices) {
+      const option = el('option', '', item.label);
+      option.value = item.id;
+      choice.appendChild(option);
+    }
+    const effect = document.createElement('select');
+    effect.setAttribute('aria-label', 'Rule decision');
+    for (const [value, label] of [['allow', 'Allow'], ['deny', 'Forbid']]) {
+      const option = el('option', '', label);
+      option.value = value;
+      effect.appendChild(option);
+    }
+    const preview = el('pre', 'permission-rule-preview');
+    const update = () => {
+      const selected = policy.choices.find((item) => item.id === choice.value);
+      preview.textContent = (selected?.rules || []).map((rule) =>
+        `${effect.value === 'allow' ? 'Allow' : 'Forbid'} ${rule.action} · ${rule.resource} (${rule.match || 'glob'})`).join('\n');
+    };
+    choice.addEventListener('change', update);
+    effect.addEventListener('change', update);
+    update();
+    const save = el('button', '', 'Save and apply');
+    save.addEventListener('click', () => {
+      if (card.dataset.resolved === '1' || card.dataset.busy === '1') return;
+      card.querySelector('.permission-save-status')?.remove();
+      permissionBusy(card, true);
+      vscode.postMessage({ type: 'savePermissionRule', requestId: message.requestId,
+        choiceId: choice.value, effect: effect.value });
+    });
+    details.append(effect, choice, preview, save);
+    holder.appendChild(details);
+  }
+
+  function permissionRuleResult(message) {
+    const card = [...messagesEl.querySelectorAll('.permission[data-request-id]')]
+      .find((item) => item.dataset.requestId === String(message.requestId));
+    if (!card || card.dataset.resolved === '1') return;
+    card.querySelector('.permission-save-status')?.remove();
+    if (message.error) {
+      if (message.policy) {
+        renderRememberRule(card, message);
+        const reason = card.querySelector('.permission-reason');
+        if (reason) reason.textContent = message.policy.reason;
+      }
+      permissionBusy(card, false);
+    } else {
+      card.dataset.resolved = '1';
+      permissionBusy(card, true);
+    }
+    const status = el('div', 'permission-note permission-save-status', message.error || message.note);
+    status.setAttribute('role', message.error ? 'alert' : 'status');
+    card.appendChild(status);
+  }
+
   function addPermission(message) {
     hideEmpty();
     finalizeAssistant();
@@ -1612,8 +1749,11 @@
     finalizeTurnSteps();
 
     const card = el('div', 'permission');
+    card.dataset.requestId = String(message.requestId);
     card.appendChild(el('div', 'permission-title', 'Permission required'));
+    if (message.policy?.reason) card.appendChild(el('div', 'permission-reason', message.policy.reason));
     card.appendChild(el('div', 'permission-tool', toolTitle(message.toolCall)));
+    renderPermissionDetails(card, message.toolCall);
     const actions = el('div', 'permission-actions');
     const options = Array.isArray(message.options) ? message.options : [];
 
@@ -1621,9 +1761,9 @@
       const allow = /^(allow|approve)/i.test(String(option.kind || '')) || /allow|approve/i.test(String(option.name || ''));
       const button = el('button', allow ? 'allow' : 'reject', option.name || option.optionId);
       button.addEventListener('click', () => {
-        if (card.dataset.resolved === '1') return;
+        if (card.dataset.resolved === '1' || card.dataset.busy === '1') return;
         card.dataset.resolved = '1';
-        for (const item of actions.querySelectorAll('button')) item.disabled = true;
+        permissionBusy(card, true);
         const note = el('div', 'permission-note', 'Selected: ' + (option.name || option.optionId));
         card.appendChild(note);
         vscode.postMessage({
@@ -1638,9 +1778,9 @@
     if (options.length === 0) {
       const button = el('button', 'reject', 'Cancel');
       button.addEventListener('click', () => {
-        if (card.dataset.resolved === '1') return;
+        if (card.dataset.resolved === '1' || card.dataset.busy === '1') return;
         card.dataset.resolved = '1';
-        for (const item of actions.querySelectorAll('button')) item.disabled = true;
+        permissionBusy(card, true);
         card.appendChild(el('div', 'permission-note', 'Cancelled'));
         vscode.postMessage({
           type: 'permissionResponse',
@@ -1652,7 +1792,30 @@
     }
 
     card.appendChild(actions);
+    renderRememberRule(card, message);
     messagesEl.appendChild(card);
+    scheduleFileChecks();
+    scrollToBottom();
+  }
+
+  function addSmartReview(review) {
+    if (!review || !review.id) return;
+    if (!state.smartReviews) state.smartReviews = new Map();
+    const previous = state.smartReviews.get(review.id);
+    const signature = JSON.stringify(review);
+    if (previous?.signature === signature) return;
+    hideEmpty();
+    const card = previous?.card || el('div', 'permission smart-review');
+    card.setAttribute('role', 'status');
+    card.dataset.status = review.status;
+    card.replaceChildren();
+    const status = { reviewing: 'Reviewing', allow: 'Allowed', deny: 'Blocked' }[review.status] || 'Blocked';
+    card.appendChild(el('div', 'permission-title', `Smart · ${status} · permission-classifier`));
+    card.appendChild(el('div', 'permission-tool', `${review.action}: ${review.resource}`));
+    if (review.reason) card.appendChild(el('div', 'permission-note', review.reason));
+    if (review.model) card.title = `Reviewer model: ${review.model}`;
+    if (!previous) messagesEl.appendChild(card);
+    state.smartReviews.set(review.id, { card, signature });
     scrollToBottom();
   }
 
@@ -2219,38 +2382,69 @@
     return String(number);
   }
 
-  function isReadOnlyMode(option) {
-    return Boolean(option) && (option.id === 'mode' || option.category === 'mode');
+  function isAgentOption(option) {
+    return Boolean(option) && (option.id === 'mode' || option.id === 'agent' || option.category === 'mode');
   }
 
-  function appendReadOnlyToggle(option) {
-    const label = el('label', 'config');
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = option.currentValue === 'plan';
-    checkbox.title =
-      option.description ||
-      'Read Only: Plan agent when checked, Build agent otherwise';
-    checkbox.addEventListener('change', () => {
-      checkbox.disabled = true;
-      vscode.postMessage({
-        type: 'setConfigOption',
-        configId: option.id,
-        value: checkbox.checked ? 'plan' : 'build',
+  function appendPermissionProfiles() {
+    const current = state.permissionProfile;
+    if (!current) return;
+    const makeSelect = (caption, choices, value, field, disabled) => {
+      const label = el('label', 'config');
+      label.appendChild(el('span', null, caption));
+      const select = document.createElement('select');
+      select.setAttribute('aria-label', caption);
+      for (const item of choices) {
+        const option = document.createElement('option');
+        option.value = item.id;
+        option.textContent = item.label;
+        option.selected = item.id === value;
+        select.appendChild(option);
+      }
+      select.disabled = disabled || current.inherited;
+      select.addEventListener('change', () => {
+        for (const control of configBarEl.querySelectorAll('.permission-control')) control.disabled = true;
+        vscode.postMessage({ type: 'setPermissionProfile', [field]: select.value });
       });
-    });
-    label.appendChild(checkbox);
-    label.appendChild(el('span', null, 'Read Only'));
+      select.className = 'permission-control';
+      label.appendChild(select);
+      configBarEl.appendChild(label);
+      return select;
+    };
+    const profile = makeSelect('Profile', current.profiles, current.selected, 'profile', false);
+    profile.title = `Layers: ${(current.layers || []).join(' → ')}. Explicit denies remain in force.` +
+      (current.selected === 'host' ? ' Host currently has the same access as All; it does not isolate the network.' : '');
+    const fallback = makeSelect('Without a rule', [
+      { id: 'forbid', label: 'Forbid' }, { id: 'ask', label: 'Ask' },
+      { id: 'smart', label: 'Smart' }, { id: 'permit', label: 'Permit' },
+    ], current.newActions, 'newActions', current.fallbackLocked);
+    fallback.title = current.fallbackLocked
+      ? 'This profile already has a rule for every action.'
+      : 'Only actions not matched by any profile rule. Saved for this session and profile.';
+    const rules = el('button', 'permission-rules-link', 'Rules…');
+    rules.title = current.rulesFile || 'Open project permission rules';
+    rules.setAttribute('aria-label', 'Open permission rules');
+    rules.addEventListener('click', () => vscode.postMessage({ type: 'openPermissionRules' }));
+    configBarEl.appendChild(rules);
+    if (current.inherited) configBarEl.appendChild(el('span', 'config', 'Inherited from parent'));
+  }
+
+  function appendFixedAgent(option) {
+    const label = el('span', 'config');
+    label.title = 'Agent fixed at session creation. Choose the agent for new sessions in the sidebar.';
+    const selected = (option.options || []).find((item) => item.value === option.currentValue);
+    label.appendChild(el('span', null, `Agent: ${selected?.name || option.currentValue || '—'}`));
     configBarEl.appendChild(label);
   }
 
   function setConfigOptions(options) {
+    state.configOptions = options;
     configBarEl.replaceChildren();
     const list = Array.isArray(options) ? options : [];
     for (const option of list) {
       if (!option) continue;
-      if (isReadOnlyMode(option)) {
-        appendReadOnlyToggle(option);
+      if (isAgentOption(option)) {
+        appendFixedAgent(option);
         continue;
       }
       if (option.type !== 'select' || !Array.isArray(option.options)) continue;
@@ -2277,6 +2471,7 @@
       label.appendChild(select);
       configBarEl.appendChild(label);
     }
+    appendPermissionProfiles();
     configBarEl.hidden = configBarEl.children.length === 0;
   }
 
@@ -2396,6 +2591,16 @@
       case 'balance':
         state.balance = message.balance || null;
         updateUsageBar();
+        break;
+      case 'smartReviews':
+        for (const review of message.reviews || []) addSmartReview(review);
+        break;
+      case 'permissionProfile':
+        state.permissionProfile = message;
+        setConfigOptions(state.configOptions || []);
+        break;
+      case 'permissionRuleResult':
+        permissionRuleResult(message);
         break;
       case 'modelLimit':
         state.modelLimit = {

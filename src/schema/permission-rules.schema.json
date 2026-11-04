@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Project permission rules",
+  "description": "Remembered decisions shared by all managed sessions in this project, per profile. Explicit profile denies still apply.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "profiles"],
+  "properties": {
+    "version": { "const": 1 },
+    "profiles": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-zA-Z0-9][\\w.-]{0,79}$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["action", "resource", "effect"],
+              "properties": {
+                "action": { "type": "string", "minLength": 1 },
+                "resource": { "type": "string", "minLength": 1, "description": "A resource or pattern. File paths may use ${workspace}." },
+                "effect": { "type": "string", "enum": ["allow", "ask", "deny"] },
+                "match": { "type": "string", "enum": ["exact", "glob"], "default": "glob", "description": "Exact treats wildcard characters literally; glob supports * and ?." }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

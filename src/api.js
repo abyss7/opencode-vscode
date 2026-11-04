@@ -342,6 +342,14 @@ class OpenCodeApi {
     return Array.isArray(response && response.data) ? response.data : [];
   }
 
+  async permissionProfiles(method, input, directory) {
+    const query = new URLSearchParams();
+    if (directory) query.set('location[directory]', directory);
+    const response = await this._request('POST',
+      `/api/rpc/vscode-permission-profiles/${encodeURIComponent(method)}?${query}`, { input });
+    return response && response.output;
+  }
+
   async deleteSession(sessionId) {
     await this._request('DELETE', `/api/session/${encodeURIComponent(sessionId)}`);
   }

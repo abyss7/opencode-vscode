@@ -701,6 +701,30 @@ select {
   overflow-wrap: anywhere;
 }
 
+.permission-operation { margin-top: 6px; font-weight: 600; }
+.permission-files { margin: 8px 0; padding-left: 20px; overflow-wrap: anywhere; }
+.permission-file-action, .permission-directory { color: var(--oc-secondary); }
+.permission-directory { overflow-wrap: anywhere; }
+.permission-preview { max-height: 320px; overflow: auto; margin-top: 8px; }
+.permission-input { margin-top: 8px; }
+.permission-input summary { cursor: pointer; color: var(--oc-secondary); }
+.permission-input pre, .permission-command, .permission-rule-preview {
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--oc-mono);
+  font-size: 11px;
+}
+
+.permission-reason { color: var(--oc-secondary); overflow-wrap: anywhere; margin-bottom: 8px; }
+.permission-remember { margin-top: 8px; }
+.permission-remember summary { cursor: pointer; }
+.permission-remember select { display: block; max-width: 100%; margin: 6px 0; }
+.permission-remember button { cursor: pointer; padding: 4px 8px; }
+.permission-save-status[role="alert"] { color: var(--vscode-errorForeground); }
+.permission-rules-link { background: none; border: none; color: var(--vscode-textLink-foreground); cursor: pointer; font-size: 11px; }
+
 .permission-actions {
   display: flex;
   flex-direction: column;
