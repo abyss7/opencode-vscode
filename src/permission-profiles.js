@@ -3,7 +3,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 
-const VERSION = 3;
+const VERSION = 4;
 const EFFECTS = ['allow', 'ask', 'deny'];
 const FALLBACKS = ['forbid', 'ask', 'smart', 'permit'];
 const rank = { allow: 0, smart: 1, ask: 2, deny: 3 };

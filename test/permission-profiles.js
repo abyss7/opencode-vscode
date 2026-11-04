@@ -8,6 +8,7 @@ const { compileLayers, evaluate, selectProfile, VERSION } = require('../src/perm
 const { readLayers } = require('../src/permission-service');
 
 const temp = fs.mkdtempSync(path.join(process.env.OUT || os.tmpdir(), 'permission-test-'));
+const cleanups = [];
 const cwd = path.join(temp, 'workspace');
 fs.mkdirSync(cwd);
 const rule = (action, resource, effect) => ({ action, resource, effect });
@@ -78,6 +79,7 @@ async function main() {
   fs.writeFileSync(path.join(plugin, 'project.cjs'), fs.readFileSync(path.join(__dirname, '../src/permission-project.js'), 'utf8')
     .replace("require('./permission-profiles')", "require('./engine.cjs')"));
   fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles/classifier.cjs'), path.join(plugin, 'classifier.cjs'));
+  fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles/bridge.cjs'), path.join(plugin, 'bridge.cjs'));
   const { setup } = require(path.join(plugin, 'runtime.cjs'));
   let hook;
   let rpc;
@@ -113,6 +115,7 @@ async function main() {
     rpc: { register: async (_, methods) => { rpc = methods; return { dispose() {} }; } },
   };
   const cleanup = await setup(ctx, {}, path.join(plugin, 'state'));
+  cleanups.push(cleanup);
   const config = { sessionID: 'ses_root', layers: [], defaultProfile: 'read-only', agentProfiles: { reviewer: 'read-only' } };
   assert.equal((await rpc.configure(config)).selected, 'read-only');
   const event = { sessionID: 'ses_child', action: 'edit', resources: ['file'], effect: 'allow' };
@@ -139,7 +142,7 @@ async function main() {
   const childView = await rpc.configure({ ...config, sessionID: 'ses_child' });
   assert.equal(childView.selected, 'read-only');
   await cleanup();
-  await setup(ctx, {}, path.join(plugin, 'state'));
+  cleanups.push(await setup(ctx, {}, path.join(plugin, 'state')));
   assert.equal((await rpc.configure({ ...config, selected: 'workspace' })).newActions, 'forbid', 'survives plugin reload');
   await assert.rejects(() => rpc.configure({ ...config, layers: [layer('X', 'workspace', [rule('*', '*', 'bad')])] }));
   assert.equal((await rpc.configure(config)).newActions, 'forbid', 'invalid changes leave previous state intact');
@@ -250,4 +253,7 @@ async function main() {
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; })
-  .finally(() => fs.rmSync(temp, { recursive: true, force: true }));
+  .finally(async () => {
+    for (const cleanup of cleanups) await cleanup();
+    fs.rmSync(temp, { recursive: true, force: true });
+  });

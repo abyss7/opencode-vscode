@@ -6,8 +6,10 @@ const path = require('node:path');
 const os = require('node:os');
 const engine = require('../src/permission-profiles');
 const project = require('../src/permission-project');
+const { PermissionService } = require('../src/permission-service');
 
 const temp = fs.mkdtempSync(path.join(process.env.OUT || os.tmpdir(), 'project-permissions-'));
+const cleanups = [];
 const cwd = path.join(temp, 'workspace');
 fs.mkdirSync(cwd);
 
@@ -26,13 +28,18 @@ async function main() {
 
   const plugin = path.join(temp, 'plugin');
   fs.mkdirSync(plugin);
-  for (const name of ['runtime.cjs', 'classifier.cjs']) fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles', name), path.join(plugin, name));
+  for (const name of ['runtime.cjs', 'classifier.cjs', 'bridge.cjs']) fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles', name), path.join(plugin, name));
   fs.copyFileSync(path.join(__dirname, '../src/permission-profiles.js'), path.join(plugin, 'engine.cjs'));
   fs.writeFileSync(path.join(plugin, 'project.cjs'), fs.readFileSync(path.join(__dirname, '../src/permission-project.js'), 'utf8')
     .replace("require('./permission-profiles')", "require('./engine.cjs')"));
   let hook;
   let rpc;
   let pending = [];
+  const unwrap = (methods) => Object.fromEntries(Object.entries(methods).map(([name, method]) => [name, async (input) => {
+    const output = await method(input);
+    if (output.error) throw new Error(output.error.message);
+    return output;
+  }]));
   const sessions = {
     ses_a: { id: 'ses_a', agent: 'build', location: { directory: cwd } },
     ses_b: { id: 'ses_b', agent: 'build', location: { directory: cwd } },
@@ -49,9 +56,10 @@ async function main() {
       },
     },
     tool: { hook: async () => ({ dispose() {} }) },
-    rpc: { register: async (_, methods) => { rpc = methods; return { dispose() {} }; } },
+    rpc: { register: async (_, methods) => { rpc = unwrap(methods); return { dispose() {} }; } },
   };
   const cleanup = await require(path.join(plugin, 'runtime.cjs')).setup(ctx, {}, path.join(temp, 'state'));
+  cleanups.push(cleanup);
   const config = { layers: [], defaultProfile: 'workspace', newActions: 'ask' };
   for (const sessionID of ['ses_a', 'ses_b']) await rpc.configure({ ...config, sessionID });
   const effect = async (action, resources, sessionID = 'ses_b') => {
@@ -121,9 +129,40 @@ async function main() {
   assert.match(invalid.message, /Cannot read/);
   fs.unlinkSync(project.filename(cwd));
   assert.equal((await effect('shell', ['git push'], 'ses_a')).effect, 'ask');
+
+  // The shared server sees the same persisted sessions, but not ACP's in-memory
+  // pending permissions. Exercise the real IPC route between two plugin instances.
+  let relay;
+  const shared = { ...ctx, permission: {
+    list: async () => ({ data: [] }), hook: async () => ({ dispose() {} }),
+  }, rpc: { register: async (_, methods) => { relay = methods; return { dispose() {} }; } } };
+  const closeRelay = await require(path.join(plugin, 'runtime.cjs')).setup(shared, {}, path.join(temp, 'state'));
+  cleanups.push(closeRelay);
+  const service = new PermissionService({ vscode: {}, api: {
+    permissionProfiles: async (method, input) => relay[method](input),
+  } });
+  pending = [{ ...ask, action: 'shell', resources: ['echo remote *'], id: 'per_remote' }];
+  const remote = await service.describe('ses_a', cwd, 'call_one');
+  assert.ok(remote.owner);
+  assert.equal(remote.permissionId, 'per_remote');
+  // ACP can use the native request ID when no tool record was available, even
+  // though the native permission still carries source.id.
+  assert.equal((await service.describe('ses_a', cwd, 'per_remote')).permissionId, 'per_remote');
+  await service.remember('ses_a', cwd, 'call_one', remote, 'exact', 'allow');
+  assert.equal((await effect('shell', ['echo remote *'], 'ses_a')).effect, 'allow');
+  assert.equal((await effect('shell', ['echo remote secret'], 'ses_a')).effect, 'ask');
+  await assert.rejects(() => service.remember('ses_a', cwd, 'call_one', remote, 'exact', 'deny'), /changed/);
+  pending = [];
+  assert.equal((await relay.describe(input)).error.code, 'not_pending', 'expected errors are RPC data, not HTTP 500');
+  await assert.rejects(() => service.describe('ses_a', cwd, 'call_one'), /no longer pending/);
+  await closeRelay();
   await cleanup();
+  assert.equal(fs.existsSync(path.join(temp, 'state/owners/ses_a')), false, 'owner registrations are removed on shutdown');
   console.log('PROJECT PERMISSION RULES OK');
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; })
-  .finally(() => fs.rmSync(temp, { recursive: true, force: true }));
+  .finally(async () => {
+    for (const cleanup of cleanups) await cleanup();
+    fs.rmSync(temp, { recursive: true, force: true });
+  });

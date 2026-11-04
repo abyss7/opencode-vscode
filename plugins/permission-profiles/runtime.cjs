@@ -5,6 +5,7 @@ const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 const engine = require('./engine.cjs');
 const project = require('./project.cjs');
+const { createBridge, result: rpcResult, failure } = require('./bridge.cjs');
 const { classify, CLASSIFIER } = require('./classifier.cjs');
 const { randomUUID, createHash } = require('node:crypto');
 
@@ -97,9 +98,10 @@ async function setup(ctx, contract, directory) {
     if (!Array.isArray(pending)) throw new Error('Cannot list pending permissions');
     const matches = pending.filter((item) =>
       (!input.permissionId || item.id === input.permissionId) &&
-      ((item.sessionID === input.sessionID && (item.source?.id || item.id) === input.toolCallId) ||
-        `${item.sessionID}:${item.source?.id || item.id}` === input.toolCallId));
-    if (matches.length !== 1) throw new Error('Permission request is no longer pending or is ambiguous');
+      [item.id, item.source?.id].filter(Boolean).some((id) =>
+        (item.sessionID === input.sessionID && id === input.toolCallId) || `${item.sessionID}:${id}` === input.toolCallId));
+    if (!matches.length) throw failure('not_pending', 'This permission request is no longer pending.');
+    if (matches.length !== 1) throw failure('ambiguous', 'More than one pending permission matches this tool call.');
     const request = matches[0];
     const states = await ancestors(request.sessionID);
     if (!states.length || (request.sessionID !== input.sessionID && !states.some((state) => state.sessionID === input.sessionID))) {
@@ -110,12 +112,30 @@ async function setup(ctx, contract, directory) {
     const decision = decisionFor(states, request);
     const revision = createHash('sha256').update(JSON.stringify({ request, states })).digest('hex');
     return { request, states, state, details: {
-      permissionId: request.id, revision, profile: state.selected, profileLabel: profile.label,
+      permissionId: request.id, revision, owner: bridge.id, profile: state.selected, profileLabel: profile.label,
       action: request.action, resources: request.resources,
       reason: decision.reason || request.message || 'OpenCode requested confirmation.',
       choices: project.choices(request, state.cwd), rulesFile: project.filename(state.cwd),
     } };
   };
+  const remember = async (input) => {
+    if (input.owner !== bridge.id) throw failure('not_pending', 'This request belongs to another permission runtime.');
+    if (!['allow', 'deny'].includes(input.effect)) throw new Error('Choose Allow or Forbid');
+    const { request, states, state, details } = await describe(input);
+    if (input.revision !== details.revision) throw new Error('Permission rules changed. Reopen Save rule and try again.');
+    const choice = details.choices.find((item) => item.id === input.choiceId);
+    if (!choice) throw new Error('This request cannot be remembered with that scope');
+    const rules = choice.rules.map((rule) => ({ ...rule, effect: input.effect }));
+    const document = project.withRules(state.projectRules, state.selected, rules);
+    const next = states.map((item) => engine.canonical(item.cwd) === engine.canonical(state.cwd)
+      ? { ...item, projectRules: document } : item);
+    if (input.effect === 'allow' && decisionFor(next, request).effect !== 'allow') {
+      throw new Error('A profile or parent restriction still requires confirmation or forbids this action.');
+    }
+    project.write(state.cwd, document);
+    return { effect: input.effect, profile: state.selected, rulesFile: project.filename(state.cwd), rules };
+  };
+  const bridge = createBridge(root, { describe: async (input) => (await describe(input)).details, remember });
   const hook = await ctx.permission.hook('evaluate', async (event) => {
     if (event.effect === 'deny') return;
     let states;
@@ -160,6 +180,7 @@ async function setup(ctx, contract, directory) {
       review.reason = reason;
       review.finished = Date.now();
     }
+    if (effect === 'ask') await bridge.register(event.sessionID);
     // Configured denies never reach this hook. Re-evaluate saved allows as well.
     event.effect = effect;
     event.message = `VS Code permissions: ${effect}${reason ? ` — ${reason}` : ''}`;
@@ -182,23 +203,14 @@ async function setup(ctx, contract, directory) {
   const afterHook = await ctx.tool.hook('execute.after', async (event) => { inputs.delete(callKey(event)); });
   const rpc = await ctx.rpc.register(contract, {
     status: async () => ({ version: engine.VERSION }),
-    describe: async (input) => (await describe(input)).details,
-    remember: async (input) => {
-      if (!['allow', 'deny'].includes(input.effect)) throw new Error('Choose Allow or Forbid');
-      const { request, states, state, details } = await describe(input);
-      if (input.revision !== details.revision) throw new Error('Permission rules changed. Reopen Save rule and try again.');
-      const choice = details.choices.find((item) => item.id === input.choiceId);
-      if (!choice) throw new Error('This request cannot be remembered with that scope');
-      const rules = choice.rules.map((rule) => ({ ...rule, effect: input.effect }));
-      const document = project.withRules(state.projectRules, state.selected, rules);
-      const next = states.map((item) => engine.canonical(item.cwd) === engine.canonical(state.cwd)
-        ? { ...item, projectRules: document } : item);
-      if (input.effect === 'allow' && decisionFor(next, request).effect !== 'allow') {
-        throw new Error('A profile or parent restriction still requires confirmation or forbids this action.');
+    describe: (input) => rpcResult(async () => {
+      try { return (await describe(input)).details; }
+      catch (error) {
+        if (error.code !== 'not_pending') throw error;
+        return bridge.describe(input);
       }
-      project.write(state.cwd, document);
-      return { effect: input.effect, profile: state.selected, rulesFile: project.filename(state.cwd), rules };
-    },
+    }),
+    remember: (input) => rpcResult(() => input.owner === bridge.id ? remember(input) : bridge.remember(input)),
     reviews: async ({ sessionID }) => {
       file(sessionID); // Validate the ID without touching a session.
       return { reviews: reviews.filter((review) => review.audience.includes(sessionID)).slice(-30)
@@ -231,7 +243,7 @@ async function setup(ctx, contract, directory) {
       return view(state);
     },
   });
-  return async () => { await rpc.dispose(); await afterHook.dispose(); await toolHook.dispose(); await hook.dispose(); };
+  return async () => { await rpc.dispose(); await afterHook.dispose(); await toolHook.dispose(); await hook.dispose(); await bridge.dispose(); };
 }
 
 module.exports = { setup };

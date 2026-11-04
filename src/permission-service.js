@@ -55,6 +55,7 @@ class PermissionService {
       'index.ts': path.join(__dirname, '../plugins/permission-profiles/index.ts'),
       'runtime.cjs': path.join(__dirname, '../plugins/permission-profiles/runtime.cjs'),
       'classifier.cjs': path.join(__dirname, '../plugins/permission-profiles/classifier.cjs'),
+      'bridge.cjs': path.join(__dirname, '../plugins/permission-profiles/bridge.cjs'),
       'engine.cjs': path.join(__dirname, 'permission-profiles.js'),
       'project.cjs': path.join(__dirname, 'permission-project.js'),
     };
@@ -64,7 +65,7 @@ class PermissionService {
     const fingerprint = crypto.createHash('sha256').update(JSON.stringify(contentsByName)).digest('hex');
     contentsByName['index.ts'] += `\n// Bundle fingerprint: ${fingerprint}\n`;
     // Entry point last; its fingerprint reloads the plugin when a dependency changes.
-    for (const name of ['engine.cjs', 'project.cjs', 'classifier.cjs', 'runtime.cjs', 'index.ts']) {
+    for (const name of ['engine.cjs', 'project.cjs', 'classifier.cjs', 'bridge.cjs', 'runtime.cjs', 'index.ts']) {
       const contents = contentsByName[name];
       const destination = path.join(target, name);
       const previous = await fs.readFile(destination, 'utf8').catch((error) => {
@@ -105,13 +106,19 @@ class PermissionService {
     }, cwd);
   }
 
+  async _request(method, input, cwd) {
+    const output = await this.api.permissionProfiles(method, input, cwd);
+    if (output?.error) throw new Error(output.error.message);
+    return output;
+  }
+
   describe(sessionID, cwd, toolCallId) {
-    return this.api.permissionProfiles('describe', { sessionID, toolCallId }, cwd);
+    return this._request('describe', { sessionID, toolCallId }, cwd);
   }
 
   remember(sessionID, cwd, toolCallId, details, choiceId, effect) {
-    return this.api.permissionProfiles('remember', {
-      sessionID, toolCallId, permissionId: details.permissionId, revision: details.revision, choiceId, effect,
+    return this._request('remember', {
+      sessionID, toolCallId, permissionId: details.permissionId, revision: details.revision, owner: details.owner, choiceId, effect,
     }, cwd);
   }
 

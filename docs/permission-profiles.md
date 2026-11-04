@@ -201,6 +201,19 @@ Session policy snapshots are in that plugin's `state/` directory. They continue 
 apply when a managed session is used from another client. No credentials are stored.
 Changes to the settings need this extension to refresh the snapshot.
 
+OpenCode 2.2.5 starts a private server for each ACP process. Pending permissions are
+in-memory objects owned by that process, not by the shared service. RPC v4 routes
+**describe / remember** to that owner over local IPC (a private Unix socket on Linux,
+a named pipe on Windows). Discovery files under `state/owners/` contain only an owner
+ID and socket path; no server passwords or permission payloads. The owner rechecks
+the real pending request and current policy before saving. Disconnected or resolved
+requests return a readable error rather than an HTTP 500 or a guessed approval.
+
+`test/permission-live.js` is opt-in: with `OPENCODE_PERMISSION_LIVE=1`, it installs
+the bundle, starts a standalone server, creates one temporary session, and verifies
+shared-service RPC routing and native Allow/Forbid enforcement. It performs no model
+generation or tool execution, then deletes the session and its fixtures.
+
 Use **Developer: Reload Window** to load the locally modified extension. Open a new
 chat, select a profile and ask it to read or change a scratch file. If the plugin
 cannot load, the chat reports an error rather than claiming a profile is active.
