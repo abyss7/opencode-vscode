@@ -1605,6 +1605,38 @@
     scrollToBottom();
   }
 
+  function permissionPatchOperations(input) {
+    const text = input?.patchText;
+    if (typeof text !== 'string') return [];
+    const lines = text.trim().split(/\r?\n/);
+    if (lines[0] !== '*** Begin Patch' || lines.at(-1) !== '*** End Patch') return [];
+    const operations = [];
+    let current;
+    for (const line of lines.slice(1, -1)) {
+      const header = /^\*\*\* (Add|Update|Delete) File: (.+)$/.exec(line);
+      if (header) {
+        current = { action: { Add: 'Create', Update: 'Change', Delete: 'Delete' }[header[1]], path: header[2] };
+        operations.push(current);
+      } else if (line.startsWith('*** Move to: ') && current?.action === 'Change') {
+        current.to = line.slice('*** Move to: '.length);
+        current.action = 'Rename';
+      }
+    }
+    return operations;
+  }
+
+  function permissionPathKey(file) {
+    const text = file.replace(/\\/g, '/');
+    const absolute = /^(?:\/|[a-z]:\/)/i.test(text) ? text : `${state.cwd || ''}/${text}`;
+    const parts = [];
+    for (const part of absolute.split('/')) {
+      if (part === '..') parts.pop();
+      else if (part && part !== '.') parts.push(part);
+    }
+    const key = parts.join('/');
+    return /^[a-z]:\//i.test(absolute) ? key.toLowerCase() : key;
+  }
+
   function renderPermissionDetails(card, toolCall) {
     const update = toolCall || {};
     const input = toolInputObject(update);
@@ -1622,21 +1654,52 @@
     }
     for (const diff of diffs) {
       if (typeof diff.path !== 'string') continue;
-      files.set(diff.path, { ...files.get(diff.path), action: diff.oldText === null ? 'Create' :
+      const info = files.get(diff.path) || {};
+      files.set(diff.path, { ...info, diffs: [...(info.diffs || []), diff], action: diff.oldText === null ? 'Create' :
         diff.newText === '' ? 'Remove contents' : 'Change' });
     }
     const inputPath = input?.filePath || input?.path;
     if (!files.size && typeof inputPath === 'string') files.set(inputPath, {});
+    // ACP includes both rename locations but usually attaches the diff only to
+    // the destination. Pair them using explicit patch headers, not text similarity.
+    const findPath = (value) => [...files.keys()].find((file) => permissionPathKey(file) === permissionPathKey(value));
+    for (const operation of permissionPatchOperations(input)) {
+      const source = findPath(operation.path);
+      const target = operation.to ? findPath(operation.to) : source;
+      if (!target) continue;
+      const info = files.get(target);
+      if (operation.to) {
+        const previous = source && source !== target ? files.get(source) : null;
+        files.set(target, { ...info, from: source || operation.path, action: 'Rename',
+          diffs: [...(previous?.diffs || []), ...(info.diffs || [])] });
+        if (source && source !== target) files.delete(source);
+      } else files.set(target, { ...info, action: operation.action });
+    }
     if (files.size) {
       const list = el('ul', 'permission-files');
       for (const [path, info] of files) {
         const item = el('li');
-        if (info.action) item.appendChild(el('span', 'permission-file-action', info.action + ' · '));
         const line = Number(info.line) || null;
-        const link = el('span', 'file-ref', line ? `${path}:${line}` : path);
-        link.dataset.file = path;
+        const label = info.from ? `${info.from} → ${path}` : line ? `${path}:${line}` : path;
+        const link = el('span', 'file-ref', info.diffs?.length ? info.from ? 'Open source file' : 'Open file' : label);
+        link.dataset.file = info.from || path;
         if (line) link.dataset.line = String(line);
-        item.appendChild(link);
+        if (info.diffs?.length) {
+          const details = el('details', 'permission-file');
+          details.open = files.size === 1;
+          const summary = el('summary');
+          if (info.action) summary.appendChild(el('span', 'permission-file-action', info.action + ' · '));
+          summary.appendChild(el('span', 'permission-file-path', label));
+          const preview = el('div', 'permission-preview');
+          OpenCodeRichText.renderToolResult(preview, { content: info.diffs }, (message) => vscode.postMessage(message));
+          const toolbar = preview.querySelector('.result-toolbar');
+          if (toolbar) toolbar.prepend(link);
+          details.append(summary, preview);
+          item.appendChild(details);
+        } else {
+          if (info.action) item.appendChild(el('span', 'permission-file-action', info.action + ' · '));
+          item.appendChild(link);
+        }
         list.appendChild(item);
       }
       card.appendChild(list);
@@ -1647,9 +1710,10 @@
       const cwd = input.workdir || input.cwd;
       if (typeof cwd === 'string') card.appendChild(el('div', 'permission-directory', 'Working directory: ' + cwd));
     }
-    if (content.length) {
+    const otherContent = content.filter((item) => !diffs.includes(item) || typeof item.path !== 'string');
+    if (otherContent.length) {
       const preview = el('div', 'permission-preview');
-      OpenCodeRichText.renderToolResult(preview, { content }, (message) => vscode.postMessage(message));
+      OpenCodeRichText.renderToolResult(preview, { content: otherContent }, (message) => vscode.postMessage(message));
       card.appendChild(preview);
     }
     if (!diffs.length && (['edit', 'delete', 'move'].includes(update.kind) || !content.length && !input)) {

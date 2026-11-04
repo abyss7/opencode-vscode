@@ -20,7 +20,18 @@ test('permission shows all files and proposed changes before approval', async ({
   await chat.send(permission({ title: '2 files', name: 'patch', kind: 'edit',
     locations: changes.map(({ path }) => ({ path })), content: changes }));
   const card = page.locator('.permission');
-  await expect(card.locator('.permission-files li')).toHaveText(['Change · src/example.js', 'Create · new.txt']);
+  const files = card.locator('.permission-file');
+  await expect(files.locator('summary')).toHaveText(['Change · src/example.js', 'Create · new.txt']);
+  await expect(card.locator('.permission-file[open]')).toHaveCount(0);
+  await expect(files.first()).toHaveCSS('border-top-width', '0px');
+  await expect(files.first().locator('summary')).toHaveCSS('border-top-width', '0px');
+  expect(await files.first().locator('summary').evaluate((node) => getComputedStyle(node, '::before').content)).toBe('"›"');
+  await chat.snapshot('plain-file-list');
+  await files.nth(0).locator('summary').click();
+  await expect(files.nth(0).locator('.tool-diff')).toBeVisible();
+  expect(await files.first().locator('summary').evaluate((node) => getComputedStyle(node, '::before').transform)).not.toBe('none');
+  await expect(files.nth(1).locator('.tool-diff')).not.toBeVisible();
+  await files.nth(1).locator('summary').click();
   await expect(card.locator('.permission-operation')).toHaveText('Edit files · patch');
   await expect(card.locator('.removed .diff-code')).toHaveText('before();');
   await expect(card.locator('.added .diff-code')).toHaveText(['after();', '<script>unsafe()</script>']);
@@ -35,6 +46,49 @@ test('permission shows all files and proposed changes before approval', async ({
     { type: 'permissionResponse', requestId: 'permission-preview', optionId: 'once' },
   ]);
   await expect(card.getByRole('button', { name: 'Reject', exact: true })).toBeDisabled();
+});
+
+test('expanded file previews grow with their contents and only the chat scrolls vertically', async ({ page, chat }) => {
+  const changes = ['first.txt', 'second.txt'].map((path) => ({ type: 'diff', path, oldText: '',
+    newText: Array.from({ length: 80 }, (_, index) => `${index}: ${'long line '.repeat(25)}`).join('\n') + '\n' }));
+  await chat.send(permission({ title: '2 files', kind: 'edit', content: changes }));
+  const files = page.locator('.permission-file');
+  for (const summary of await files.locator('summary').all()) await summary.click();
+  await expect(page.locator('.permission-file[open]')).toHaveCount(2);
+  for (const preview of await page.locator('.permission-preview, .permission-preview .result-scroll').all()) {
+    expect(await preview.evaluate((node) => node.scrollHeight <= node.clientHeight + 1)).toBe(true);
+  }
+  expect(await page.locator('#messages').evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+  expect(await page.locator('#messages').evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await files.first().locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(files.first().locator('.tool-diff')).not.toBeVisible();
+  await expect(files.last()).toHaveAttribute('open', '');
+  await chat.snapshot('independent-file-previews');
+  expect(await chat.received('permissionResponse')).toEqual([]);
+});
+
+test('rename pairs source and destination and explicit deletion differs from clearing a file', async ({ page, chat }) => {
+  const rename = { type: 'diff', path: '/workspace/ready.txt', oldText: 'draft\n', newText: 'ready\n' };
+  const content = [rename,
+    { type: 'diff', path: '/workspace/obsolete.txt', oldText: 'obsolete\n', newText: '' },
+    { type: 'diff', path: '/workspace/empty.txt', oldText: 'old\n', newText: '' }];
+  await chat.send(permission({ title: '3 files', name: 'patch', kind: 'edit', content,
+    locations: [{ path: '/workspace/draft.txt' }, ...content.map(({ path }) => ({ path }))],
+    rawInput: JSON.stringify({ patchText: '*** Begin Patch\n*** Update File: ./draft.txt\n*** Move to: ready.txt\n@@\n-draft\n+ready\n*** Delete File: obsolete.txt\n*** Update File: empty.txt\n@@\n-old\n*** End Patch' }),
+  }));
+  await expect(page.locator('.permission-files > li')).toHaveCount(3);
+  await expect(page.locator('.permission-file > summary')).toHaveText([
+    'Rename · /workspace/draft.txt → /workspace/ready.txt',
+    'Delete · /workspace/obsolete.txt', 'Change · /workspace/empty.txt',
+  ]);
+  const file = page.locator('.permission-file').first();
+  await file.locator('summary').click();
+  await expect(file.locator('.file-ref')).toHaveAttribute('data-file', '/workspace/draft.txt');
+  await expect(file.locator('.file-ref')).toHaveText('Open source file');
+  await file.getByRole('button', { name: 'Open diff', exact: true }).click();
+  expect(await chat.received('openDiff')).toEqual([{ ...rename, type: 'openDiff' }]);
+  await chat.snapshot('rename-permission');
 });
 
 test('permission shows command and cwd and preserves raw arguments', async ({ page, chat }) => {
