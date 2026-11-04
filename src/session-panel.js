@@ -957,9 +957,25 @@ class SessionPanel {
   async _refreshModelContext() {
     const ref = this._modelRef;
     if (this._disposed || !ref) return;
+    const request = (this._modelContextRequest || 0) + 1;
+    this._modelContextRequest = request;
     try {
-      const models = await this.deps.api.listModels(this.cwd);
-      if (this._disposed) return;
+      const [models, subscription] = await Promise.all([
+        this.deps.api.listModels(this.cwd),
+        ref.providerID === 'openai'
+          ? this.deps.api.getChatGPTSubscription(this.cwd).catch((error) => {
+              this.deps.log(`Failed to resolve OpenAI billing: ${error.message}`);
+              return false;
+            })
+          : false,
+      ]);
+      if (
+        this._disposed ||
+        this._modelContextRequest !== request ||
+        !this._modelRef ||
+        this._modelRef.providerID !== ref.providerID ||
+        this._modelRef.id !== ref.id
+      ) return;
       const record = matchModel(models, ref);
       const context = Number(record && record.limit && record.limit.context) || 0;
       const input = Number(record && record.limit && record.limit.input) || 0;
@@ -978,6 +994,7 @@ class SessionPanel {
         context,
         input,
         model: { providerID: ref.providerID, id: ref.id },
+        subscription,
       });
     } catch (error) {
       this.deps.log(`Failed to resolve model limits: ${error.message}`);

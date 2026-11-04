@@ -14,6 +14,8 @@
   const subtitleEl = document.getElementById('subtitle');
   const usageEl = document.getElementById('usage');
   const usageCostEl = document.getElementById('usage-cost');
+  const usageSubscriptionEl = document.getElementById('usage-subscription');
+  const usageLinkEl = document.getElementById('usage-link');
   const usageResetEl = document.getElementById('usage-reset');
   const attachmentsEl = document.getElementById('attachments');
   const configBarEl = document.getElementById('config-bar');
@@ -1964,33 +1966,28 @@
     const cache = state.cacheStats;
     const limit = state.modelLimit || {};
     const context = Number(limit.context) || Number(usage && usage.size) || 0;
+    const window = Number(limit.input) || context;
     const prompt = cache && Number(cache.prompt) > 0 ? Number(cache.prompt) : 0;
-    if (!usage && prompt <= 0) {
-      usageEl.textContent = 'tokens: —';
-    } else if ((usage && typeof usage.used === 'number') || prompt > 0) {
-      const used = prompt || Number(usage && usage.used) || 0;
-      const parts = [`tokens: ${formatCompact(used)}${cacheSuffix(cache)}`];
-      const threshold = compactionThreshold(context, limit.input);
-      const window = Number(limit.input) || context;
-      if (threshold > 0) {
-        parts.push(
-          `compaction at ${formatCompact(threshold)}` +
-            (window > 0 ? ` (${formatCompact(window)} limit)` : '')
-        );
-      }
-      usageEl.textContent = parts.join(' · ');
-    } else if (usage && typeof usage.totalTokens === 'number') {
-      usageEl.textContent = `tokens: ${formatCompact(usage.totalTokens)} billed this turn`;
-    } else {
-      usageEl.textContent = 'tokens: —';
+    const used = prompt > 0 ? prompt : usage && typeof usage.used === 'number' ? usage.used : null;
+    const parts = [
+      `context: ${used === null ? '—' : formatCompact(used)}` +
+        (window > 0 ? ` / ${formatCompact(window)}` : '') +
+        cacheSuffix(cache),
+    ];
+    const threshold = compactionThreshold(context, limit.input);
+    if (threshold > 0) {
+      parts.push(`compaction at ${formatCompact(threshold)}`);
     }
+    usageEl.textContent = parts.join(' · ');
 
+    const subscription = limit.subscription === true;
+    if (usageSubscriptionEl) usageSubscriptionEl.hidden = !subscription;
     const cost = usage && usage.cost;
     const currency = (cost && cost.currency) || 'USD';
     const parentCost = cost && typeof cost.amount === 'number' ? cost.amount : 0;
     const subagentCost = Number(state.subagentCost) || 0;
     let costText = '';
-    if (cost && typeof cost.amount === 'number') {
+    if (cost && typeof cost.amount === 'number' && (!subscription || parentCost + subagentCost > 0)) {
       costText = `cost: ${formatCost(parentCost + subagentCost, currency)}`;
       if (subagentCost > 0) {
         costText += ` (sub-agents ${formatCost(subagentCost, currency)})`;
@@ -1998,14 +1995,14 @@
     } else if (subagentCost > 0) {
       costText = `cost: ${formatCost(subagentCost, currency)} (sub-agents)`;
     }
-    const budget = state.budget;
+    const budget = subscription ? null : state.budget;
     if (budget && typeof budget.remaining === 'number') {
       const suffix =
         budget.modelMatched && budget.label ? ` for ${budget.label}` : '';
       costText +=
         (costText ? ' · ' : '') + `$${budget.remaining.toFixed(2)} left${suffix}`;
     }
-    const balance = state.balance;
+    const balance = subscription ? null : state.balance;
     if (balance && typeof balance.amount === 'number') {
       costText +=
         (costText ? ' · ' : '') +
@@ -2015,7 +2012,7 @@
     usageCostEl.hidden = !costText;
     usageCostEl.title = costTooltip(state.costSplit, subagentCost);
 
-    const resetAt = nextReset(state.limits, budget);
+    const resetAt = subscription ? 0 : nextReset(state.limits, budget);
     if (resetAt) {
       usageResetEl.textContent = `reset in ${formatDuration(resetAt - Date.now())}`;
       usageResetEl.hidden = false;
@@ -2213,7 +2210,7 @@
   function formatCompact(value) {
     const number = Number(value) || 0;
     if (number >= 1000000) {
-      return (number / 1000000).toFixed(number >= 10000000 ? 0 : 1) + 'M';
+      return (number / 1000000).toFixed(number >= 10000000 ? 0 : 1).replace(/\.0$/, '') + 'M';
     }
     if (number >= 1000) {
       // Keep one decimal so 84200 reads as 84.2k, and drop a trailing .0.
@@ -2404,6 +2401,7 @@
         state.modelLimit = {
           context: Number(message.context) || 0,
           input: Number(message.input) || 0,
+          subscription: message.subscription === true,
         };
         updateUsageBar();
         break;
@@ -2824,6 +2822,12 @@
 
   sendBtn.addEventListener('click', sendPrompt);
   stopBtn.addEventListener('click', stopPrompt);
+  if (usageLinkEl) {
+    usageLinkEl.addEventListener('click', (event) => {
+      event.preventDefault();
+      vscode.postMessage({ type: 'openExternal', url: 'https://chatgpt.com/settings/usage' });
+    });
+  }
 
   messagesEl.addEventListener('scroll', () => {
     const distance = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;

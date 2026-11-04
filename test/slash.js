@@ -396,12 +396,12 @@ send({ type: 'focus' });
 assert.strictEqual(ids.messages.scrollTop, ids.messages.scrollHeight);
 assert.strictEqual(ids.input.focused, true);
 
-// The token line shows the compaction threshold and the window behind it.
+// The context line shows used / limit, without repeating the limit after compaction.
 send({ type: 'compaction', compaction: { auto: true, buffer: 800000 } });
 send({ type: 'turnEnd', stopReason: 'end_turn', usage: { used: 120000, size: 1048576 } });
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 120k · compaction at 248.6k (1.0M limit)'
+  'context: 120k / 1M · compaction at 248.6k'
 );
 
 // Without a configured buffer the server default is 15% of the window.
@@ -409,14 +409,14 @@ send({ type: 'compaction', compaction: { auto: true } });
 send({ type: 'turnEnd', stopReason: 'end_turn', usage: { used: 120000, size: 200000 } });
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 120k · compaction at 170k (200k limit)'
+  'context: 120k / 200k · compaction at 170k'
 );
 
 // Automatic compaction off leaves only the context size.
 send({ type: 'compaction', compaction: { auto: false } });
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 120k'
+  'context: 120k / 200k'
 );
 
 // Restored usage from history is exact as stored, so it carries no estimate mark.
@@ -427,7 +427,7 @@ send({
 });
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 90k · compaction at 248.6k (1.0M limit)'
+  'context: 90k / 1M · compaction at 248.6k'
 );
 send({
   type: 'update',
@@ -435,7 +435,7 @@ send({
 });
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 91k · compaction at 248.6k (1.0M limit)'
+  'context: 91k / 1M · compaction at 248.6k'
 );
 
 // The provider input window wins over the context window.
@@ -443,7 +443,7 @@ send({ type: 'compaction', compaction: { auto: true, buffer: 20000 } });
 send({ type: 'modelLimit', context: 200000, input: 160000 });
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 91k · compaction at 140k (160k limit)'
+  'context: 91k / 160k · compaction at 140k'
 );
 
 // Cost adds direct sub-agent spending and shows the DeepSeek balance.
@@ -578,7 +578,7 @@ assert.strictEqual(billedBlock.dataset.exact, '1');
 assert.ok(billedTokens.title.startsWith('Billed tokens for this turn: input 12k'));
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 93k · compaction at 140k (160k limit)'
+  'context: 93k / 160k · compaction at 140k'
 );
 
 // A turn without its own steps must not overwrite an older turn block.
@@ -605,7 +605,7 @@ send({
 });
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 120k (95.833% cached 2 h ago) · compaction at 140k (160k limit)'
+  'context: 120k / 160k (95.833% cached 2 h ago) · compaction at 140k'
 );
 
 // The share keeps three decimals: a nearly full cache must not round up to 100%.
@@ -619,21 +619,21 @@ send({
 });
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 8k (99.987% cached) · compaction at 140k (160k limit)'
+  'context: 8k / 160k (99.987% cached) · compaction at 140k'
 );
 
 // 100% is printed only when the whole prompt came from the cache.
 send({ type: 'cacheStats', prompt: 5000, input: 0, read: 5000, write: 0, at: 0 });
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 5k (100% cached) · compaction at 140k (160k limit)'
+  'context: 5k / 160k (100% cached) · compaction at 140k'
 );
 
 // Without a known measurement time only the share is printed.
 send({ type: 'cacheStats', prompt: 50000, input: 50000, read: 0, write: 0, at: 0 });
 assert.strictEqual(
   ids.usage.textContent,
-  'tokens: 50k (0% cached) · compaction at 140k (160k limit)'
+  'context: 50k / 160k (0% cached) · compaction at 140k'
 );
 send({ type: 'cacheStats' });
 

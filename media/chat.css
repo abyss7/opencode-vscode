@@ -1439,6 +1439,16 @@ body[data-density="compact"] .tool-entry { margin-block: 2px; }
   white-space: nowrap;
 }
 
+.usage-item a {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+}
+
+.usage-item a:hover,
+.usage-item a:focus-visible {
+  text-decoration: underline;
+}
+
 .hint {
   display: flex;
   justify-content: space-between;

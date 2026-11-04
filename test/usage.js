@@ -184,4 +184,73 @@ assert.ok(
 assert.strictEqual(summarizeCost([], 0).total, 0);
 assert.strictEqual(summarizeCost(null, 5).total, 5);
 
-console.log('USAGE OK');
+async function checkSubscription() {
+  const { OpenCodeApi } = require('../src/api');
+  const api = Object.create(OpenCodeApi.prototype);
+  let connections;
+  api._request = async (method, url) => {
+    assert.strictEqual(method, 'GET');
+    assert.strictEqual(url, '/api/integration/openai?location%5Bdirectory%5D=%2Fworkspace');
+    return { data: { connections } };
+  };
+  for (const [value, expected] of [
+    [[{ type: 'credential', method: 'oauth' }], true],
+    [[{ type: 'credential', method: 'key' }], false],
+    [[{ type: 'env', name: 'OPENAI_API_KEY' }], false],
+    [[{ type: 'credential', method: 'oauth', status: { status: 'needs_auth' } }], false],
+    [[{ type: 'credential', method: 'oauth' }, { type: 'env' }], false],
+    [[], false],
+    [undefined, false],
+  ]) {
+    connections = value;
+    assert.strictEqual(await api.getChatGPTSubscription('/workspace'), expected);
+  }
+
+  const Module = require('node:module');
+  const originalLoad = Module._load;
+  let SessionPanel;
+  try {
+    Module._load = function (request) {
+      return request === 'vscode' ? {} : originalLoad.apply(this, arguments);
+    };
+    ({ SessionPanel } = require('../src/session-panel'));
+  } finally {
+    Module._load = originalLoad;
+  }
+  const panel = Object.create(SessionPanel.prototype);
+  const messages = [];
+  const errors = [];
+  panel._modelRef = { providerID: 'openai', id: 'chat' };
+  panel._post = (message) => messages.push(message);
+  panel.deps = {
+    log: (text) => errors.push(text),
+    api: {
+      listModels: async () => [{ providerID: 'openai', id: 'chat', limit: { context: 200000, input: 160000 } }],
+      getChatGPTSubscription: async () => true,
+    },
+  };
+  await panel._refreshModelContext();
+  assert.strictEqual(messages.at(-1).subscription, true);
+  assert.strictEqual(messages.at(-1).input, 160000);
+  panel.deps.api.getChatGPTSubscription = async () => { throw new Error('offline'); };
+  await panel._refreshModelContext();
+  assert.strictEqual(messages.at(-1).subscription, false);
+  assert.strictEqual(messages.at(-1).context, 200000, 'billing failure preserves model limits');
+  assert.strictEqual(errors.length, 1);
+
+  let resolve;
+  panel.deps.api.getChatGPTSubscription = () => new Promise((done) => { resolve = done; });
+  const pending = panel._refreshModelContext();
+  panel._modelRef = { providerID: 'deepseek', id: 'chat' };
+  await panel._refreshModelContext();
+  const count = messages.length;
+  resolve(true);
+  await pending;
+  assert.strictEqual(messages.length, count, 'old OpenAI response cannot overwrite the selected provider');
+  assert.strictEqual(messages.at(-1).subscription, false);
+}
+
+checkSubscription().then(() => console.log('USAGE OK')).catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

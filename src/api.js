@@ -409,6 +409,22 @@ class OpenCodeApi {
     );
   }
 
+  // Connection metadata is public; no credential export is needed for the footer.
+  async getChatGPTSubscription(directory) {
+    const query = new URLSearchParams();
+    if (directory) query.set('location[directory]', directory);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const response = await this._request('GET', `/api/integration/openai${suffix}`);
+    const connections = response && response.data && response.data.connections;
+    return (
+      Array.isArray(connections) &&
+      connections.length > 0 &&
+      connections.every(
+        (item) => item.type === 'credential' && item.method === 'oauth' && !item.status
+      )
+    );
+  }
+
   async getUsageLimits(directory) {
     const query = new URLSearchParams();
     if (directory) query.set('location[directory]', directory);
