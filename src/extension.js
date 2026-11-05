@@ -95,6 +95,18 @@ function activate(context) {
 
   const panels = new Map();
   const allPanels = new Set();
+  context.subscriptions.push(provider.onDidChangeTreeData(() => {
+    // The list can receive a generated title before (or without) an ACP title event.
+    const pending = [...provider.getChildren()];
+    const seen = new Set();
+    while (pending.length) {
+      const item = pending.pop();
+      if (!item.id || seen.has(item.id)) continue;
+      seen.add(item.id);
+      if (item.kind !== 'folder') panels.get(item.id)?.applyTitle(item.title);
+      pending.push(...provider.getChildren(item));
+    }
+  }));
   let refreshTimer = null;
 
   function updateViewDescription() {
@@ -141,7 +153,7 @@ function activate(context) {
     },
   };
 
-  function openPanel(sessionId, cwd) {
+  function openPanel(sessionId, cwd, title) {
     const panel = vscode.window.createWebviewPanel(
       PANEL_VIEW_TYPE,
       sessionId ? 'OpenCode' : 'New Session',
@@ -158,6 +170,7 @@ function activate(context) {
       cwd,
       deps,
     });
+    if (title) sessionPanel.applyTitle(title);
     allPanels.add(sessionPanel);
     if (sessionId) panels.set(sessionId, sessionPanel);
     return sessionPanel;
@@ -173,6 +186,7 @@ function activate(context) {
 
     const existing = panels.get(sessionId);
     if (existing) {
+      if (session.title) existing.applyTitle(session.title);
       existing.reveal();
       return;
     }
@@ -186,7 +200,7 @@ function activate(context) {
       return;
     }
 
-    openPanel(sessionId, cwd);
+    openPanel(sessionId, cwd, session.title);
   }
 
   async function newSession() {

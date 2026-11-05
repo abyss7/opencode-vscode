@@ -608,6 +608,7 @@ class SessionPanel {
 
   applyTitle(title) {
     if (this._disposed || !title) return;
+    if (this._sessionTitle === title && this.panel.title === title) return;
     this._sessionTitle = title;
     this.panel.title = title;
     this._post({ type: 'sessionInfo', title });

@@ -266,6 +266,15 @@ const context = {
   const titled = findSession(sessionMessage.sessionId);
   console.log('titles after wait:', JSON.stringify(panel.title), JSON.stringify(titled && titled.title));
 
+  // A sidebar refresh must repair a missing ACP title update in the open tab.
+  panel.title = 'OpenCode';
+  await commands.get('opencode.refreshSessions')();
+  assert.strictEqual(panel.title, findSession(session.id).title);
+  const titleUpdates = panel.messages.filter((message) => message.type === 'sessionInfo').length;
+  await commands.get('opencode.refreshSessions')();
+  assert.strictEqual(panel.messages.filter((message) => message.type === 'sessionInfo').length, titleUpdates,
+    'unchanged titles should not be reposted on every sidebar refresh');
+
   // Folders: create, drag and drop, rename, archive/restore, quick pick move, delete.
   pendingInputs.push('Work');
   await commands.get('opencode.newFolder')();
@@ -322,9 +331,10 @@ const context = {
 
   panel.dispose();
   await sleep(1000);
-  await commands.get('opencode.openSession')(session);
+  await commands.get('opencode.openSession')(renamed);
   const reopened = panels[1];
   assert.ok(reopened, 'reopened panel was not created');
+  assert.strictEqual(reopened.title, 'EXT renamed', 'known title must be visible before ACP starts');
   reopened.send({ type: 'ready' });
   const loadedMessage = await waitFor(
     () => reopened.messages.find((message) => message.type === 'session'),
