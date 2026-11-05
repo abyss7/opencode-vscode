@@ -149,6 +149,13 @@ function waitFor(messages, predicate, timeoutMs) {
     .join('');
   console.log('assistant text:', JSON.stringify(assistantText));
   assert.ok(assistantText.includes('PANEL-OK'), 'panel did not render assistant text');
+  await sessionPanel._restoreTurnStats();
+  const times = messages.filter((message) => message.type === 'messageTimes').flatMap((message) => message.times);
+  const answerIds = messages
+    .filter((message) => message.type === 'update' && message.update.sessionUpdate === 'agent_message_chunk')
+    .map((message) => message.update.messageId);
+  assert.ok(answerIds.length > 0 && answerIds.every((id) => times.some((time) => time.id === id && time.timestamp > 0)),
+    'server timestamps must match the ACP message IDs rendered in the panel');
   assert.ok(
     String(panel.iconPath).includes('opencode-done.svg'),
     'a finished unseen tab must be green'

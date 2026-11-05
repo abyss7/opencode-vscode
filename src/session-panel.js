@@ -1366,6 +1366,7 @@ class SessionPanel {
     try {
       const messages = await this.deps.api.listAllMessages(this.sessionId);
       if (this._disposed || messages.length === 0) return;
+      this._postMessageTimes(messages);
       const turns = buildTurnStats(messages);
       if (turns.length > 0) {
         this._post({ type: 'turnStats', turns, scope: 'all' });
@@ -1387,6 +1388,7 @@ class SessionPanel {
         order: 'desc',
       });
       if (this._disposed || recent.length === 0) return;
+      this._postMessageTimes(recent);
       const turns = buildTurnStats(recent.slice().reverse());
       const last = turns[turns.length - 1];
       if (last) this._post({ type: 'turnStats', turns: [last], scope: 'last' });
@@ -1398,6 +1400,17 @@ class SessionPanel {
     } catch (error) {
       this.deps.log(`Failed to refresh turn stats: ${error.message}`);
     }
+  }
+
+  _postMessageTimes(messages) {
+    const times = messages
+      .filter((message) => message.type === 'user' || message.type === 'assistant')
+      .map((message) => ({
+        id: message.id,
+        timestamp: message.time?.streamed || message.time?.created,
+      }))
+      .filter((message) => message.id && Number.isFinite(message.timestamp) && message.timestamp > 0);
+    this._post({ type: 'messageTimes', times });
   }
 
   async _modelContextSize(model) {

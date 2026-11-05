@@ -56,6 +56,8 @@
     currentAssistant: null,
     currentThought: null,
     lastUser: null,
+    replaying: true,
+    messageTimes: new Map(),
     toolCards: new Map(),
     smartReviews: new Map(),
     smartReviewHistory: null,
@@ -139,6 +141,8 @@
   }
 
   function resetTranscript() {
+    state.replaying = true;
+    state.messageTimes.clear();
     thoughtResize?.disconnect();
     // Keep the latest review snapshot: polls and history replay can arrive in either order.
     state.smartReviewHistory = null;
@@ -502,7 +506,7 @@
     }
     const command =
       wasBusy || images.length > 0 || selection ? null : knownCommand(text);
-    addUserMessage(text, null, images);
+    addUserMessage(text, null, images, Date.now());
     if (command) {
       state.commandEchoIndex = state.userMessageCount - 1;
       state.commandEchoText = text;
@@ -981,7 +985,57 @@
     scrollToBottom();
   }
 
-  function addUserMessage(text, messageId, images) {
+  function formatMessageTime(timestamp) {
+    const date = new Date(timestamp);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const day = date.toDateString() === today.toDateString() ? 'today'
+      : date.toDateString() === yesterday.toDateString() ? 'yesterday'
+        : date.toLocaleDateString();
+    return `${day} ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+  }
+
+  function setMessageTime(wrap, timestamp) {
+    if (!Number.isFinite(timestamp) || timestamp <= 0 || !Number.isFinite(new Date(timestamp).getTime())) return;
+    let time = wrap.querySelector(':scope > .message-time');
+    if (!time) {
+      time = el('time', 'message-time');
+      wrap.appendChild(time);
+    }
+    time.dataset.timestamp = String(timestamp);
+    time.dateTime = new Date(timestamp).toISOString();
+    time.textContent = formatMessageTime(timestamp);
+    time.title = new Date(timestamp).toLocaleString();
+  }
+
+  function stampMessage(wrap, messageId, timestamp) {
+    if (messageId) wrap.dataset.messageId = messageId;
+    setMessageTime(wrap, state.messageTimes.get(messageId) || timestamp || (state.replaying ? 0 : Date.now()));
+  }
+
+  function updateMessageTimes(times) {
+    for (const { id, timestamp } of times || []) {
+      if (id && Number.isFinite(timestamp) && timestamp > 0) state.messageTimes.set(id, timestamp);
+    }
+    for (const wrap of messagesEl.querySelectorAll('.message[data-message-id]')) {
+      setMessageTime(wrap, state.messageTimes.get(wrap.dataset.messageId));
+    }
+  }
+
+  // Relative day labels must also change in tabs left open overnight.
+  let messageTimeDay = new Date().toDateString();
+  const messageTimeClock = setInterval(() => {
+    const day = new Date().toDateString();
+    if (day === messageTimeDay) return;
+    messageTimeDay = day;
+    for (const time of messagesEl.querySelectorAll('.message-time')) {
+      time.textContent = formatMessageTime(Number(time.dataset.timestamp));
+    }
+  }, 1000);
+  messageTimeClock.unref?.();
+
+  function addUserMessage(text, messageId, images, timestamp) {
     finalizeThought();
     finalizeAssistant();
     finalizeToolGroup();
@@ -1007,6 +1061,7 @@
     body.hidden = !visible;
     wrap.appendChild(body);
     addUserImages(wrap, images, messageId);
+    stampMessage(wrap, messageId, timestamp);
     messagesEl.appendChild(wrap);
     state.userMessageCount += 1;
     state.lastUser = { messageId: messageId || null, wrap, body, text };
@@ -1034,6 +1089,7 @@
     wrap.hidden = true;
     const body = el('div', 'body');
     wrap.appendChild(body);
+    stampMessage(wrap, messageId);
     messagesEl.appendChild(wrap);
     const assistant = { messageId: messageId || null, wrap, body, text: '', finalized: false };
     state.currentAssistant = assistant;
@@ -2833,6 +2889,9 @@
         artifacts.reset();
         resetTranscript();
         break;
+      case 'messageTimes':
+        updateMessageTimes(message.times);
+        break;
       case 'sessionInfo':
         setTitle(message.title);
         break;
@@ -2914,6 +2973,7 @@
         applyFileCheckResults(message.files);
         break;
       case 'historyEnd':
+        state.replaying = false;
         state.skipUserIndex = -1;
         state.skipUserId = null;
         state.commandEchoText = '';
