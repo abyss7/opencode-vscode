@@ -335,6 +335,9 @@ select {
   content: "…";
 }
 
+.thought.compact > summary { display: none; }
+.thought.compact > .body { margin: 2px 0 2px 16px; white-space: pre; }
+
 /* Turn steps */
 
 .turn-steps {

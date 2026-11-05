@@ -163,6 +163,7 @@
   }
 
   function resetTranscript() {
+    thoughtResize?.disconnect();
     // Keep the latest review snapshot: polls and history replay can arrive in either order.
     state.smartReviewHistory = null;
     if (state.currentAssistant?.streamTimer) clearTimeout(state.currentAssistant.streamTimer);
@@ -1135,6 +1136,30 @@
     state.currentAssistant = null;
   }
 
+  const thoughtLayouts = new WeakMap();
+  const thoughtMeasure = typeof ResizeObserver === 'function' ? document.createElement('canvas').getContext('2d') : null;
+  const thoughtResize = thoughtMeasure ? new ResizeObserver((entries) => {
+    for (const { target } of entries) syncThoughtLayout(thoughtLayouts.get(target));
+  }) : null;
+
+  function syncThoughtLayout(thought) {
+    if (!thought || !thoughtMeasure || !thought.details.clientWidth) return;
+    const text = thought.text.trim();
+    const singleLine = text && !/[\r\n]/.test(text);
+    const heading = singleLine && /^#{1,6}\s+(.+?)(?:\s+#+)?$/.exec(text);
+    const bold = singleLine && /^(?:\*\*([^*]+)\*\*|__([^_]+)__)$/.exec(text);
+    const label = heading?.[1] || bold?.[1] || bold?.[2] || text;
+    thoughtMeasure.font = getComputedStyle(thought.body).font;
+    const compact = Boolean(singleLine && thoughtMeasure.measureText(label).width <= thought.details.clientWidth - 16);
+    if (compact !== thought.compact) {
+      if (compact) thought.expanded = thought.details.open;
+      thought.details.open = compact || thought.expanded;
+      thought.details.classList.toggle('compact', compact);
+      thought.compact = compact;
+    }
+    thought.body.textContent = compact ? label : thought.text;
+  }
+
   function createThought(messageId) {
     // Text that arrived before this thought must stay outside the chevron.
     finalizeAssistant();
@@ -1160,11 +1185,15 @@
       body,
       text: '',
       tokens: 0,
+      compact: false,
+      expanded: false,
       captionOffset: 0,
       captionFence: '',
       caption: '',
     };
     state.currentThought = thought;
+    thoughtLayouts.set(details, thought);
+    thoughtResize?.observe(details);
     return thought;
   }
 
@@ -1185,6 +1214,7 @@
     thought.text += content.text;
     updateThoughtCaption(thought, false);
     thought.body.textContent = thought.text;
+    syncThoughtLayout(thought);
     thought.tokens = estimateTokens(thought.text);
     thought.tokensEl.textContent = formatTokens(thought.tokens);
     thought.tokensEl.title = 'Estimated from streamed content';
@@ -1200,8 +1230,10 @@
     if (!thought) return;
     updateThoughtCaption(thought, true);
     thought.details.classList.remove('streaming');
-    thought.details.open = false;
+    thought.details.open = thought.compact;
+    thought.expanded = false;
     thought.labelEl.textContent = 'Thoughts';
+    syncThoughtLayout(thought);
     state.currentThought = null;
     renderLiveElapsed();
   }
