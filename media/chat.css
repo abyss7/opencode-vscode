@@ -889,6 +889,11 @@ select {
   cursor: pointer;
 }
 
+.elicitation-choice[type='radio'] {
+  background: transparent;
+  border-radius: 50%;
+}
+
 .elicitation-option-body {
   display: flex;
   flex-direction: column;
