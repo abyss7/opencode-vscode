@@ -158,4 +158,4 @@ function selectProfile(state, profiles, selected, fallback) {
   return { ...state, selected: id, choices };
 }
 
-module.exports = { VERSION, BUILTINS, FALLBACKS, compileLayers, evaluate, selectProfile, wildcard, canonical, validateProfiles };
+module.exports = { VERSION, BUILTINS, FALLBACKS, compileLayers, evaluate, selectProfile, wildcard, canonical, validateProfiles, resourceMatch };

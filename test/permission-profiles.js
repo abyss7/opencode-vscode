@@ -74,6 +74,7 @@ async function main() {
   // Exercise the actual plugin with a fake SDK: no model calls or live sessions.
   const plugin = path.join(temp, 'plugin');
   fs.mkdirSync(plugin);
+  fs.writeFileSync(path.join(plugin, 'global.cjs'), `module.exports = require(${JSON.stringify(require.resolve('../src/permission-global'))});`);
   fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles/runtime.cjs'), path.join(plugin, 'runtime.cjs'));
   fs.copyFileSync(path.join(__dirname, '../src/permission-profiles.js'), path.join(plugin, 'engine.cjs'));
   fs.writeFileSync(path.join(plugin, 'project.cjs'), fs.readFileSync(path.join(__dirname, '../src/permission-project.js'), 'utf8')
@@ -114,7 +115,7 @@ async function main() {
     } },
     rpc: { register: async (_, methods) => { rpc = methods; return { dispose() {} }; } },
   };
-  const cleanup = await setup(ctx, {}, path.join(plugin, 'state'));
+  const cleanup = await setup(ctx, {}, path.join(plugin, 'state'), temp);
   cleanups.push(cleanup);
   const config = { sessionID: 'ses_root', layers: [], defaultProfile: 'read-only', agentProfiles: { reviewer: 'read-only' } };
   assert.equal((await rpc.configure(config)).selected, 'read-only');
@@ -142,7 +143,7 @@ async function main() {
   const childView = await rpc.configure({ ...config, sessionID: 'ses_child' });
   assert.equal(childView.selected, 'read-only');
   await cleanup();
-  cleanups.push(await setup(ctx, {}, path.join(plugin, 'state')));
+  cleanups.push(await setup(ctx, {}, path.join(plugin, 'state'), temp));
   assert.equal((await rpc.configure({ ...config, selected: 'workspace' })).newActions, 'forbid', 'survives plugin reload');
   await assert.rejects(() => rpc.configure({ ...config, layers: [layer('X', 'workspace', [rule('*', '*', 'bad')])] }));
   assert.equal((await rpc.configure(config)).newActions, 'forbid', 'invalid changes leave previous state intact');

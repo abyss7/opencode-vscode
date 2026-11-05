@@ -58,16 +58,23 @@ class PermissionService {
       'bridge.cjs': path.join(__dirname, '../plugins/permission-profiles/bridge.cjs'),
       'engine.cjs': path.join(__dirname, 'permission-profiles.js'),
       'project.cjs': path.join(__dirname, 'permission-project.js'),
+      'global.cjs': path.join(__dirname, 'permission-global.js'),
+      'jsonc.js': path.join(__dirname, 'jsonc.js'),
     };
+    for (const file of ['main.js', 'impl/edit.js', 'impl/scanner.js', 'impl/format.js', 'impl/parser.js', 'impl/string-intern.js']) {
+      sources[`vendor/jsonc-parser/${file}`] = path.join(__dirname, 'vendor/jsonc-parser', file);
+    }
     const contentsByName = {};
     for (const [name, source] of Object.entries(sources)) contentsByName[name] = await fs.readFile(source, 'utf8');
     contentsByName['project.cjs'] = contentsByName['project.cjs'].replace("require('./permission-profiles')", "require('./engine.cjs')");
+    contentsByName['global.cjs'] = contentsByName['global.cjs'].replace("require('./permission-profiles')", "require('./engine.cjs')");
     const fingerprint = crypto.createHash('sha256').update(JSON.stringify(contentsByName)).digest('hex');
     contentsByName['index.ts'] += `\n// Bundle fingerprint: ${fingerprint}\n`;
     // Entry point last; its fingerprint reloads the plugin when a dependency changes.
-    for (const name of ['engine.cjs', 'project.cjs', 'classifier.cjs', 'bridge.cjs', 'runtime.cjs', 'index.ts']) {
+    for (const name of [...Object.keys(sources).filter((name) => name !== 'index.ts'), 'index.ts']) {
       const contents = contentsByName[name];
       const destination = path.join(target, name);
+      await fs.mkdir(path.dirname(destination), { recursive: true });
       const previous = await fs.readFile(destination, 'utf8').catch((error) => {
         if (error.code === 'ENOENT') return null;
         throw error;

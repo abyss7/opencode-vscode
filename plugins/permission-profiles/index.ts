@@ -3,7 +3,7 @@ import { Rpc } from '@opencode/plugin/rpc'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-for (const file of ['./runtime.cjs', './engine.cjs', './classifier.cjs', './project.cjs', './bridge.cjs']) delete require.cache[require.resolve(file)]
+for (const file of ['./runtime.cjs', './engine.cjs', './classifier.cjs', './project.cjs', './bridge.cjs', './global.cjs', './jsonc.js']) delete require.cache[require.resolve(file)]
 const { setup } = require('./runtime.cjs')
 const contract = Rpc.define({
   id: 'vscode-permission-profiles',

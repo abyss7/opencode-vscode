@@ -28,6 +28,7 @@ async function main() {
 
   const plugin = path.join(temp, 'plugin');
   fs.mkdirSync(plugin);
+  fs.writeFileSync(path.join(plugin, 'global.cjs'), `module.exports = require(${JSON.stringify(require.resolve('../src/permission-global'))});`);
   for (const name of ['runtime.cjs', 'classifier.cjs', 'bridge.cjs']) fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles', name), path.join(plugin, name));
   fs.copyFileSync(path.join(__dirname, '../src/permission-profiles.js'), path.join(plugin, 'engine.cjs'));
   fs.writeFileSync(path.join(plugin, 'project.cjs'), fs.readFileSync(path.join(__dirname, '../src/permission-project.js'), 'utf8')
@@ -58,7 +59,7 @@ async function main() {
     tool: { hook: async () => ({ dispose() {} }) },
     rpc: { register: async (_, methods) => { rpc = unwrap(methods); return { dispose() {} }; } },
   };
-  const cleanup = await require(path.join(plugin, 'runtime.cjs')).setup(ctx, {}, path.join(temp, 'state'));
+  const cleanup = await require(path.join(plugin, 'runtime.cjs')).setup(ctx, {}, path.join(temp, 'state'), temp);
   cleanups.push(cleanup);
   const config = { layers: [], defaultProfile: 'workspace', newActions: 'ask' };
   for (const sessionID of ['ses_a', 'ses_b']) await rpc.configure({ ...config, sessionID });
@@ -136,7 +137,7 @@ async function main() {
   const shared = { ...ctx, permission: {
     list: async () => ({ data: [] }), hook: async () => ({ dispose() {} }),
   }, rpc: { register: async (_, methods) => { relay = methods; return { dispose() {} }; } } };
-  const closeRelay = await require(path.join(plugin, 'runtime.cjs')).setup(shared, {}, path.join(temp, 'state'));
+  const closeRelay = await require(path.join(plugin, 'runtime.cjs')).setup(shared, {}, path.join(temp, 'state'), temp);
   cleanups.push(closeRelay);
   const service = new PermissionService({ vscode: {}, api: {
     permissionProfiles: async (method, input) => relay[method](input),
@@ -155,6 +156,26 @@ async function main() {
   pending = [];
   assert.equal((await relay.describe(input)).error.code, 'not_pending', 'expected errors are RPC data, not HTTP 500');
   await assert.rejects(() => service.describe('ses_a', cwd, 'call_one'), /no longer pending/);
+
+  // Native global rules take precedence, including in already configured sessions.
+  const globalFile = path.join(temp, 'opencode.jsonc');
+  const globals = (rules) => fs.writeFileSync(globalFile, '// Global policy\n' + JSON.stringify({ permissions: rules }));
+  const memory = path.join(os.homedir(), '.config/opencode/memory/note.md');
+  globals([{ action: '*', resource: '~/.config/opencode/memory/*', effect: 'allow' }]);
+  assert.equal((await effect('edit', [memory])).effect, 'allow');
+  assert.match((await effect('edit', [memory])).message, /Global/);
+  assert.equal((await effect('edit', [memory, path.join(temp, 'unmatched.md')])).effect, 'ask');
+  project.write(cwd, { version: 1, profiles: { workspace: { rules: [{ action: 'edit', resource: '*', effect: 'deny' }] } } });
+  assert.equal((await effect('edit', [memory])).effect, 'allow', 'global allow overrides project deny');
+  globals([{ action: 'edit', resource: '*', effect: 'allow' }, { action: 'edit', resource: '*', effect: 'ask' }]);
+  assert.equal((await effect('edit', [memory])).effect, 'ask', 'last global rule wins');
+  globals([{ action: 'edit', resource: '*', effect: 'deny' }]);
+  await rpc.configure({ ...config, sessionID: 'ses_b', selected: 'all' });
+  assert.equal((await effect('edit', ['a'])).effect, 'deny', 'global deny overrides All');
+  fs.writeFileSync(globalFile, '{ invalid');
+  assert.equal((await effect('edit', ['a'])).effect, 'deny', 'invalid global config fails closed');
+  fs.unlinkSync(globalFile);
+  assert.equal((await effect('edit', ['a'])).effect, 'allow', 'removing global rules restores profile policy');
   await closeRelay();
   await cleanup();
   assert.equal(fs.existsSync(path.join(temp, 'state/owners/ses_a')), false, 'owner registrations are removed on shutdown');

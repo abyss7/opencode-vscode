@@ -5,11 +5,12 @@ const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 const engine = require('./engine.cjs');
 const project = require('./project.cjs');
+const globalPermissions = require('./global.cjs');
 const { createBridge, result: rpcResult, failure } = require('./bridge.cjs');
 const { classify, CLASSIFIER } = require('./classifier.cjs');
 const { randomUUID, createHash } = require('node:crypto');
 
-async function setup(ctx, contract, directory) {
+async function setup(ctx, contract, directory, configDirectory = path.resolve(__dirname, '../..')) {
   const root = directory instanceof URL ? fileURLToPath(directory) : directory;
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   const inputs = new Map();
@@ -77,13 +78,26 @@ async function setup(ctx, contract, directory) {
     };
   };
   const decisionFor = (states, request) => {
+    if (!Array.isArray(request.resources) || !request.resources.length) {
+      return { effect: 'deny', reason: 'Invalid permission resources' };
+    }
     let decision = { effect: 'allow', reason: '' };
     const priority = { allow: 0, smart: 1, ask: 2, deny: 3 };
-    for (const state of states) {
-      const profiles = engine.compileLayers(state.layers);
-      const next = engine.evaluate(profiles[state.selected], state.choices[state.selected],
-        request.action, request.resources, state.cwd, state.projectRules?.profiles[state.selected]?.rules || []);
-      if (priority[next.effect] >= priority[decision.effect]) decision = next;
+    const rules = globalPermissions.read(configDirectory);
+    for (const resource of request.resources) {
+      const global = globalPermissions.match(rules, request.action, resource, ctx.location.directory);
+      if (global) {
+        if (priority[global.effect] >= priority[decision.effect]) {
+          decision = { effect: global.effect, reason: `Global (${global.file}): ${global.action} ${global.resource} → ${global.effect}` };
+        }
+        continue;
+      }
+      for (const state of states) {
+        const profiles = engine.compileLayers(state.layers);
+        const next = engine.evaluate(profiles[state.selected], state.choices[state.selected],
+          request.action, [resource], state.cwd, state.projectRules?.profiles[state.selected]?.rules || []);
+        if (priority[next.effect] >= priority[decision.effect]) decision = next;
+      }
     }
     return decision;
   };
@@ -110,7 +124,7 @@ async function setup(ctx, contract, directory) {
     const state = states.find((item) => item.sessionID === input.sessionID) || states[0];
     const profile = engine.compileLayers(state.layers)[state.selected];
     const decision = decisionFor(states, request);
-    const revision = createHash('sha256').update(JSON.stringify({ request, states })).digest('hex');
+    const revision = createHash('sha256').update(JSON.stringify({ request, states, global: globalPermissions.read(configDirectory) })).digest('hex');
     return { request, states, state, details: {
       permissionId: request.id, revision, owner: bridge.id, profile: state.selected, profileLabel: profile.label,
       action: request.action, resources: request.resources,
@@ -146,7 +160,14 @@ async function setup(ctx, contract, directory) {
       return;
     }
     if (!states.length) return;
-    let { effect, reason } = decisionFor(states, event);
+    let decision;
+    try { decision = decisionFor(states, event); }
+    catch (error) {
+      event.effect = 'deny';
+      event.message = `Cannot apply global permission rules: ${error.message}`;
+      return;
+    }
+    let { effect, reason } = decision;
     if (effect === 'smart') {
       const review = {
         id: randomUUID(), sessionID: event.sessionID, classifier: CLASSIFIER,
