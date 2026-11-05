@@ -55,7 +55,7 @@ const output = [];
 const errors = [];
 let serializer = null;
 let treeProvider = null;
-let dragAndDrop = null;
+let sidebarView = null;
 const pendingInputs = [];
 const pendingPicks = [];
 const mementoStore = new Map();
@@ -66,7 +66,7 @@ const memento = {
   },
 };
 
-function createWebviewPanel() {
+function createWebview() {
   const messageListeners = [];
   const disposeListeners = [];
   const messages = [];
@@ -91,15 +91,16 @@ function createWebviewPanel() {
       return { dispose: () => {} };
     },
     reveal: () => {},
+    visible: true,
+    onDidChangeVisibility: () => ({ dispose: () => {} }),
     dispose() {
       for (const listener of disposeListeners) listener();
     },
-    send(message) {
-      for (const listener of messageListeners) listener(message);
+    async send(message) {
+      await Promise.all(messageListeners.map((listener) => listener(message)));
     },
     messages,
   };
-  panels.push(panel);
   return panel;
 }
 
@@ -111,6 +112,7 @@ const vscode = {
   TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
   ViewColumn: { Active: 1 },
   Uri: {
+    file: (fsPath) => ({ fsPath, scheme: 'file' }),
     joinPath: (base, ...parts) => [base, ...parts].join('/'),
     parse: (value) => value,
   },
@@ -128,17 +130,18 @@ const vscode = {
       show: () => {},
       dispose: () => {},
     }),
-    createTreeView: (id, options) => {
-      treeProvider = options.treeDataProvider;
-      dragAndDrop = options.dragAndDropController;
-      return {
-        description: undefined,
-        visible: true,
-        onDidChangeVisibility: () => ({ dispose: () => {} }),
-        dispose: () => {},
-      };
+    registerWebviewViewProvider: (id, provider) => {
+      assert.strictEqual(id, 'opencode.sessions');
+      treeProvider = provider.provider;
+      sidebarView = createWebview();
+      provider.resolveWebviewView(sidebarView);
+      return { dispose: () => sidebarView.dispose() };
     },
-    createWebviewPanel,
+    createWebviewPanel: () => {
+      const panel = createWebview();
+      panels.push(panel);
+      return panel;
+    },
     registerWebviewPanelSerializer: (type, value) => {
       serializer = value;
       return { dispose: () => {} };
@@ -163,6 +166,7 @@ const vscode = {
   workspace: {
     workspaceFolders: [{ uri: { fsPath: cwd }, name: 'acp-test' }],
     getConfiguration: () => ({
+      inspect: () => ({}),
       get: (key, fallback) => {
         if (key === 'command') return 'opencode';
         if (key === 'autoApprovePermissions') return 'ask';
@@ -197,14 +201,16 @@ async function waitFor(predicate, timeoutMs, description) {
   throw new Error('Timed out waiting for ' + description);
 }
 
+const context = {
+  extensionUri: path.resolve(__dirname, '..'),
+  globalState: memento,
+  subscriptions: [],
+};
+
 (async () => {
-  const context = {
-    extensionUri: path.resolve(__dirname, '..'),
-    globalState: memento,
-    subscriptions: [],
-  };
   extension.activate(context);
   await waitFor(() => treeProvider, 5000, 'tree provider');
+  await sidebarView.send({ type: 'ready' });
   await sleep(1500);
 
   const groups = () => treeProvider.getChildren();
@@ -267,21 +273,8 @@ async function waitFor(predicate, timeoutMs, description) {
   assert.ok(work, 'the Work folder was not created');
   assert.strictEqual(treeProvider.getTreeItem(work).description, 'empty');
 
-  const transfer = {
-    data: new Map(),
-    set(key, value) {
-      this.data.set(key, value);
-    },
-    get(key) {
-      return this.data.get(key);
-    },
-  };
-  dragAndDrop.handleDrag([session], transfer);
-  assert.deepStrictEqual(
-    transfer.get('application/vnd.code.tree.opencode.sessions'),
-    [session]
-  );
-  await dragAndDrop.handleDrop(work, transfer);
+  await sidebarView.send({ type: 'sidebarAction', action: 'drop',
+    sidebarKind: 'session', sidebarId: session.id, folderId: work.id });
   work = groupByName('Work');
   assert.ok(
     work.sessions.some((item) => item.id === session.id),
@@ -360,11 +353,17 @@ async function waitFor(predicate, timeoutMs, description) {
   );
   assert.strictEqual(errors.length, 0, 'unexpected error: ' + errors.join('; '));
 
-  for (const disposable of context.subscriptions.reverse()) {
-    if (disposable && typeof disposable.dispose === 'function') disposable.dispose();
-  }
   console.log('EXTENSION OK');
 })().catch((error) => {
   console.error(error.stack || error);
+  for (const panel of panels) {
+    for (const message of panel.messages.filter((item) => item.type === 'error')) {
+      console.error(message.message);
+    }
+  }
   process.exitCode = 1;
+}).finally(() => {
+  for (const disposable of context.subscriptions.reverse()) {
+    if (disposable && typeof disposable.dispose === 'function') disposable.dispose();
+  }
 });
