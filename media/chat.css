@@ -260,36 +260,14 @@ select {
   display: none;
 }
 
-.message:has(> .message-time) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 12px;
-  align-items: start;
-}
-
-.message:has(> .message-time) > .body {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.message.user:has(> .message-time) > .body {
-  justify-self: end;
-  max-width: 100%;
-}
-
 .message-time {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
+  align-self: flex-end;
   color: var(--oc-secondary);
   font-size: 11px;
-  line-height: calc(var(--vscode-chat-font-size, var(--vscode-font-size, 13px)) * 1.55);
+  line-height: 1.4;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-
-.message.user > .message-time { padding-top: 5px; }
-.message:has(> .message-time) > .user-images { grid-column: 1; }
 
 .user-images {
   display: flex;

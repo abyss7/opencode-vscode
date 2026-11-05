@@ -95,6 +95,17 @@ class Element {
     for (const child of children) this.appendChild(child);
   }
 
+  prepend(...children) {
+    for (const child of children.slice().reverse()) {
+      if (child.parent) {
+        const index = child.parent.children.indexOf(child);
+        if (index >= 0) child.parent.children.splice(index, 1);
+      }
+      child.parent = this;
+      this.children.unshift(child);
+    }
+  }
+
   replaceChildren(...children) {
     this.children = [];
     this._text = '';

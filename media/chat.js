@@ -997,7 +997,7 @@
     const day = date.toDateString() === today.toDateString() ? 'today'
       : date.toDateString() === yesterday.toDateString() ? 'yesterday'
         : date.toLocaleDateString();
-    return `${day} ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    return `${day} ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })}`;
   }
 
   function setMessageTime(wrap, timestamp) {
@@ -1005,12 +1005,12 @@
     let time = wrap.querySelector(':scope > .message-time');
     if (!time) {
       time = el('time', 'message-time');
-      wrap.appendChild(time);
+      wrap.prepend(time);
     }
     time.dataset.timestamp = String(timestamp);
     time.dateTime = new Date(timestamp).toISOString();
     time.textContent = formatMessageTime(timestamp);
-    time.title = new Date(timestamp).toLocaleString();
+    time.title = new Date(timestamp).toLocaleString(undefined, { hourCycle: 'h23' });
   }
 
   function stampMessage(wrap, messageId, timestamp) {
