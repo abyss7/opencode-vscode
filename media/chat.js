@@ -1441,7 +1441,7 @@
 
   function createToolCard(update) {
     const subagent = isSubagentTool(update);
-    const group = state.toolGroup || createToolGroup();
+    const group = createToolGroup();
     const entry = el('div', subagent ? 'tool-entry subagent-entry' : 'tool-entry');
     entry.dataset.toolCallId = update.toolCallId;
     const header = el('div', 'tool-entry-header');

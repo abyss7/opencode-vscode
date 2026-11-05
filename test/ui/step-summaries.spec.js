@@ -37,10 +37,14 @@ test('summaries preserve steps and count unique files separately from tool total
     expect(meta.x).toBeGreaterThan(title.x + title.width);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await summary(page).click();
+  await expect(page.locator('.turn-steps')).toHaveAttribute('open', '');
   const group = page.locator('.tool-group > summary');
-  await expect(group.locator('.kind')).toHaveText('6 steps');
-  await expect(group.locator('.step-metric')).toHaveText(['Executed 6 tools', 'Read 2 files', 'Edited 2 files', 'Ran 1 command']);
+  await expect(group).toHaveCount(6);
+  await expect(group.locator('.step-metric')).toHaveCount(0);
+  for (const step of await group.all()) await expect(step).toBeVisible();
+  await group.first().click();
+  await expect(page.locator('.tool-group').first()).toHaveAttribute('open', '');
+  await expect(page.locator('.tool-group[open]')).toHaveCount(1);
   await chat.snapshot('step-summary-alignment');
 });
 
