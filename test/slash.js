@@ -163,8 +163,10 @@ for (const id of [
   'stop',
   'status',
   'status-text',
-  'title',
-  'subtitle',
+  'activity-detail',
+  'activity-operation',
+  'activity-target',
+  'activity-jump',
   'usage',
   'usage-cost',
   'usage-reset',
@@ -384,7 +386,7 @@ send({
 });
 const steps = ids.messages.querySelector('.turn-steps');
 assert.ok(steps, 'turn steps expected');
-const liveText = steps.querySelector('.live-text').textContent;
+const liveText = ids['activity-target'].textContent;
 assert.strictEqual(liveText.length, 121);
 assert.strictEqual(liveText.endsWith('…'), true);
 assert.strictEqual(liveText.includes('x'.repeat(200)), false);

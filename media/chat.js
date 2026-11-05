@@ -10,8 +10,10 @@
   const stopBtn = document.getElementById('stop');
   const statusEl = document.getElementById('status');
   const statusTextEl = document.getElementById('status-text');
-  const titleEl = document.getElementById('title');
-  const subtitleEl = document.getElementById('subtitle');
+  const activityDetailEl = document.getElementById('activity-detail');
+  const activityOperationEl = document.getElementById('activity-operation');
+  const activityTargetEl = document.getElementById('activity-target');
+  const activityJump = document.getElementById('activity-jump');
   const usageEl = document.getElementById('usage');
   const usageCostEl = document.getElementById('usage-cost');
   const usageSubscriptionEl = document.getElementById('usage-subscription');
@@ -53,6 +55,7 @@
     connected: false,
     busy: false,
     statusKind: 'connecting',
+    statusText: 'Connecting…',
     sessionId: null,
     cwd: null,
     currentAssistant: null,
@@ -83,6 +86,10 @@
     liveStartedAt: null,
     liveKey: null,
     liveClock: null,
+    activityPlan: '',
+    activityThought: '',
+    activityPurpose: '',
+    attentionRequests: new Map(),
     subagentsRunning: 0,
     autoScroll: true,
     acpCommands: [],
@@ -127,17 +134,26 @@
     plan.scrollIntoView({ block: 'center' });
     plan.querySelector('summary').focus();
   });
+  activityJump.addEventListener('click', () => {
+    const request = currentAttention();
+    const target = request?.target || state.currentAction?.target;
+    if (!target || target.hidden) {
+      jumpToBottom();
+      return;
+    }
+    for (let parent = target.parentElement; parent && parent !== messagesEl; parent = parent.parentElement) {
+      if (parent.tagName === 'DETAILS') parent.open = true;
+    }
+    state.autoScroll = false;
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (request) target.querySelector('input, textarea, select, button')?.focus({ preventScroll: true });
+  });
 
   function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
     if (text !== undefined && text !== null) node.textContent = text;
     return node;
-  }
-
-  function shortId(id) {
-    if (!id) return '';
-    return id.length > 16 ? id.slice(0, 14) + '…' : id;
   }
 
   function hideEmpty() {
@@ -164,7 +180,12 @@
     state.liveToolId = null;
     state.liveStartedAt = null;
     state.liveKey = null;
+    state.activityPlan = '';
+    state.activityThought = '';
+    state.activityPurpose = '';
+    state.attentionRequests.clear();
     stopLiveClock();
+    renderLiveElapsed();
     state.subagentCost = 0;
     state.userMessageCount = 0;
     state.replaySeen = new Set();
@@ -210,39 +231,34 @@
 
   function setStatus(kind, text) {
     state.statusKind = kind;
+    state.statusText = text || STATUS_LABELS[kind] || kind;
     state.connected = kind === 'ready' || kind === 'busy' || kind === 'cancelling';
     if (kind === 'busy' || kind === 'cancelling') state.busy = true;
     if (kind === 'ready' || kind === 'error' || kind === 'connecting') state.busy = false;
-    statusEl.className = 'status ' + kind;
-    statusTextEl.textContent = text || STATUS_LABELS[kind] || kind;
     stopBtn.disabled = kind === 'cancelling';
-    syncLiveFallback();
     if (!state.busy) {
       stopLiveClock();
+      state.currentAction = null;
+      state.liveToolId = null;
       state.liveStartedAt = null;
       state.liveKey = null;
+      state.activityPlan = '';
+      state.activityThought = '';
+      state.activityPurpose = '';
+      state.attentionRequests.clear();
     }
+    syncLiveFallback();
     updateComposer();
   }
 
   function setTitle(title) {
     if (!title) return;
-    titleEl.textContent = title;
     document.title = title;
-    if (state.sessionId) {
-      subtitleEl.textContent = 'ACP · ' + shortId(state.sessionId);
-      subtitleEl.title = state.sessionId;
-    }
   }
 
   function setSession(message) {
     state.sessionId = message.sessionId || null;
     if (message.cwd) state.cwd = message.cwd;
-    if (state.sessionId) {
-      subtitleEl.textContent =
-        (message.loaded ? 'ACP · ' : 'new session · ') + shortId(state.sessionId);
-      subtitleEl.title = state.sessionId;
-    }
     try {
       vscode.setState({ ...vscode.getState?.(), sessionId: state.sessionId, cwd: state.cwd });
     } catch {
@@ -563,6 +579,11 @@
     state.turnEnded = false;
     state.liveStartedAt = null;
     state.liveKey = null;
+    state.currentAction = null;
+    state.liveToolId = null;
+    state.activityPlan = '';
+    state.activityThought = '';
+    state.activityPurpose = '';
     stopLiveClock();
   }
 
@@ -575,22 +596,11 @@
     details.open = false;
     const summary = document.createElement('summary');
     const titleEl = el('span', 'kind', 'Steps');
-    const metaEl = el('span', 'name', '');
+    const metaEl = el('span', 'name step-metrics', '');
     const tokensEl = el('span', 'tokens', '');
     summary.appendChild(titleEl);
     summary.appendChild(metaEl);
     summary.appendChild(tokensEl);
-    const liveEl = el('span', 'live');
-    liveEl.hidden = true;
-    const liveKindEl = el('span', 'live-kind');
-    const liveTextEl = el('span', 'live-text');
-    const liveTimeEl = el('span', 'live-time');
-    const liveTokensEl = el('span', 'tokens');
-    liveEl.appendChild(liveKindEl);
-    liveEl.appendChild(liveTextEl);
-    liveEl.appendChild(liveTimeEl);
-    liveEl.appendChild(liveTokensEl);
-    summary.appendChild(liveEl);
     const body = el('div', 'body');
     details.appendChild(summary);
     details.appendChild(body);
@@ -601,30 +611,47 @@
       titleEl,
       metaEl,
       tokensEl,
-      liveEl,
-      liveKindEl,
-      liveTextEl,
-      liveTimeEl,
-      liveTokensEl,
     };
     syncLiveFallback();
     return state.turnSteps;
   }
 
-  /**
-   * The live line shows how long the current turn has been working, e.g.
-   * "working for 1m 37s". The clock starts with the first update of a turn and
-   * is refreshed once a second while the line is visible.
-   */
+  function currentAttention() {
+    return state.attentionRequests.values().next().value;
+  }
+
+  function requestAttention(target, kind, summary, text) {
+    state.attentionRequests.set(target, { target, kind, summary, text, startedAt: Date.now() });
+    startLiveClock();
+    renderLiveElapsed();
+  }
+
+  function resolveAttention(target) {
+    state.attentionRequests.delete(target);
+    syncLiveFallback();
+  }
+
+  /** The fixed header owns the live activity; step summaries retain history only. */
   function renderLiveElapsed() {
-    const steps = state.turnSteps;
-    if (!steps) {
-      stopLiveClock();
-      return;
-    }
-    steps.liveTimeEl.textContent = state.liveStartedAt
-      ? `for ${formatElapsed(Date.now() - state.liveStartedAt)}`
+    const request = state.statusKind === 'cancelling' ? null : currentAttention();
+    const active = request || (state.busy ? state.currentAction : null);
+    const kind = request ? 'attention' : state.statusKind;
+    const summary = request?.summary || (state.busy && kind !== 'cancelling'
+      ? state.activityThought || state.activityPlan || state.activityPurpose || active?.summary || state.statusText
+      : state.statusText);
+    statusEl.className = 'status ' + kind;
+    statusEl.title = request ? 'Needs your input' : STATUS_LABELS[kind] || kind;
+    if (statusTextEl.textContent !== summary) statusTextEl.textContent = summary;
+    statusTextEl.title = summary;
+    const startedAt = request?.startedAt ?? state.liveStartedAt;
+    const operation = active?.kind || (state.busy ? 'working' : '');
+    activityDetailEl.hidden = !operation;
+    activityOperationEl.textContent = operation
+      ? `${operation}${startedAt !== null && startedAt !== undefined ? ' for ' + formatElapsed(Date.now() - startedAt) : ''}`
       : '';
+    activityTargetEl.textContent = active?.text || '';
+    activityTargetEl.title = active?.text || '';
+    activityTargetEl.hidden = !active?.text;
   }
 
   function startLiveClock() {
@@ -638,52 +665,36 @@
     state.liveClock = null;
   }
 
-  function markLiveStart(key) {
+  function markLiveStart(key, startedAt) {
     const next = key || 'action';
     // A new action restarts the clock; updates of the same tool keep it.
     if (!state.liveStartedAt || state.liveKey !== next) {
-      state.liveStartedAt = Date.now();
+      state.liveStartedAt = startedAt ?? Date.now();
       state.liveKey = next;
     }
-    startLiveClock();
+    if (state.busy || state.attentionRequests.size) startLiveClock();
     renderLiveElapsed();
   }
 
-  function setLiveAction(kind, text, tokens, key) {
-    const steps = state.turnSteps;
-    if (!steps) return;
-    state.currentAction = { kind, text, tokens };
-    steps.liveKindEl.textContent = kind;
-    steps.liveTextEl.textContent = text || '';
-    steps.liveTextEl.hidden = !text;
-    steps.liveTextEl.title = state.currentAction.text || '';
-    steps.liveTokensEl.textContent = tokens ? formatTokens(tokens) : '';
-    steps.liveTokensEl.title = 'Estimated from streamed content';
-    steps.liveEl.hidden = false;
-    markLiveStart(key);
+  function setLiveAction(kind, text, key, summary, target, startedAt) {
+    state.currentAction = { kind, text, summary, target };
+    markLiveStart(key, startedAt);
   }
 
   function syncLiveFallback() {
-    const steps = state.turnSteps;
-    if (!steps) return;
-    if (state.currentAction) return;
-    if (state.busy) {
-      steps.liveKindEl.textContent = 'working';
-      steps.liveTextEl.textContent = '';
-      steps.liveTextEl.hidden = true;
-      steps.liveTextEl.title = '';
-      steps.liveTokensEl.textContent = '';
-      steps.liveTokensEl.title = '';
-      steps.liveEl.hidden = false;
+    if (state.busy && !state.currentAction) {
       markLiveStart('working');
-    } else {
-      steps.liveEl.hidden = true;
     }
+    if (state.busy || state.attentionRequests.size) startLiveClock();
+    else stopLiveClock();
+    renderLiveElapsed();
   }
 
   function clearLiveAction() {
     state.currentAction = null;
     state.liveToolId = null;
+    state.liveStartedAt = null;
+    state.liveKey = null;
     syncLiveFallback();
   }
 
@@ -698,25 +709,71 @@
     return steps;
   }
 
+  function toolFilePaths(card) {
+    const update = card.activity || {};
+    const input = toolInputObject(update) || {};
+    let paths = permissionPatchOperations(input).map((operation) => operation.path);
+    if (!paths.length) paths = (Array.isArray(update.content) ? update.content : [])
+      .filter((item) => item?.type === 'diff').map((item) => item.path);
+    if (!paths.length) paths = [input.filePath || input.path];
+    if (!paths.some((path) => typeof path === 'string' && path.trim())) {
+      paths = (Array.isArray(update.locations) ? update.locations : []).map((location) => location?.path);
+    }
+    return paths.filter((path) => typeof path === 'string' && path.trim()).map(permissionPathKey);
+  }
+
+  function summarizeTools(cards) {
+    const files = { read: new Set(), edit: new Set(), write: new Set() };
+    const calls = { read: 0, edit: 0, write: 0, execute: 0, search: 0, fetch: 0 };
+    const unknownPaths = new Set();
+    let failed = 0;
+    for (const card of cards) {
+      if (card.statusValue === 'failed') failed += 1;
+      // Completed actions describe results; pending/failed actions are not successes.
+      if (card.statusValue !== 'completed' || !Object.hasOwn(calls, card.kind)) continue;
+      calls[card.kind] += 1;
+      if (files[card.kind]) {
+        const paths = toolFilePaths(card);
+        if (!paths.length) unknownPaths.add(card.kind);
+        for (const path of paths) files[card.kind].add(path);
+      }
+    }
+    const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+    const metrics = [];
+    for (const [kind, verb] of [['read', 'Read'], ['edit', 'Edited'], ['write', 'Wrote']]) {
+      if (!calls[kind]) continue;
+      metrics.push(`${verb} ${unknownPaths.has(kind) ? plural(calls[kind], 'time') : plural(files[kind].size, 'file')}`);
+    }
+    if (calls.execute) metrics.push(`Ran ${plural(calls.execute, 'command')}`);
+    if (calls.search) metrics.push(`Searched ${plural(calls.search, 'time')}`);
+    if (calls.fetch) metrics.push(`Fetched ${plural(calls.fetch, 'resource')}`);
+    if (failed) metrics.push(`${failed} failed`);
+    const running = cards.some((card) => card.statusValue === 'pending' || card.statusValue === 'in_progress');
+    return { label: cards.length ? `${running ? 'Executing' : 'Executed'} ${plural(cards.length, 'tool')}` : 'Details', metrics };
+  }
+
+  function turnToolCards(details) {
+    return [...details.querySelectorAll('.tool-entry')]
+      .map((entry) => state.toolCards.get(entry.dataset.toolCallId)).filter(Boolean);
+  }
+
+  function renderStepSummary(title, meta, cards, count = cards.length) {
+    const summary = summarizeTools(cards);
+    title.textContent = `${count} step${count === 1 ? '' : 's'}`;
+    meta.classList.add('step-metrics');
+    const metrics = cards.length ? [summary.label, ...summary.metrics] : [];
+    meta.replaceChildren(...metrics.map((text) => el('span', 'step-metric', text)));
+  }
+
   function syncTurnSteps() {
     const steps = state.turnSteps;
     if (!steps) return;
-    let count = 0;
     let totalTokens = 0;
-    const kinds = [];
     for (const child of steps.body.children) {
       const classes = String(child.className || '').split(/\s+/);
       if (classes.includes('tool-group')) {
-        const entries = child.querySelectorAll('.tool-entry');
-        count += entries.length;
         totalTokens += Number(child.dataset.tokens || 0);
-        for (const entry of entries) {
-          const kindEl = entry.querySelector('.kind');
-          const kind = kindEl ? kindEl.textContent : 'tool';
-          if (kind && !kinds.includes(kind)) kinds.push(kind);
-        }
       } else {
-        count += 1;
         const ownTokens = Number(child.dataset.tokens || 0);
         totalTokens +=
           ownTokens > 0
@@ -724,18 +781,9 @@
             : isAssistantMessage(child)
               ? estimateTokens(child.textContent)
               : 0;
-        if (classes.includes('thought')) {
-          if (!kinds.includes('thought')) kinds.push('thought');
-        } else if (classes.includes('plan')) {
-          if (!kinds.includes('plan')) kinds.push('plan');
-        } else if (isAssistantMessage(child)) {
-          if (!kinds.includes('text')) kinds.push('text');
-        }
       }
     }
-    steps.titleEl.textContent = `${count} step${count === 1 ? '' : 's'}`;
-    steps.metaEl.textContent =
-      kinds.slice(0, 4).join(' · ') + (kinds.length > 4 ? ' …' : '');
+    renderStepSummary(steps.titleEl, steps.metaEl, turnToolCards(steps.details), countBlockSteps(steps.details));
     steps.tokensEl.textContent = totalTokens ? formatTokens(totalTokens) : '';
     steps.tokensEl.title = totalTokens
       ? 'Estimated tokens for this turn'
@@ -746,12 +794,6 @@
     const steps = state.turnSteps;
     if (!steps) return;
     syncTurnSteps();
-    state.currentAction = null;
-    state.liveToolId = null;
-    state.liveStartedAt = null;
-    state.liveKey = null;
-    stopLiveClock();
-    steps.liveEl.hidden = true;
     state.turnSteps = null;
   }
 
@@ -860,16 +902,10 @@
     const titleEl = summary.querySelector(':scope > .kind');
     const metaEl = summary.querySelector(':scope > .name');
     const tokensEl = summary.querySelector(':scope > .tokens');
-    const steps = Number(stat.steps) || 0;
     const totalTokens = Number(stat.tokens) || 0;
-    if (titleEl) {
-      titleEl.textContent = `${steps} step${steps === 1 ? '' : 's'}`;
-    }
-    if (metaEl) {
-      const kinds = Array.isArray(stat.kinds) ? stat.kinds : [];
-      metaEl.textContent =
-        kinds.slice(0, 4).join(' · ') + (kinds.length > 4 ? ' …' : '');
-    }
+    // Preserve the original step total; the adjacent theses describe only tools.
+    if (titleEl && metaEl) renderStepSummary(titleEl, metaEl, turnToolCards(details),
+      Number(stat.steps) || countBlockSteps(details));
     details.dataset.tokens = String(totalTokens);
     if (tokensEl) {
       const exact = stat.exact === true;
@@ -946,7 +982,15 @@
     finalizeTurnSteps();
     hideEmpty();
     messagesEl.appendChild(el('div', 'error', text));
+    // A failed prompt does not mean the transport disconnected: allow a retry.
+    state.statusKind = 'error';
+    state.statusText = text;
     state.busy = false;
+    state.activityPlan = '';
+    state.activityThought = '';
+    state.activityPurpose = '';
+    state.attentionRequests.clear();
+    clearLiveAction();
     updateComposer();
     scrollToBottom();
   }
@@ -1016,7 +1060,6 @@
     }
     if (state.currentThought) finalizeThought();
     finalizeToolGroup();
-    clearLiveAction();
     hideEmpty();
 
     let assistant = state.currentAssistant;
@@ -1029,6 +1072,8 @@
       assistant = createAssistant(messageId);
     }
     assistant.text += content.text;
+    state.liveToolId = null;
+    setLiveAction('write', '', 'response:' + state.turnId, 'Writing response…', assistant.wrap);
     if (readingPreferences.streaming && !assistant.streamTimer) {
       assistant.streamTimer = setTimeout(() => {
         assistant.streamTimer = null;
@@ -1105,6 +1150,9 @@
       body,
       text: '',
       tokens: 0,
+      captionOffset: 0,
+      captionFence: '',
+      caption: '',
     };
     state.currentThought = thought;
     return thought;
@@ -1115,18 +1163,24 @@
       return;
     }
     finalizeToolGroup();
-    clearLiveAction();
     hideEmpty();
     let thought = state.currentThought;
+    if (thought && messageId && thought.messageId && messageId !== thought.messageId) {
+      finalizeThought();
+      thought = null;
+    }
     if (!thought) {
       thought = createThought(messageId);
     }
     thought.text += content.text;
+    updateThoughtCaption(thought, false);
     thought.body.textContent = thought.text;
     thought.tokens = estimateTokens(thought.text);
     thought.tokensEl.textContent = formatTokens(thought.tokens);
     thought.tokensEl.title = 'Estimated from streamed content';
     thought.details.dataset.tokens = String(thought.tokens);
+    state.liveToolId = null;
+    setLiveAction('think', '', 'thought:' + state.turnId, 'Thinking…', thought.details);
     syncTurnSteps();
     scrollToBottom();
   }
@@ -1134,10 +1188,49 @@
   function finalizeThought() {
     const thought = state.currentThought;
     if (!thought) return;
+    updateThoughtCaption(thought, true);
     thought.details.classList.remove('streaming');
     thought.details.open = false;
     thought.labelEl.textContent = 'Thoughts';
     state.currentThought = null;
+    renderLiveElapsed();
+  }
+
+  function shortActivityCaption(value) {
+    if (typeof value !== 'string') return '';
+    const text = value.trim().replace(/`([^`\r\n]+)`/g, '$1');
+    // Do not turn a prefix of a reasoning stream into an apparent summary.
+    if (!text || text.length > 120 || /[\r\n]/.test(text)) return '';
+    if (/^(analysis|reasoning|thoughts?|thinking|plan|summary|working|read|edit|write|run|execute|search|fetch|shell|bash|patch|tool|other)[\s.!:…]*$/i.test(text)) return '';
+    return text;
+  }
+
+  function updateThoughtCaption(thought, finished) {
+    let caption = '';
+    // Scan only newly completed lines, not the entire reasoning on every token.
+    while (thought.captionOffset < thought.text.length) {
+      const newline = thought.text.indexOf('\n', thought.captionOffset);
+      if (newline < 0 && !finished) break;
+      const end = newline < 0 ? thought.text.length : newline;
+      const line = thought.text.slice(thought.captionOffset, end).replace(/\r$/, '');
+      thought.captionOffset = newline < 0 ? end : end + 1;
+      const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (fence) {
+        if (!thought.captionFence) thought.captionFence = fence[1];
+        else if (fence[1][0] === thought.captionFence[0] && fence[1].length >= thought.captionFence.length && !fence[2].trim()) thought.captionFence = '';
+        continue;
+      }
+      if (thought.captionFence || /^( {4}|\t)/.test(line)) continue;
+      const heading = /^\s{0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
+      const bold = /^\s*(?:\*\*([^*]+)\*\*|__([^_]+)__):?\s*$/.exec(line);
+      const candidate = shortActivityCaption(heading?.[1] || bold?.[1] || bold?.[2]);
+      if (candidate) thought.caption = caption = candidate;
+    }
+    // Plain text is eligible only once the complete block is known to be short.
+    if (finished && !thought.caption && !/^(?:\s*[#>*_`~]| {4}|\t)/.test(thought.text)) {
+      caption = shortActivityCaption(thought.text);
+    }
+    if (caption && state.busy) state.activityThought = caption;
   }
 
   function toolStatusLabel(status) {
@@ -1316,17 +1409,13 @@
     if (!group || group.cards.length === 0) return;
     const count = group.cards.length;
     if (count === 1) {
-      group.kindEl.textContent = group.cards[0].kind || 'Tool';
-      group.nameEl.textContent = group.cards[0].nameEl.textContent || '';
+      const summary = summarizeTools(group.cards);
+      group.kindEl.textContent = summary.metrics.length === 1 ? summary.metrics[0] : summary.label;
+      const name = group.cards[0].nameEl.textContent || '';
+      group.nameEl.classList.remove('step-metrics');
+      group.nameEl.textContent = /^(other|tool)$/i.test(name) ? '' : name;
     } else {
-      const kinds = [];
-      for (const card of group.cards) {
-        const kind = card.kind || card.kindEl.textContent;
-        if (kind && !kinds.includes(kind)) kinds.push(kind);
-      }
-      group.kindEl.textContent = `${count} steps`;
-      group.nameEl.textContent =
-        kinds.slice(0, 4).join(' · ') + (kinds.length > 4 ? ' …' : '');
+      renderStepSummary(group.kindEl, group.nameEl, group.cards);
     }
     group.details.classList.toggle('single', count === 1);
 
@@ -1359,6 +1448,7 @@
     const subagent = isSubagentTool(update);
     const group = state.toolGroup || createToolGroup();
     const entry = el('div', subagent ? 'tool-entry subagent-entry' : 'tool-entry');
+    entry.dataset.toolCallId = update.toolCallId;
     const header = el('div', 'tool-entry-header');
     const kindEl = el('span', 'kind', subagent ? 'sub-agent' : update.kind || 'tool');
     const nameEl = el(
@@ -1389,6 +1479,7 @@
       subagent,
       kind: subagent ? 'sub-agent' : update.kind || 'tool',
       statusValue: null,
+      activity: update,
       tokens: 0,
       inputText: '',
       outputText: '',
@@ -1504,7 +1595,11 @@
       finalizeThought();
       hideEmpty();
       card = createToolCard(update);
+      card.activityTurn = state.turnId;
     }
+    // Tool updates are partial. Keep the description and start time across them.
+    card.activity = { ...card.activity, ...update };
+    if (card.startedAt === undefined) card.startedAt = Date.now();
     if (card.subagent) {
       const label = subagentLabel(update);
       if (label) card.nameEl.textContent = label;
@@ -1528,23 +1623,40 @@
     syncToolGroup(card.group);
     syncTurnSteps();
     if (card.statusValue === 'pending' || card.statusValue === 'in_progress') {
-      state.liveToolId = update.toolCallId;
-      const kind = actionLabel(card.kind);
-      const isRun = kind === 'run';
-      setLiveAction(
-        kind,
-        card.subagent
-          ? card.nameEl.textContent
-          : isRun
-            ? prefixLine(toolCommand(update))
-            : describeTool(update),
-        card.tokens,
-        update.toolCallId
-      );
+      showToolActivity(card);
     } else if (state.liveToolId === update.toolCallId) {
-      clearLiveAction();
+      const running = [...state.toolCards.values()].reverse().find((item) =>
+        item.activityTurn === state.turnId && (item.statusValue === 'pending' || item.statusValue === 'in_progress'));
+      if (running) showToolActivity(running);
+      else clearLiveAction();
     }
     scrollToBottom();
+  }
+
+  function showToolActivity(card) {
+    const update = card.activity;
+    state.liveToolId = update.toolCallId;
+    const kind = actionLabel(card.kind);
+    const text = card.subagent ? card.nameEl.textContent
+      : kind === 'run' ? prefixLine(toolCommand(update)) : describeTool(update);
+    const summary = toolActivityPurpose(card, text);
+    if (summary && state.busy) state.activityPurpose = summary;
+    setLiveAction(kind, text, update.toolCallId, summary, card.entry, card.startedAt);
+  }
+
+  function toolActivityPurpose(card, detail) {
+    const input = toolInputObject(card.activity) || {};
+    const normalize = (value) => String(value || '').replace(/[`'"…]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const targets = [detail, input.command, input.path, input.filePath, card.kind].map(normalize).filter(Boolean);
+    for (const [index, value] of [input.description, card.nameEl.textContent].entries()) {
+      const caption = shortActivityCaption(value);
+      if (!caption || (index === 1 && !/\s/.test(caption))) continue;
+      const normalized = normalize(caption);
+      const withoutAction = normalized.replace(/^(?:read(?:ing)?|edit(?:ing)?|run(?:ning)?|execute|executing|write|writing|search(?:ing)?|fetch(?:ing)?|tool|shell|bash|patch)(?:\s+(?:file|command))?[\s:—-]+/, '');
+      if (targets.some((target) => target === normalized || target === withoutAction)) continue;
+      return caption;
+    }
+    return '';
   }
 
   function addPlan(update) {
@@ -1574,6 +1686,8 @@
     const entries = state.planEl.entries;
     entries.replaceChildren();
     const planEntries = Array.isArray(update.entries) ? update.entries : [];
+    state.activityPlan = planEntries.find((entry) => entry.status === 'in_progress')?.content || '';
+    syncLiveFallback();
     if (planProgress) {
       const done = planEntries.filter((entry) => entry.status === 'completed').length;
       const current = planEntries.find((entry) => entry.status === 'in_progress') || planEntries.find((entry) => entry.status !== 'completed');
@@ -1799,6 +1913,7 @@
     } else {
       card.dataset.resolved = '1';
       permissionBusy(card, true);
+      resolveAttention(card);
     }
     const status = el('div', 'permission-note permission-save-status', message.error || message.note);
     status.setAttribute('role', message.error ? 'alert' : 'status');
@@ -1828,6 +1943,7 @@
         if (card.dataset.resolved === '1' || card.dataset.busy === '1') return;
         card.dataset.resolved = '1';
         permissionBusy(card, true);
+        resolveAttention(card);
         const note = el('div', 'permission-note', 'Selected: ' + (option.name || option.optionId));
         card.appendChild(note);
         vscode.postMessage({
@@ -1845,6 +1961,7 @@
         if (card.dataset.resolved === '1' || card.dataset.busy === '1') return;
         card.dataset.resolved = '1';
         permissionBusy(card, true);
+        resolveAttention(card);
         card.appendChild(el('div', 'permission-note', 'Cancelled'));
         vscode.postMessage({
           type: 'permissionResponse',
@@ -1858,6 +1975,7 @@
     card.appendChild(actions);
     renderRememberRule(card, message);
     messagesEl.appendChild(card);
+    requestAttention(card, 'permission', 'Waiting for approval', toolTitle(message.toolCall));
     scheduleFileChecks();
     scrollToBottom();
   }
@@ -1958,6 +2076,7 @@
     function resolve(action) {
       if (card.dataset.resolved === '1') return;
       card.dataset.resolved = '1';
+      resolveAttention(card);
       for (const item of actions.querySelectorAll('button')) item.disabled = true;
       const payload = { type: 'elicitationResponse', requestId: message.requestId, action };
       if (action === 'accept') payload.content = collectElicitationContent(controls);
@@ -1969,6 +2088,7 @@
     actions.appendChild(cancel);
     card.appendChild(actions);
     messagesEl.appendChild(card);
+    requestAttention(card, 'question', 'Waiting for your answer', prefixLine(message.message || 'Question'));
     scrollToBottom();
   }
 

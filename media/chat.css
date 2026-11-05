@@ -51,24 +51,20 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex: 0 0 42px;
+  height: 42px;
   min-height: 42px;
-  padding: 6px 16px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--oc-border-soft);
   background: var(--vscode-editor-background);
 }
 
-.brand {
+#status {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 9px;
   min-width: 0;
-}
-
-.logo {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  color: var(--vscode-foreground);
 }
 
 .logo-frame {
@@ -80,22 +76,39 @@ select {
   opacity: 0.4;
 }
 
-.titles {
+.activity-content {
+  flex: 1;
   min-width: 0;
 }
 
-.title {
+#status-text {
   overflow: hidden;
   color: var(--vscode-foreground);
   font-size: 13px;
-  font-weight: 600;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.subtitle {
+#activity-detail {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   overflow: hidden;
   color: var(--oc-secondary);
+  font-size: 11px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+#activity-operation {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+#activity-target {
+  min-width: 0;
+  overflow: hidden;
   font-family: var(--oc-mono);
   font-size: 10px;
   text-overflow: ellipsis;
@@ -110,6 +123,16 @@ select {
   font-size: 11px;
   white-space: nowrap;
 }
+
+.header-right {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+#status .dot { flex: none; }
+#status.attention .dot { background: var(--vscode-errorForeground); }
 
 .dot {
   width: 7px;
@@ -319,10 +342,10 @@ select {
 }
 
 .turn-steps > summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 12px 72px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 4px 8px;
   padding: 3px 0;
   color: var(--oc-secondary);
   cursor: pointer;
@@ -354,20 +377,44 @@ select {
 }
 
 .turn-steps > summary .kind {
-  flex: none;
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
   font-weight: 600;
 }
 
 .turn-steps > summary .name {
-  flex: 1;
+  grid-column: 3;
+  grid-row: 1;
   min-width: 0;
-  overflow: hidden;
   font-family: var(--oc-mono);
   font-size: 11px;
   opacity: 0.85;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
+
+.turn-steps > summary::before,
+.tool-group > summary::before {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  justify-self: center;
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: rotate(-45deg);
+}
+.turn-steps[open] > summary::before,
+.tool-group[open] > summary::before { transform: rotate(45deg); }
+.turn-steps > summary > .tokens { grid-column: 4; grid-row: 1; justify-self: end; }
+.turn-steps > summary > .kind,
+.tool-group > summary > .kind { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-steps > summary > .name:empty,
+.tool-group > summary > .name:empty { display: none; }
+.turn-steps > summary .step-metrics,
+.tool-group > summary .step-metrics { display: flex; flex-wrap: wrap; gap: 4px 16px; white-space: normal; }
+.step-metric { white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .tokens {
   flex: none;
@@ -376,46 +423,9 @@ select {
   font-family: var(--oc-mono);
   font-size: 10px;
   font-style: normal;
+  font-variant-numeric: tabular-nums;
   opacity: 0.75;
   white-space: nowrap;
-}
-
-.turn-steps > summary .live {
-  display: flex;
-  flex-basis: 100%;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding-left: 18px;
-  color: var(--oc-secondary);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.live-kind {
-  flex: none;
-  font-family: var(--oc-mono);
-  opacity: 0.75;
-}
-
-.live-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.live-time {
-  flex: none;
-  font-family: var(--oc-mono);
-  font-size: 10px;
-  opacity: 0.6;
-  white-space: nowrap;
-}
-
-.turn-steps > summary .live .tokens {
-  margin-left: auto;
 }
 
 .turn-steps[open] > .body {
@@ -431,9 +441,10 @@ select {
 }
 
 .tool-group > summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 12px 144px minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 4px 8px;
   padding: 4px 0;
   cursor: pointer;
   list-style: none;
@@ -445,19 +456,8 @@ select {
 }
 
 .tool-group > summary::before {
-  display: inline-block;
-  width: 12px;
-  flex: none;
   color: var(--oc-secondary);
-  content: "›";
-  font-size: 16px;
-  line-height: 1;
-  text-align: center;
   transition: transform 0.15s;
-}
-
-.tool-group[open] > summary::before {
-  transform: rotate(90deg);
 }
 
 .tool-group .kind {
@@ -477,6 +477,21 @@ select {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tool-group > summary > .kind { grid-column: 2; grid-row: 1; min-width: 0; }
+.tool-group > summary > .name { grid-column: 3; grid-row: 1; }
+.tool-group > summary > .tokens { grid-column: 4; grid-row: 1; justify-self: end; }
+.tool-group > summary > .status { grid-column: 5; grid-row: 1; }
+
+@media (max-width: 600px) {
+  .turn-steps > summary { grid-template-columns: 12px minmax(0, 1fr) auto; }
+  .tool-group > summary { grid-template-columns: 12px minmax(0, 1fr) auto auto; }
+  .turn-steps > summary > .tokens,
+  .tool-group > summary > .tokens { grid-column: 3; }
+  .tool-group > summary > .status { grid-column: 4; }
+  .turn-steps > summary > .name,
+  .tool-group > summary > .name { grid-column: 2 / -1; grid-row: 2; }
 }
 
 .tool-group > summary:hover .name {
@@ -1144,7 +1159,7 @@ select {
 .artifact-toolbar { display: flex; gap: 5px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--oc-border); }
 .artifact-toolbar select { max-width: 100%; min-width: 0; color: inherit; background: var(--vscode-input-background); border: 1px solid var(--oc-border); }
 .artifact-toolbar select:first-child { flex: 1; }
-#artifacts button, #artifacts-toggle, .artifact-reference button { color: var(--vscode-textLink-foreground); border: 1px solid var(--oc-border); border-radius: 4px; background: transparent; padding: 4px 7px; cursor: pointer; }
+#artifacts button, .artifact-reference button { color: var(--vscode-textLink-foreground); border: 1px solid var(--oc-border); border-radius: 4px; background: transparent; padding: 4px 7px; cursor: pointer; }
 #artifacts button:focus-visible, .artifact-reference button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
 .artifact-content { overflow: auto; padding: 12px; min-height: 0; flex: 1; }
 .artifact-links { display: flex; gap: 5px; padding: 6px 8px; }
@@ -1180,7 +1195,13 @@ select {
 .artifact-offer { margin: 6px; }
 .user-images figure { margin: 4px 0; }
 
-#view-toggle { color: var(--oc-secondary); border: 1px solid var(--oc-border); background: transparent; border-radius: 4px; cursor: pointer; }
+#view-toggle, #activity-jump { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 26px; height: 26px; padding: 0; color: var(--oc-secondary); background: transparent; cursor: pointer; }
+#view-toggle { border: 1px solid var(--oc-border); border-radius: 4px; font-size: 12px; line-height: 1; }
+#activity-jump { border: 0; border-radius: 4px; }
+#activity-jump svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+#artifacts-toggle { height: 26px; padding: 0 4px; border: 0; border-radius: 4px; color: var(--vscode-textLink-foreground); background: transparent; font-size: 11px; cursor: pointer; }
+.header-right button:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+.header-right button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 #view-options { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--oc-border-soft); font-size: 12px; }
 #view-options select { color: inherit; background: var(--vscode-input-background); border: 1px solid var(--oc-border); }
 #view-options label { display: flex; align-items: center; gap: 5px; }

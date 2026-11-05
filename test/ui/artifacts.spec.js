@@ -30,7 +30,7 @@ test('artifacts retain revisions, preview/source and exact export payload', asyn
   expect(await chat.received('openFile')).toEqual([{ type: 'openFile', path: 'bench/results.json', line: 3 }]);
   await page.getByRole('button', { name: 'Close artifacts' }).click();
   await expect(page.locator('#artifacts')).toBeHidden();
-  await page.getByRole('button', { name: 'Artifacts (1)' }).click();
+  await page.getByRole('button', { name: 'Artifacts', exact: true }).click();
   await expect(page.getByLabel('Artifact version', { exact: true })).toHaveValue('1');
   const composer = await page.locator('#composer').boundingBox();
   expect(composer.y + composer.height).toBeLessThanOrEqual(page.viewportSize().height + 1);

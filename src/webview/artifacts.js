@@ -46,7 +46,7 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, onAsk, pref
   function sync() {
     root.hidden = !opened || objects.size === 0;
     toggle.hidden = objects.size === 0;
-    toggle.textContent = `Artifacts (${objects.size})`;
+    toggle.textContent = 'Artifacts';
     toggle.setAttribute('aria-expanded', String(!root.hidden));
     persist();
   }
