@@ -95,7 +95,7 @@ async function main() {
     location: { directory: cwd },
     session: {
       get: async ({ sessionID }) => ({ data: sessions[sessionID] }),
-      context: async () => ({ data: [{ type: 'user', content: [{ type: 'text', text: 'Inspect the project status.' }] }] }),
+      context: async () => ({ data: [{ type: 'user', text: 'Inspect the project status.' }] }),
     },
     agent: { get: async () => ({ data: { system: 'Review only the operation; output JSON.' } }) },
     experimental: { generate: { text: (...args) => generate(...args) } },
@@ -147,11 +147,16 @@ async function main() {
   await assert.rejects(() => rpc.configure({ ...config, layers: [layer('X', 'workspace', [rule('*', '*', 'bad')])] }));
   assert.equal((await rpc.configure(config)).newActions, 'forbid', 'invalid changes leave previous state intact');
   await rpc.configure({ ...config, selected: 'workspace', newActions: 'smart' });
-  const smartEvent = { sessionID: 'ses_root', action: 'shell', resources: ['git status'], effect: 'ask' };
+  const smartEvent = { sessionID: 'ses_root', action: 'shell', resources: ['git status'], effect: 'ask',
+    source: { type: 'tool', messageID: 'msg_smart', id: 'call_smart' } };
   await hook(smartEvent);
   assert.equal(smartEvent.effect, 'allow');
   assert.equal(generations, 1);
   assert.equal((await rpc.reviews({ sessionID: 'ses_root' })).reviews.at(-1).status, 'allow');
+  const linkedReview = (await rpc.reviews({ sessionID: 'ses_root' })).reviews.at(-1);
+  assert.equal(linkedReview.sessionID, 'ses_root');
+  assert.equal(linkedReview.toolCallId, 'call_smart');
+  assert.equal(linkedReview.messageId, 'msg_smart');
   await rpc.configure({ ...config, selected: 'workspace', newActions: 'smart', layers: [
     layer('Host', 'workspace', [rule('shell', '*', 'ask')]),
   ] });

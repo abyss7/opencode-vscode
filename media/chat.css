@@ -706,6 +706,11 @@ select {
   background: var(--oc-input-bg);
 }
 
+.smart-review-history { margin: 6px 2px; color: var(--oc-secondary); font-size: 12px; }
+.smart-review-history > summary { padding: 4px 0; cursor: pointer; }
+.smart-review-history > .body { padding-left: 16px; }
+.tool-entry > .smart-review { margin-block: 6px; }
+
 .permission-title {
   margin-bottom: 4px;
   font-size: 13px;

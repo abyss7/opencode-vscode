@@ -62,6 +62,8 @@
     currentThought: null,
     lastUser: null,
     toolCards: new Map(),
+    smartReviews: new Map(),
+    smartReviewHistory: null,
     toolGroup: null,
     turnSteps: null,
     turnSeq: 0,
@@ -161,7 +163,8 @@
   }
 
   function resetTranscript() {
-    state.smartReviews = new Map();
+    // Keep the latest review snapshot: polls and history replay can arrive in either order.
+    state.smartReviewHistory = null;
     if (state.currentAssistant?.streamTimer) clearTimeout(state.currentAssistant.streamTimer);
     if (planProgress) planProgress.hidden = true;
     state.artifactSeq = 0;
@@ -198,6 +201,7 @@
     }
     messagesEl.replaceChildren(emptyEl);
     emptyEl.hidden = true;
+    for (const review of state.smartReviews.values()) placeSmartReview(review);
     updateUsageBar();
   }
 
@@ -257,6 +261,12 @@
   }
 
   function setSession(message) {
+    if (state.sessionId && state.sessionId !== message.sessionId) {
+      for (const review of state.smartReviews.values()) review.card.remove();
+      state.smartReviews.clear();
+      state.smartReviewHistory?.details.remove();
+      state.smartReviewHistory = null;
+    }
     state.sessionId = message.sessionId || null;
     if (message.cwd) state.cwd = message.cwd;
     try {
@@ -1493,6 +1503,9 @@
     };
     group.cards.push(card);
     state.toolCards.set(update.toolCallId, card);
+    for (const review of state.smartReviews.values()) {
+      if (smartReviewTool(review.review) === card) placeSmartReview(review);
+    }
     syncToolGroup(group);
     syncTurnSteps();
     return card;
@@ -1980,14 +1993,53 @@
     scrollToBottom();
   }
 
+  function smartReviewTool(review) {
+    if (typeof review.toolCallId !== 'string' || !review.toolCallId) return null;
+    if (!review.sessionID) return state.toolCards.get(review.toolCallId);
+    const prefix = review.sessionID + ':';
+    const id = review.toolCallId.startsWith(prefix) ? review.toolCallId.slice(prefix.length) : review.toolCallId;
+    // ACP qualifies forwarded child calls. Never bind a child's native ID to a parent call.
+    return state.toolCards.get(prefix + id) ||
+      (review.sessionID === state.sessionId ? state.toolCards.get(id) : null);
+  }
+
+  function placeSmartReview(record) {
+    const tool = smartReviewTool(record.review);
+    if (tool) {
+      if (record.card.parentElement !== tool.entry) tool.entry.insertBefore(record.card, tool.body);
+      const history = state.smartReviewHistory;
+      if (history && !history.body.children.length) {
+        history.details.remove();
+        state.smartReviewHistory = null;
+      }
+      return;
+    }
+    // Old records may lack an ID; a denied call may never appear in replay.
+    // Preserve these decisions without guessing a step from command text or timing.
+    if (!state.smartReviewHistory) {
+      const details = el('details', 'smart-review-history');
+      details.appendChild(el('summary', '', 'Unlinked Smart permissions'));
+      const body = el('div', 'body');
+      details.appendChild(body);
+      messagesEl.appendChild(details);
+      state.smartReviewHistory = { details, body };
+    }
+    if (record.card.parentElement !== state.smartReviewHistory.body) {
+      state.smartReviewHistory.body.appendChild(record.card);
+    }
+  }
+
   function addSmartReview(review) {
     if (!review || !review.id) return;
-    if (!state.smartReviews) state.smartReviews = new Map();
     const previous = state.smartReviews.get(review.id);
     const signature = JSON.stringify(review);
-    if (previous?.signature === signature) return;
+    if (previous?.signature === signature) {
+      placeSmartReview(previous);
+      return;
+    }
     hideEmpty();
     const card = previous?.card || el('div', 'permission smart-review');
+    card.dataset.reviewId = review.id;
     card.setAttribute('role', 'status');
     card.dataset.status = review.status;
     card.replaceChildren();
@@ -1995,9 +2047,10 @@
     card.appendChild(el('div', 'permission-title', `Smart · ${status} · permission-classifier`));
     card.appendChild(el('div', 'permission-tool', `${review.action}: ${review.resource}`));
     if (review.reason) card.appendChild(el('div', 'permission-note', review.reason));
-    if (review.model) card.title = `Reviewer model: ${review.model}`;
-    if (!previous) messagesEl.appendChild(card);
-    state.smartReviews.set(review.id, { card, signature });
+    card.title = review.model ? `Reviewer model: ${review.model}` : '';
+    const record = { card, signature, review };
+    state.smartReviews.set(review.id, record);
+    placeSmartReview(record);
     scrollToBottom();
   }
 

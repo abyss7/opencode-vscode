@@ -150,10 +150,13 @@ test('Smart selector and reviewer decisions stay distinct from manual approvals'
   await page.getByLabel('Without a rule', { exact: true }).selectOption('smart');
   expect(await chat.received('setPermissionProfile')).toEqual([{ type: 'setPermissionProfile', newActions: 'smart' }]);
   await chat.send(policy({ newActions: 'smart' }));
-  const review = { id: 'review-1', classifier: 'permission-classifier', action: 'shell',
+  await chat.update({ sessionUpdate: 'tool_call', toolCallId: 'smart-call', kind: 'execute', title: 'git status', status: 'pending' });
+  const review = { id: 'review-1', sessionID: 'ses_visual_fixture', toolCallId: 'smart-call', classifier: 'permission-classifier', action: 'shell',
     resource: 'git status', status: 'reviewing', reason: '' };
   await chat.send({ type: 'smartReviews', reviews: [review] });
   await expect(page.locator('.smart-review')).toContainText('Reviewing · permission-classifier');
+  await expect(page.locator('.tool-entry > .smart-review')).toHaveCount(1);
+  await expect(page.locator('#messages > .smart-review')).toHaveCount(0);
   await chat.send({ type: 'smartReviews', reviews: [{ ...review, status: 'allow', reason: 'Requested local inspection.', model: 'test/reviewer' }] });
   await expect(page.locator('.smart-review')).toHaveCount(1);
   await expect(page.locator('.smart-review')).toContainText('Allowed');

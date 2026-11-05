@@ -150,6 +150,8 @@ async function setup(ctx, contract, directory) {
     if (effect === 'smart') {
       const review = {
         id: randomUUID(), sessionID: event.sessionID, classifier: CLASSIFIER,
+        toolCallId: event.source?.type === 'tool' ? event.source.id : undefined,
+        messageId: event.source?.type === 'tool' ? event.source.messageID : undefined,
         audience: [...new Set([event.sessionID, ...states.map((state) => state.sessionID)])],
         action: event.action, resource: event.resources.join(' · ').slice(0, 240),
         status: 'reviewing', reason: '', started: Date.now(),
