@@ -272,7 +272,9 @@ class SessionPanel {
     if (index >= 0) this._metadataTimers.splice(index, 1);
   }
 
-  _startTurn() {
+  _startTurn(external = false) {
+    this._turnRevision = (this._turnRevision || 0) + 1;
+    this._externalTurn = external;
     this._busy = true;
     this._setIcon('working');
     this._post({ type: 'status', state: 'busy' });
@@ -280,6 +282,8 @@ class SessionPanel {
   }
 
   _finishTurn(state) {
+    this._turnRevision = (this._turnRevision || 0) + 1;
+    this._externalTurn = false;
     this._busy = false;
     const done = state === 'ready' && this.panel.active !== true;
     this._setIcon(done ? 'done' : 'idle');
@@ -457,7 +461,9 @@ class SessionPanel {
       this._post({ type: 'historyEnd' });
       this._loadSlashItems();
       this._trackTimeout(() => this._loadSlashItems(), 3000);
-      this._post({ type: 'status', state: 'ready' });
+      await this._refreshServerStatus();
+      if (this._disposed) return;
+      if (!this._busy) this._post({ type: 'status', state: 'ready' });
       this._focusIfActive();
       this._refreshLimits();
       this._refreshCompaction();
@@ -1431,11 +1437,39 @@ class SessionPanel {
    * webview: how many are running, what each is doing, and an estimated token
    * count. Only direct children are shown; deeper nesting stays in the tree.
    */
+  async _refreshServerStatus() {
+    if (this._disposed || !this.sessionId || !this._client || this._client.closed ||
+        this._serverStatusRefreshing || (this._busy && !this._externalTurn)) return;
+    this._serverStatusRefreshing = true;
+    const revision = this._turnRevision;
+    try {
+      const info = await this.deps.api.getSession(this.sessionId);
+      // A local prompt may have started while the REST request was in flight.
+      if (this._disposed || this._client.closed || revision !== this._turnRevision || !info) return;
+      if (isRunning(info)) {
+        if (!this._busy) this._startTurn(true);
+      } else if (this._externalTurn) {
+        // ACP only streams prompts initiated by this client. Restore the final
+        // transcript before announcing completion of an externally started turn.
+        await this._reloadTranscript();
+        if (this._disposed || this._client.closed || revision !== this._turnRevision) return;
+        this._queuedCount = 0;
+        this._finishTurn('ready');
+        this._afterTurn();
+      }
+    } catch (error) {
+      this.deps.log(`Failed to refresh server session state: ${error.message}`);
+    } finally {
+      this._serverStatusRefreshing = false;
+    }
+  }
+
   _startSubagentsPolling() {
     if (this._subagentsTimer || this._disposed) return;
     this._refreshSubagents();
     this._refreshSmartReviews();
     this._subagentsTimer = setInterval(() => {
+      this._refreshServerStatus();
       this._refreshSubagents();
       this._refreshSmartReviews();
     }, 3000);
