@@ -2,11 +2,10 @@
 
 const vscode = require('vscode');
 const { UNGROUPED_ID, ARCHIVED_ID } = require('./session-folders');
+const { sessionActivity, UNCONFIRMED_MESSAGE } = require('./session-activity');
 
 function isBusy(session) {
-  const time = (session && session.time) || {};
-  if (!time.busy) return false;
-  return !time.idle || time.idle < time.busy;
+  return sessionActivity(session) === 'running';
 }
 
 function isSubagent(session) {
@@ -250,6 +249,7 @@ class SessionsProvider {
 
   sessionTreeItem(session) {
     const busy = isBusy(session);
+    const unconfirmed = sessionActivity(session) === 'unconfirmed';
     const subagent = isSubagent(session);
     const children = this._children.get(session.id);
     const hasChildren = Array.isArray(children) && children.length > 0;
@@ -260,6 +260,8 @@ class SessionsProvider {
     item.id = session.id;
     if (busy) {
       item.description = 'working';
+    } else if (unconfirmed) {
+      item.description = 'execution unconfirmed';
     } else if (hasChildren) {
       item.description = `${children.length} sub-agent${children.length === 1 ? '' : 's'}`;
     } else {
@@ -267,6 +269,8 @@ class SessionsProvider {
     }
     if (busy) {
       item.iconPath = new vscode.ThemeIcon('loading~spin');
+    } else if (unconfirmed) {
+      item.iconPath = new vscode.ThemeIcon('question');
     } else if (subagent) {
       item.iconPath = new vscode.ThemeIcon('server-process');
     } else {
@@ -279,6 +283,7 @@ class SessionsProvider {
         : 'opencode.session';
     item.tooltip = [
       sessionTitle(session),
+      unconfirmed ? UNCONFIRMED_MESSAGE : null,
       subagent ? 'Sub-agent' : null,
       `ID: ${session.id}`,
       session.location && session.location.directory

@@ -1,5 +1,8 @@
 'use strict';
 
+const { sessionActivity, UNCONFIRMED_MESSAGE } = require('./session-activity');
+const { CONTINUE_TEXT } = require('./session-continuation');
+
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -276,18 +279,28 @@ class SessionPanel {
     this._turnRevision = (this._turnRevision || 0) + 1;
     this._externalTurn = external;
     this._busy = true;
+    this._serverActivity = 'running';
+    if (!external) this.deps.api?.setSessionRunning?.(this.sessionId, this, true);
     this._setIcon('working');
-    this._post({ type: 'status', state: 'busy' });
+    this._post({ type: 'status', state: 'busy', ...(external ? {
+      external: true,
+      message: 'Server reports active execution — live progress is unavailable in this tab.',
+    } : {}) });
     this._refreshSubagents();
+    this.deps.onSessionChanged?.();
   }
 
   _finishTurn(state) {
+    if (state === 'ready') this._completeContinuation();
     this._turnRevision = (this._turnRevision || 0) + 1;
     this._externalTurn = false;
     this._busy = false;
+    this.deps.api?.setSessionRunning?.(this.sessionId, this, false);
+    this._serverActivity = state === 'unconfirmed' ? 'unconfirmed' : 'idle';
     const done = state === 'ready' && this.panel.active !== true;
     this._setIcon(done ? 'done' : 'idle');
-    this._post({ type: 'status', state });
+    this._post({ type: 'status', state,
+      ...(state === 'unconfirmed' ? { message: UNCONFIRMED_MESSAGE } : {}) });
   }
 
   _post(message) {
@@ -463,7 +476,7 @@ class SessionPanel {
       this._trackTimeout(() => this._loadSlashItems(), 3000);
       await this._refreshServerStatus();
       if (this._disposed) return;
-      if (!this._busy) this._post({ type: 'status', state: 'ready' });
+      if (!this._busy && this._serverActivity !== 'unconfirmed') this._post({ type: 'status', state: 'ready' });
       this._focusIfActive();
       this._refreshLimits();
       this._refreshCompaction();
@@ -638,7 +651,7 @@ class SessionPanel {
     this.deps.onSessionChanged();
   }
 
-  async _prompt(text, images, selection) {
+  async _prompt(text, images, selection, continuation = null) {
     const value = text.trim();
     const blocks = [];
     if (value) blocks.push({ type: 'text', text: value });
@@ -664,13 +677,22 @@ class SessionPanel {
     // ACP has no way to send a second prompt while a turn is running, so route
     // busy-time submissions through the REST endpoint as a queued request.
     if (this._busy) {
+      if (continuation) return;
       await this._queuePrompt(value, selection);
       return;
     }
 
     this._startTurn();
+    try {
+      this._continuation = continuation || this.deps.continuations?.begin(this.sessionId, this._client.child?.pid);
+    } catch (error) {
+      this.deps.log(`Cannot save continuation state: ${error.message}`);
+    }
 
     const textBlock = blocks.find((block) => block.type === 'text');
+    // ACP turns assistant-only context into a synthetic input. No visible
+    // user instruction is invented, and permissions/streaming stay on ACP.
+    if (continuation && textBlock) textBlock.annotations = { audience: ['assistant'] };
     if (textBlock) textBlock.text = withClientContext(textBlock.text, selection);
     else blocks.unshift({ type: 'text', text: withClientContext('', selection) });
 
@@ -879,6 +901,9 @@ class SessionPanel {
 
   _cancel() {
     if (!this._client || !this._busy) return;
+    try { this.deps.continuations?.stop?.(this.sessionId); }
+    catch (error) { this.deps.log(`Cannot record explicit Stop: ${error.message}`); }
+    this._completeContinuation();
     this._post({ type: 'status', state: 'cancelling' });
     for (const request of this._elicitations.values()) {
       try {
@@ -889,6 +914,16 @@ class SessionPanel {
     }
     this._elicitations.clear();
     this._refreshAttention();
+    if (this._externalTurn) {
+      this.deps.api.interruptSession(this.sessionId).catch((error) => {
+        if (this._disposed) return;
+        this.deps.log(`Cannot stop server execution: ${error.message}`);
+        this._post({ type: 'error', message: error.message });
+        this._post({ type: 'status', state: 'busy', external: true,
+          message: 'Server execution could not be stopped.' });
+      });
+      return;
+    }
     this._client.cancel();
   }
 
@@ -1459,7 +1494,19 @@ class SessionPanel {
       const info = await this.deps.api.getSession(this.sessionId);
       // A local prompt may have started while the REST request was in flight.
       if (this._disposed || this._client.closed || revision !== this._turnRevision || !info) return;
-      if (isRunning(info)) {
+      const activity = sessionActivity(info);
+      if (!this._resuming && activity !== 'running' && this.deps.continuations) {
+        const continuation = this.deps.continuations.claim(info, this._client.child?.pid);
+        if (continuation) {
+          this._resuming = true;
+          this._post({ type: 'info', text: 'Continuing the work interrupted when the editor closed.' });
+          this._prompt(CONTINUE_TEXT, [], null, continuation)
+            .catch((error) => this.deps.log(`Automatic continuation failed: ${error.message}`))
+            .finally(() => { this._resuming = false; });
+          return;
+        }
+      }
+      if (activity === 'running') {
         if (!this._busy) this._startTurn(true);
       } else if (this._externalTurn) {
         // ACP only streams prompts initiated by this client. Restore the final
@@ -1467,8 +1514,15 @@ class SessionPanel {
         await this._reloadTranscript();
         if (this._disposed || this._client.closed || revision !== this._turnRevision) return;
         this._queuedCount = 0;
-        this._finishTurn('ready');
+        this._finishTurn(activity === 'unconfirmed' ? 'unconfirmed' : 'ready');
         this._afterTurn();
+      } else if (this._serverActivity !== activity) {
+        if (activity === 'unconfirmed' || this._serverActivity === 'unconfirmed') {
+          this._finishTurn(activity === 'unconfirmed' ? 'unconfirmed' : 'ready');
+        } else {
+          // The initial idle snapshot is not a newly completed turn.
+          this._serverActivity = activity;
+        }
       }
     } catch (error) {
       this.deps.log(`Failed to refresh server session state: ${error.message}`);
@@ -1724,6 +1778,7 @@ class SessionPanel {
 
   _onExit(info) {
     if (this._disposed) return;
+    this.deps.api?.setSessionRunning?.(this.sessionId, this, false);
     this._busy = false;
     this._permissions.clear();
     this._elicitations.clear();
@@ -1736,6 +1791,12 @@ class SessionPanel {
       type: 'error',
       message: `OpenCode ACP process exited (${detail}). Close and reopen the tab.`,
     });
+  }
+
+  _completeContinuation() {
+    try { this.deps.continuations?.complete(this._continuation); }
+    catch (error) { this.deps.log(`Cannot clear continuation state: ${error.message}`); }
+    this._continuation = null;
   }
 
   dispose() {
@@ -1753,6 +1814,7 @@ class SessionPanel {
     if (this._cleanedUp) return;
     this._cleanedUp = true;
     this._disposed = true;
+    this.deps.api?.setSessionRunning?.(this.sessionId, this, false);
 
     for (const request of this._permissions.values()) {
       try {

@@ -7,6 +7,7 @@ const { OpenCodeApi } = require('./api');
 const { SessionsProvider, sessionTitle } = require('./sessions-view');
 const { SessionFolders } = require('./session-folders');
 const { SessionPanel } = require('./session-panel');
+const { SessionContinuation } = require('./session-continuation');
 const { OpenCodeSync } = require('./opencode-sync');
 const { refreshSettingEnums } = require('./setting-enums');
 const { resolveCommand } = require('./util');
@@ -53,6 +54,8 @@ function activate(context) {
   };
 
   const api = new OpenCodeApi({ command: getConfig().command, log });
+  const continuations = new SessionContinuation(context.globalStorageUri?.fsPath
+    ? path.join(context.globalStorageUri.fsPath, 'continuations') : null);
   const permissions = new PermissionService({ vscode, api, command: getConfig().command, log });
   const sync = new OpenCodeSync({ vscode, command: getConfig().command, log });
   context.subscriptions.push(sync);
@@ -131,6 +134,7 @@ function activate(context) {
     extensionUri: context.extensionUri,
     api,
     log,
+    continuations,
     getConfig,
     permissions,
     defaultAgent,

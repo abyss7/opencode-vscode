@@ -38,6 +38,7 @@
   const STATUS_LABELS = {
     connecting: 'Connecting…',
     ready: 'Ready',
+    unconfirmed: 'Execution unconfirmed',
     busy: 'Working…',
     cancelling: 'Stopping…',
     error: 'Error',
@@ -213,14 +214,15 @@
     }
   }
 
-  function setStatus(kind, text) {
+  function setStatus(kind, text, external = false) {
     state.statusKind = kind;
+    state.externalBusy = external && kind === 'busy';
     state.statusText = text || STATUS_LABELS[kind] || kind;
-    state.connected = kind === 'ready' || kind === 'busy' || kind === 'cancelling';
+    state.connected = kind === 'ready' || kind === 'unconfirmed' || kind === 'busy' || kind === 'cancelling';
     if (kind === 'busy' || kind === 'cancelling') state.busy = true;
-    if (kind === 'ready' || kind === 'error' || kind === 'connecting') state.busy = false;
+    if (kind === 'ready' || kind === 'unconfirmed' || kind === 'error' || kind === 'connecting') state.busy = false;
     stopBtn.disabled = kind === 'cancelling';
-    if (!state.busy) {
+    if (!state.busy || state.externalBusy) {
       stopLiveClock();
       state.currentAction = null;
       state.liveToolId = null;
@@ -267,6 +269,8 @@
         : 'Disconnected'
       : state.busy
         ? 'OpenCode is working — type to queue…'
+        : state.statusKind === 'unconfirmed'
+          ? 'Send a message to continue…'
         : 'Ask OpenCode…';
     sendBtn.disabled =
       !canType ||
@@ -626,7 +630,7 @@
     const request = state.statusKind === 'cancelling' ? null : currentAttention();
     const active = request || (state.busy ? state.currentAction : null);
     const kind = request ? 'attention' : state.statusKind;
-    const summary = request?.summary || (state.busy && kind !== 'cancelling'
+    const summary = request?.summary || (state.busy && !state.externalBusy && kind !== 'cancelling'
       ? state.activityThought || state.activityPlan || state.activityPurpose || active?.summary || state.statusText
       : state.statusText);
     statusEl.className = 'status ' + kind;
@@ -634,7 +638,7 @@
     if (statusTextEl.textContent !== summary) statusTextEl.textContent = summary;
     statusTextEl.title = summary;
     const startedAt = request?.startedAt ?? state.liveStartedAt;
-    const operation = active?.kind || (state.busy ? 'working' : '');
+    const operation = active?.kind || (state.busy && !state.externalBusy ? 'working' : '');
     activityDetailEl.hidden = !operation;
     activityOperationEl.textContent = operation
       ? `${operation}${startedAt !== null && startedAt !== undefined ? ' for ' + formatElapsed(Date.now() - startedAt) : ''}`
@@ -672,7 +676,7 @@
   }
 
   function syncLiveFallback() {
-    if (state.busy && !state.currentAction) {
+    if (state.busy && !state.externalBusy && !state.currentAction) {
       markLiveStart('working');
     }
     if (state.busy || state.attentionRequests.size) startLiveClock();
@@ -2828,6 +2832,9 @@
       case 'user_message_chunk':
         if (isSkippedReplayUser(update)) break;
         if (update.content && update.content.type === 'text' && typeof update.content.text === 'string') {
+          // An ACP prompt containing only synthetic continuation context has
+          // an empty user input. Do not replay it as a blank user bubble.
+          if (!update.content.text) break;
           addUserMessage(update.content.text, update.messageId || null);
         } else if (update.content?.type === 'image' && typeof update.content.data === 'string' && /^image\/(png|jpeg|gif|webp)$/.test(update.content.mimeType)) {
           addUserMessage('', update.messageId || null, [{ name: 'Image', dataUrl: `data:${update.content.mimeType};base64,${update.content.data}` }]);
@@ -2871,7 +2878,7 @@
     if (!message || typeof message.type !== 'string') return;
     switch (message.type) {
       case 'status':
-        setStatus(message.state, message.message);
+        setStatus(message.state, message.message, message.external);
         break;
       case 'session':
         setSession(message);

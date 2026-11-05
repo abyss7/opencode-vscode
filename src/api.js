@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const https = require('node:https');
+const { sessionActivity } = require('./session-activity');
 
 const execFileAsync = promisify(execFile);
 const USERNAME = 'opencode';
@@ -50,6 +51,9 @@ class OpenCodeApi {
     this.log = options.log || (() => {});
     this._server = null;
     this._serverAt = 0;
+    this._localSessions = new Map();
+    this._activeRead = null;
+    this._activeAt = 0;
   }
 
   setCommand(command) {
@@ -57,6 +61,7 @@ class OpenCodeApi {
       this.command = command;
       this._server = null;
       this._serverAt = 0;
+      this._activeRead = null;
     }
   }
 
@@ -208,7 +213,7 @@ class OpenCodeApi {
     }
 
     const sessions = Array.isArray(response && response.data) ? response.data : [];
-    return sessions
+    return this._withActivity(sessions
       .filter((session) => {
         const dir = session && session.location && session.location.directory;
         if (dir !== directory) return false;
@@ -220,7 +225,42 @@ class OpenCodeApi {
         (a, b) =>
           ((b.time && (b.time.updated || b.time.created)) || 0) -
           ((a.time && (a.time.updated || a.time.created)) || 0)
-      );
+      ));
+  }
+
+  setSessionRunning(sessionId, owner, running) {
+    if (!sessionId) return;
+    const owners = this._localSessions.get(sessionId) || new Set();
+    if (running) owners.add(owner);
+    else owners.delete(owner);
+    if (owners.size) this._localSessions.set(sessionId, owners);
+    else this._localSessions.delete(sessionId);
+  }
+
+  async _withActivity(sessions) {
+    // The shared service only reports its own executions. Local ACP prompts
+    // are owned by separate servers; absence in both sources remains unknown
+    // when durable busy intent exists (another window may own the session).
+    if (!this._activeRead || Date.now() - this._activeAt >= 2000) {
+      this._activeAt = Date.now();
+      this._activeRead = this._request('GET', '/api/session/active')
+        .then((response) => {
+          if (!response?.data || typeof response.data !== 'object' || Array.isArray(response.data)) {
+            throw new Error('Invalid active session response');
+          }
+          return response.data;
+        })
+        .catch((error) => {
+          this.log(`Live session activity unavailable: ${error.message}`);
+          return null;
+        });
+    }
+    const active = await this._activeRead;
+    return sessions.map((session) => ({
+      ...session,
+      _activity: this._localSessions.has(session.id) || active?.[session.id]?.type === 'running'
+        ? 'running' : sessionActivity(session),
+    }));
   }
 
   /**
@@ -246,13 +286,13 @@ class OpenCodeApi {
       return null;
     }
     const sessions = Array.isArray(response && response.data) ? response.data : [];
-    return sessions.filter((session) => {
+    return this._withActivity(sessions.filter((session) => {
       const dir = session && session.location && session.location.directory;
       if (dir !== directory) return false;
       if (!session.parentID) return false;
       if (parentId && session.parentID !== parentId) return false;
       return true;
-    });
+    }));
   }
 
   async updateSession(sessionId, patch) {
@@ -271,7 +311,13 @@ class OpenCodeApi {
       'GET',
       `/api/session/${encodeURIComponent(sessionId)}`
     );
-    return response && response.data ? response.data : null;
+    if (!response?.data) return null;
+    return (await this._withActivity([response.data]))[0];
+  }
+
+  async interruptSession(sessionId) {
+    await this._request('POST', `/api/session/${encodeURIComponent(sessionId)}/interrupt`);
+    this._activeRead = null;
   }
 
   async listMessages(sessionId, options = {}) {
