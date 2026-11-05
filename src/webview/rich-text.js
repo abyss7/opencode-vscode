@@ -140,5 +140,5 @@ function render(source, options = {}) {
 module.exports = {
   render, highlight, hydrate: visuals.hydrate, visiblePrompt,
   renderToolResult: toolResults.render, createArtifacts: artifacts.create,
-  outline: reading.outline, stableBlocks: (source) => reading.stableBlocks(md, source),
+  outline: reading.outline,
 };

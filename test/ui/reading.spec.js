@@ -17,36 +17,31 @@ test('visible plan progress opens the latest plan and survives a completed answe
   await chat.snapshot('plan-progress');
 });
 
-test('streaming is opt-in and preserves completed block DOM while holding incomplete fences', async ({ page, chat }) => {
+test('answers stay hidden until complete', async ({ page, chat }) => {
   await chunk(chat, 'Default answer\n\n');
   await expect(page.locator('.assistant')).toBeHidden();
-  await page.getByRole('button', { name: 'View options' }).click();
-  await page.getByLabel('Render completed blocks while streaming').check();
-  await expect(page.locator('.stream-block')).toHaveText('Default answer');
-  await page.locator('.stream-block').evaluate((el) => { window.firstStreamBlock = el; });
   await chunk(chat, '```js\nconst x =');
   await expect(page.locator('.code-block')).toHaveCount(0);
   await chunk(chat, ' 1;\n```\n');
-  await expect(page.locator('.stream-block .code-block')).toHaveCount(1);
-  expect(await page.locator('.stream-block').first().evaluate((el) => el === window.firstStreamBlock)).toBe(true);
+  await expect(page.locator('.assistant')).toBeHidden();
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
   await expect(page.locator('.assistant .code-block')).toHaveCount(1);
   await expect(page.locator('.assistant')).toContainText('const x = 1;');
 });
 
-test('streaming waits for complete tables and Mermaid sources', async ({ page, chat }) => {
-  await page.getByRole('button', { name: 'View options' }).click();
-  await page.getByLabel('Render completed blocks while streaming').check();
+test('completed answers render tables and Mermaid sources', async ({ page, chat }) => {
   await chunk(chat, '| Name | Count |\n| --- | --- |\n| a |');
   await expect(page.locator('.assistant table')).toHaveCount(0);
   await chunk(chat, ' 2 |\n\nDone.\n\n```mermaid\nflowchart LR\nA-->');
-  await expect(page.locator('.assistant table')).toBeVisible();
+  await expect(page.locator('.assistant table')).toHaveCount(0);
   await expect(page.locator('.assistant .diagram')).toHaveCount(0);
   await chunk(chat, 'B\n```\n');
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await expect(page.locator('.assistant table')).toBeVisible();
   await expect(page.locator('.assistant .diagram')).toHaveAttribute('data-rendered', 'ready', { timeout: 15000 });
 });
 
-test('long answer outline navigates by keyboard and density reduces layout height', async ({ page, chat }) => {
+test('long answer outline navigates by keyboard', async ({ page, chat }) => {
   await chunk(chat, Array.from({ length: 5 }, (_, i) => `## Section ${i + 1}\n\n${'Readable paragraph. '.repeat(20)}\n\n`).join(''));
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
   await page.locator('.answer-outline summary').click();
@@ -54,12 +49,8 @@ test('long answer outline navigates by keyboard and density reduces layout heigh
   await target.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Section 5' })).toBeFocused();
-  const before = (await page.locator('.assistant').boundingBox()).height;
-  await page.getByRole('button', { name: 'View options' }).click();
-  await page.getByLabel('Density', { exact: true }).selectOption('compact');
-  expect((await page.locator('.assistant').boundingBox()).height).toBeLessThan(before);
   expect(await page.locator('#messages').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  await chat.snapshot('compact-reading');
+  await chat.snapshot('answer-outline');
 });
 
 test('finished subagents show result excerpts and open their session', async ({ page, chat }) => {

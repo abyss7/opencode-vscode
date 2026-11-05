@@ -23,16 +23,11 @@
       </div>
       <div class="header-right">
         <button id="artifacts-toggle" type="button" hidden aria-expanded="false" aria-controls="artifacts">Artifacts</button>
-        <button id="view-toggle" type="button" title="View options" aria-label="View options" aria-expanded="false" aria-controls="view-options">Aa</button>
         <button id="activity-jump" type="button" title="Jump to current message" aria-label="Jump to current message" aria-controls="messages">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v10M3.5 8l4.5 4.5L12.5 8"/></svg>
         </button>
       </div>
     </header>
-    <div id="view-options" hidden>
-      <label>Density <select id="density" aria-label="Density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
-      <label><input id="stream-blocks" type="checkbox"> Render completed blocks while streaming</label>
-    </div>
     <button id="plan-progress" type="button" hidden aria-label="Show plan">
       <progress id="plan-meter" max="1" value="0" aria-label="Plan completion"></progress>
       <span id="plan-progress-text" aria-live="polite"></span>

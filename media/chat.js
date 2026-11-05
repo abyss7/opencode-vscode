@@ -26,12 +26,7 @@
   const subagentsSummaryEl = document.getElementById('subagents-summary');
   const subagentsSummaryTextEl = document.getElementById('subagents-summary-text');
   const subagentsListEl = document.getElementById('subagents-list');
-  const viewOptions = document.getElementById('view-options');
-  const viewToggle = document.getElementById('view-toggle');
-  const density = document.getElementById('density');
-  const streamBlocks = document.getElementById('stream-blocks');
   const planProgress = document.getElementById('plan-progress');
-  const readingPreferences = { density: 'comfortable', streaming: false, ...vscode.getState?.()?.reading };
   const artifacts = OpenCodeRichText.createArtifacts({
     root: document.getElementById('artifacts'), toggle: document.getElementById('artifacts-toggle'),
     renderMarkdown, hydrate: (root) => { OpenCodeRichText.hydrate(root); scheduleFileChecks(); }, post: (message) => vscode.postMessage(message),
@@ -110,25 +105,6 @@
     fileCheckPending: new Set(),
   };
 
-  if (viewOptions) {
-    const applyReading = () => {
-      document.body.dataset.density = readingPreferences.density === 'compact' ? 'compact' : 'comfortable';
-      density.value = document.body.dataset.density;
-      streamBlocks.checked = readingPreferences.streaming;
-      vscode.setState({ ...vscode.getState?.(), reading: readingPreferences });
-    };
-    applyReading();
-    viewToggle.addEventListener('click', () => {
-      viewOptions.hidden = !viewOptions.hidden;
-      viewToggle.setAttribute('aria-expanded', String(!viewOptions.hidden));
-    });
-    density.addEventListener('change', () => { readingPreferences.density = density.value; applyReading(); });
-    streamBlocks.addEventListener('change', () => {
-      readingPreferences.streaming = streamBlocks.checked;
-      applyReading();
-      if (state.currentAssistant && readingPreferences.streaming) renderStableAssistant(state.currentAssistant);
-    });
-  }
   planProgress?.addEventListener('click', () => {
     const plan = state.planEl?.details;
     if (!plan) return;
@@ -166,7 +142,6 @@
     thoughtResize?.disconnect();
     // Keep the latest review snapshot: polls and history replay can arrive in either order.
     state.smartReviewHistory = null;
-    if (state.currentAssistant?.streamTimer) clearTimeout(state.currentAssistant.streamTimer);
     if (planProgress) planProgress.hidden = true;
     state.artifactSeq = 0;
     state.currentAssistant = null;
@@ -1085,34 +1060,12 @@
     assistant.text += content.text;
     state.liveToolId = null;
     setLiveAction('write', '', 'response:' + state.turnId, 'Writing response…', assistant.wrap);
-    if (readingPreferences.streaming && !assistant.streamTimer) {
-      assistant.streamTimer = setTimeout(() => {
-        assistant.streamTimer = null;
-        if (!assistant.finalized && readingPreferences.streaming) renderStableAssistant(assistant);
-      }, 60);
-    }
-    scrollToBottom();
-  }
-
-  function renderStableAssistant(assistant) {
-    for (const block of OpenCodeRichText.stableBlocks(assistant.text)) {
-      if (block.end <= (assistant.streamEnd || 0)) continue;
-      const rendered = el('div', 'stream-block');
-      rendered.innerHTML = renderMarkdown(block.source);
-      assistant.body.classList.add('md');
-      assistant.body.appendChild(rendered);
-      assistant.wrap.hidden = false;
-      assistant.streamEnd = block.end;
-      OpenCodeRichText.hydrate(rendered, scrollToBottom);
-    }
-    scheduleFileChecks();
     scrollToBottom();
   }
 
   function finalizeAssistant() {
     const assistant = state.currentAssistant;
     if (!assistant) return;
-    if (assistant.streamTimer) clearTimeout(assistant.streamTimer);
     assistant.finalized = true;
     if (!assistant.text.trim()) {
       assistant.wrap.remove();

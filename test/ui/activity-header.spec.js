@@ -9,12 +9,11 @@ const question = (requestId) => ({ type: 'elicitation', requestId, message: 'Whi
 
 test('header height and right controls stay fixed when artifacts and activity appear', async ({ page, chat }) => {
   const header = page.locator('#header');
-  const view = page.getByRole('button', { name: 'View options' });
   const jump = page.getByRole('button', { name: 'Jump to current message' });
   const artifacts = page.locator('#artifacts-toggle');
-  const initial = { header: await header.boundingBox(), view: await view.boundingBox(), jump: await jump.boundingBox() };
+  const initial = { header: await header.boundingBox(), jump: await jump.boundingBox() };
   expect(initial.header.height).toBe(42);
-  expect(initial.view.width).toBe(initial.view.height);
+  expect(initial.jump.width).toBe(initial.jump.height);
   await expect(artifacts).toBeHidden();
   await expect(page.locator('#activity-detail')).toBeHidden();
 
@@ -30,20 +29,14 @@ test('header height and right controls stay fixed when artifacts and activity ap
   await expect(artifacts).toHaveText('Artifacts');
   expect(await artifacts.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px');
   expect(await jump.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px');
-  expect(await view.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('1px');
-  expect((await artifacts.boundingBox()).x).toBeLessThan(initial.view.x);
+  expect((await artifacts.boundingBox()).x).toBeLessThan(initial.jump.x);
 
   await busy(chat);
   await chat.send(question('q'));
   await expect(page.locator('#status')).toHaveClass('status attention');
   expect(await header.boundingBox()).toEqual(initial.header);
-  expect(await view.boundingBox()).toEqual(initial.view);
   expect(await jump.boundingBox()).toEqual(initial.jump);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await view.click();
-  await expect(page.locator('#view-options')).toBeVisible();
-  expect(await header.boundingBox()).toEqual(initial.header);
-  await view.click();
   await chat.snapshot('activity-with-controls');
 });
 
