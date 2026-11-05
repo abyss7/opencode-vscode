@@ -103,3 +103,93 @@ test('legacy decisions stay folded until a real tool ID becomes available', asyn
   await chat.send({ type: 'session', sessionId: 'ses_other', cwd: '/workspace' });
   await expect(page.locator('.smart-review')).toHaveCount(0);
 });
+
+// Native permission.rejected becomes this shape in ACP errorToolUpdate, including
+// on session/load. The classifier cache may already be empty when it is replayed.
+const denied = (chat, toolCallId, reason = 'Provide the test and its dependencies.') => {
+  const error = `VS Code permissions: deny — ${reason}`;
+  return chat.update({ sessionUpdate: 'tool_call_update', toolCallId, status: 'failed',
+    rawOutput: { error }, content: [{ type: 'content', content: { type: 'text', text: error } }] });
+};
+
+test('saved permission errors restore under their command with an empty Smart cache', async ({ page, chat }) => {
+  await chat.send({ type: 'historyReset' });
+  await sendReviews(chat);
+  await tool(chat, 'denied', { status: 'pending', title: 'node test/attention.js' });
+  await denied(chat, 'denied', 'Provide <script>test code</script> and dependencies.');
+  await answer(chat, 'Testing was blocked.');
+  await chat.send({ type: 'historyEnd' });
+  const card = entry(page, 'denied').locator('.smart-review');
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText('Permissions · Blocked');
+  await expect(card).toContainText('node test/attention.js');
+  await expect(card).toContainText('Provide <script>test code</script> and dependencies.');
+  await expect(card.locator('script')).toHaveCount(0);
+  await expect(page.locator('.smart-review-history')).toHaveCount(0);
+  await expect(page.locator('#messages > .smart-review')).toHaveCount(0);
+  await page.locator('.turn-steps > summary').click();
+  await page.locator('.tool-group > summary').click();
+  await expect(card).toBeVisible();
+  await chat.send({ type: 'historyReset' });
+  await expect(page.locator('.smart-review-history')).toHaveCount(0);
+  await tool(chat, 'denied', { status: 'pending', title: 'node test/attention.js' });
+  await denied(chat, 'denied');
+  await sendReviews(chat);
+  await chat.send({ type: 'historyEnd' });
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText('Provide the test and its dependencies.');
+  await chat.send({ type: 'session', sessionId: 'ses_other', cwd: '/workspace' });
+  await expect(page.locator('.smart-review')).toHaveCount(0);
+});
+
+test('restored denial replaces pending Smart and yields to the final decision without duplicates', async ({ page, chat }) => {
+  await tool(chat, 'call', { status: 'in_progress' });
+  const pending = review('review', 'call', { status: 'reviewing', reason: '' });
+  await sendReviews(chat, pending);
+  await denied(chat, 'call');
+  await expect(page.locator('.smart-review')).toHaveCount(1);
+  await expect(entry(page, 'call').locator('.smart-review')).toContainText('Permissions · Blocked');
+  await sendReviews(chat, pending);
+  await expect(page.locator('.smart-review')).toHaveCount(1);
+  const decision = review('review', 'call', { status: 'deny', reason: 'Provide the test and its dependencies.', model: 'test/reviewer' });
+  await sendReviews(chat, decision, decision);
+  await denied(chat, 'call');
+  await expect(page.locator('.smart-review')).toHaveCount(1);
+  await expect(entry(page, 'call').locator('.smart-review')).toContainText('Smart · Blocked · permission-classifier');
+  await expect(entry(page, 'call').locator('.smart-review')).toHaveAttribute('title', 'Reviewer model: test/reviewer');
+  await chat.send({ type: 'historyReset' });
+  await tool(chat, 'call', { status: 'pending' });
+  await denied(chat, 'call');
+  await chat.send({ type: 'historyEnd' });
+  await expect(page.locator('.smart-review')).toHaveCount(1);
+});
+
+test('a Smart decision received before the error suppresses only its own fallback', async ({ page, chat }) => {
+  await tool(chat, 'call', { status: 'in_progress' });
+  await tool(chat, 'ses_child:call', { status: 'in_progress' });
+  await sendReviews(chat, review('child', 'call', { sessionID: 'ses_child', status: 'deny' }));
+  await denied(chat, 'call', 'Parent denied.');
+  await denied(chat, 'ses_child:call', 'Child denied.');
+  await expect(entry(page, 'call').locator('.smart-review')).toHaveCount(1);
+  await expect(entry(page, 'call').locator('.smart-review')).toContainText('Permissions · Blocked');
+  await expect(entry(page, 'ses_child:call').locator('.smart-review')).toHaveCount(1);
+  await expect(entry(page, 'ses_child:call').locator('.smart-review')).toContainText('Smart · Blocked');
+  await sendReviews(chat, review('parent', 'ses_visual_fixture:call', { status: 'deny' }));
+  await expect(entry(page, 'call').locator('.smart-review')).toHaveCount(1);
+  await expect(entry(page, 'call').locator('.smart-review')).toContainText('Smart · Blocked');
+  await expect(page.locator('.smart-review-history')).toHaveCount(0);
+});
+
+test('ordinary failures and printed permission messages are not classified as denials', async ({ page, chat }) => {
+  const error = 'VS Code permissions: deny — Printed example.';
+  await tool(chat, 'printed', { status: 'failed', rawOutput: { output: error },
+    content: [{ type: 'content', content: { type: 'text', text: error } }] });
+  await tool(chat, 'ordinary', { status: 'failed', rawOutput: { error: 'Process exited with code 1' } });
+  await tool(chat, 'success', { rawOutput: { error } });
+  await expect(page.locator('.smart-review')).toHaveCount(0);
+  // An earlier allowed permission for the same call must not hide a later denial.
+  await sendReviews(chat, review('allowed', 'ordinary'));
+  await denied(chat, 'ordinary');
+  await expect(entry(page, 'ordinary').locator('.smart-review')).toHaveCount(2);
+  await expect(entry(page, 'ordinary')).toContainText('Permissions · Blocked');
+});

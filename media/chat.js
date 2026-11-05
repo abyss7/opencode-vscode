@@ -1615,6 +1615,7 @@
     }
     renderLocations(card, update.locations);
     renderToolContent(card, update);
+    restorePermissionRejection(card);
     if (!card.subagent) {
       card.body.hidden = !Object.values(card.rows).some((row) => !row.row.hidden);
     }
@@ -1978,6 +1979,23 @@
     scrollToBottom();
   }
 
+  function restorePermissionRejection(card) {
+    // ACP preserves the error message in both live updates and history replay,
+    // but drops its native permission.rejected type and Smart provenance.
+    const error = card.activity.rawOutput?.error;
+    const match = typeof error === 'string' && /^VS Code permissions: deny(?: — ([\s\S]*))?$/.exec(error);
+    if (card.statusValue !== 'failed' || !match) return;
+    addSmartReview({
+      id: `restored:${state.sessionId}:${card.activity.toolCallId}`,
+      sessionID: state.sessionId,
+      toolCallId: card.activity.toolCallId,
+      restored: true,
+      status: 'deny',
+      resource: card.nameEl.textContent,
+      reason: match[1] || error,
+    });
+  }
+
   function smartReviewTool(review) {
     if (typeof review.toolCallId !== 'string' || !review.toolCallId) return null;
     if (!review.sessionID) return state.toolCards.get(review.toolCallId);
@@ -1991,12 +2009,30 @@
   function placeSmartReview(record) {
     const tool = smartReviewTool(record.review);
     if (tool) {
+      for (const other of state.smartReviews.values()) {
+        if (other === record || smartReviewTool(other.review) !== tool) continue;
+        // A saved denial supersedes a stale pending poll. A completed Smart
+        // denial supplies richer provenance and replaces the restored fallback.
+        if ((record.review.restored && !other.review.restored && other.review.status === 'deny') ||
+            (record.review.status === 'reviewing' && other.review.restored)) {
+          record.card.remove();
+          return;
+        }
+        if ((record.review.restored && other.review.status === 'reviewing') ||
+            (!record.review.restored && record.review.status === 'deny' && other.review.restored)) {
+          other.card.remove();
+        }
+      }
       if (record.card.parentElement !== tool.entry) tool.entry.insertBefore(record.card, tool.body);
       const history = state.smartReviewHistory;
       if (history && !history.body.children.length) {
         history.details.remove();
         state.smartReviewHistory = null;
       }
+      return;
+    }
+    if (record.review.restored) {
+      record.card.remove();
       return;
     }
     // Old records may lack an ID; a denied call may never appear in replay.
@@ -2029,8 +2065,9 @@
     card.dataset.status = review.status;
     card.replaceChildren();
     const status = { reviewing: 'Reviewing', allow: 'Allowed', deny: 'Blocked' }[review.status] || 'Blocked';
-    card.appendChild(el('div', 'permission-title', `Smart · ${status} · permission-classifier`));
-    card.appendChild(el('div', 'permission-tool', `${review.action}: ${review.resource}`));
+    card.appendChild(el('div', 'permission-title', review.restored
+      ? `Permissions · ${status}` : `Smart · ${status} · permission-classifier`));
+    card.appendChild(el('div', 'permission-tool', review.restored ? review.resource : `${review.action}: ${review.resource}`));
     if (review.reason) card.appendChild(el('div', 'permission-note', review.reason));
     card.title = review.model ? `Reviewer model: ${review.model}` : '';
     const record = { card, signature, review };
