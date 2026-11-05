@@ -413,8 +413,16 @@ select {
 .turn-steps > summary > .name:empty,
 .tool-group > summary > .name:empty { display: none; }
 .turn-steps > summary .step-metrics,
-.tool-group > summary .step-metrics { display: flex; flex-wrap: wrap; gap: 4px 16px; white-space: normal; }
-.step-metric { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tool-group > summary .step-metrics { display: flex; flex-wrap: wrap; gap: 4px 16px; white-space: normal; overflow: clip; }
+.step-metric { position: relative; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.step-metric + .step-metric::before {
+  content: "·";
+  position: absolute;
+  inset-inline-start: -16px;
+  width: 16px;
+  text-align: center;
+  opacity: 0.6;
+}
 
 .tokens {
   flex: none;
