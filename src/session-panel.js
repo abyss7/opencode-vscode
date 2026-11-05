@@ -206,9 +206,13 @@ class SessionPanel {
   }
 
   _setIcon(kind) {
+    this._baseIconKind = kind;
+    if (this._permissions.size || this._elicitations.size) kind = 'attention';
     if (this._disposed || this._iconKind === kind) return;
     this._iconKind = kind;
-    if (kind === 'working') {
+    if (kind === 'attention') {
+      this.panel.iconPath = this._iconUri('opencode-attention.svg');
+    } else if (kind === 'working') {
       this.panel.iconPath = this._iconUri('opencode-working.svg');
     } else if (kind === 'done') {
       this.panel.iconPath = this._iconUri('opencode-done.svg');
@@ -224,11 +228,15 @@ class SessionPanel {
     return vscode.Uri.joinPath(this.deps.extensionUri, 'media', file);
   }
 
+  _refreshAttention() {
+    this._setIcon(this._baseIconKind || 'idle');
+  }
+
   _onViewState(event) {
     if (this._disposed) return;
     const panel = (event && event.webviewPanel) || this.panel;
     if (!panel || !panel.active) return;
-    if (this._iconKind === 'done') this._setIcon('idle');
+    if (this._baseIconKind === 'done') this._setIcon('idle');
     this._focusIfActive();
   }
 
@@ -515,6 +523,7 @@ class SessionPanel {
     }
 
     this._permissions.set(request.requestId, request);
+    this._refreshAttention();
     if (this.deps.permissions) {
       try {
         request.policy = await this.deps.permissions.describe(this.sessionId, this.cwd, request.toolCall?.toolCallId);
@@ -542,6 +551,7 @@ class SessionPanel {
     if (this.deps.permissions && request.options.some((option) =>
       option.optionId === optionId && String(option.kind).endsWith('_always'))) return;
     this._permissions.delete(requestId);
+    this._refreshAttention();
     request.respond(optionId);
   }
 
@@ -590,6 +600,7 @@ class SessionPanel {
       return;
     }
     this._elicitations.set(request.requestId, request);
+    this._refreshAttention();
     this._post({
       type: 'elicitation',
       requestId: request.requestId,
@@ -603,6 +614,7 @@ class SessionPanel {
     const request = this._elicitations.get(requestId);
     if (!request) return;
     this._elicitations.delete(requestId);
+    this._refreshAttention();
     request.respond(action, content);
   }
 
@@ -870,6 +882,7 @@ class SessionPanel {
       }
     }
     this._elicitations.clear();
+    this._refreshAttention();
     this._client.cancel();
   }
 
@@ -1665,6 +1678,8 @@ class SessionPanel {
   _onExit(info) {
     if (this._disposed) return;
     this._busy = false;
+    this._permissions.clear();
+    this._elicitations.clear();
     this._setIcon('idle');
     this._post({ type: 'status', state: 'error' });
     const detail = info && info.error

@@ -185,6 +185,7 @@ async function main() {
   try {
     Module._load = function (request) {
       return request === 'vscode' ? {
+        Uri: { joinPath: (...parts) => path.join(...parts) },
         TreeItem: class { constructor(label) { this.label = label; } },
         ThemeIcon: class {},
       } : load.apply(this, arguments);
@@ -193,6 +194,8 @@ async function main() {
     ({ SessionsProvider } = require('../src/sessions-view'));
   } finally { Module._load = load; }
   const panel = Object.create(SessionPanel.prototype);
+  panel.panel = {};
+  panel._elicitations = new Map();
   let called = false;
   panel._client = { configOptions: [{ id: 'role', category: 'mode' }], setConfigOption: async () => { called = true; } };
   panel._post = () => {};
@@ -203,7 +206,8 @@ async function main() {
   panel.sessionId = 'ses_root';
   panel.cwd = cwd;
   panel._client.prompt = async () => { throw new Error('Must not send before policy is applied'); };
-  panel.deps = { permissions: { configure: async () => { throw new Error('plugin offline'); } },
+  panel.deps = { extensionUri: path.resolve(__dirname, '..'),
+    permissions: { configure: async () => { throw new Error('plugin offline'); } },
     getConfig: () => ({ autoApprovePermissions: 'allowAll' }) };
   await panel._prompt('change a file', [], null);
   assert.match(messages.find((item) => item.type === 'error').message, /plugin offline/);
