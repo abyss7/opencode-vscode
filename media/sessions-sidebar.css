@@ -33,13 +33,18 @@ body {
 .tree-description { color: var(--vscode-descriptionForeground); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tree-node[data-kind="session"] > .tree-row > .tree-label { flex: 1 1 0; width: 0; }
 .tree-node[data-kind="session"] > .tree-row > .tree-description { flex: 0 0 auto; overflow: visible; text-overflow: clip; text-align: right; }
-.tree-node[data-kind="session"] > .tree-row > .tree-action { margin-left: 0; }
 .tree-row svg { width: 16px; height: 16px; flex: 0 0 16px; }
 .twisty, .tree-action { padding: 0; width: 18px; height: 20px; border: 0; background: transparent; color: inherit; flex: 0 0 18px; cursor: pointer; }
 .twisty:disabled { visibility: hidden; }
 .tree-action { margin-left: auto; opacity: 0; }
 .tree-row:hover .tree-action, .tree-node:focus > .tree-row .tree-action { opacity: 1; }
 .tree-action:focus-visible { opacity: 1; outline: 1px solid var(--vscode-focusBorder); }
+.tree-action[data-action] { display: none; margin-left: 0; opacity: 1; align-items: center; justify-content: center; }
+.tree-row:hover > .tree-action[data-action],
+.tree-node[data-kind="session"]:focus-within:not(:has(.tree-node:focus-within)) > .tree-row > .tree-action[data-action] { display: inline-flex; }
+/* Actions replace the status text while they are shown. */
+.tree-node[data-kind="session"] > .tree-row:hover > .tree-description,
+.tree-node[data-kind="session"]:focus-within:not(:has(.tree-node:focus-within)) > .tree-row > .tree-description { display: none; }
 .drop-target > .tree-row { background: var(--vscode-list-dropBackground, var(--vscode-list-activeSelectionBackground)); }
 .tree-icon-busy { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

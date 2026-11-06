@@ -17,6 +17,8 @@
   const paths = {
     folder: ['M3 6h7l2 2h9v12H3z'], inbox: ['M4 4h16v16H4z', 'M4 13h5l2 3h2l2-3h5'],
     archive: ['M3 3h18v4H3z', 'M5 7v14h14V7', 'M10 11h4'],
+    restore: ['M4 4v6h6', 'M4 10a8 8 0 1 1 1 8'],
+    trash: ['M3 6h18', 'M9 6V3h6v3', 'M5 6l1 15h12l1-15', 'M10 10v7', 'M14 10v7'],
     'comment-discussion': ['M3 3h16v12H9l-4 4v-4H3z'],
     'server-process': ['M4 3h16v7H4z', 'M4 14h16v7H4z', 'M7 6h1', 'M7 17h1'],
     'loading~spin': ['M20 12a8 8 0 1 1-8-8'], chevron: ['m9 5 7 7-7 7'], down: ['m5 9 7 7 7-7'],
@@ -81,7 +83,20 @@
         twisty.appendChild(icon(expanded(node) ? 'down' : 'chevron'));
         row.append(twisty, icon(node.icon || 'comment-discussion'), text('span', 'tree-label', node.name));
         if (node.description) row.appendChild(text('span', 'tree-description', node.description));
-        if (node.actions?.length) {
+        if (node.kind === 'session') {
+          const actions = { archiveSession: ['archive', 'Archive'], restoreSession: ['restore', 'Restore'],
+            deleteSession: ['trash', 'Delete session'] };
+          for (const action of node.actions || []) {
+            if (!actions[action]) continue;
+            const [name, label] = actions[action];
+            const button = text('button', 'tree-action', '');
+            button.dataset.action = action;
+            button.title = label;
+            button.setAttribute('aria-label', `${label}: ${node.name}`);
+            button.appendChild(icon(name));
+            row.appendChild(button);
+          }
+        } else if (node.actions?.length) {
           const menu = text('button', 'tree-action', '');
           menu.tabIndex = -1;
           menu.setAttribute('aria-label', `Actions for ${node.name}`);
@@ -123,11 +138,14 @@
     const node = nodes.get(element?.dataset.key);
     if (!node) return;
     focusNode(element);
-    if (event.target.closest('.tree-action')) return send('menu', node);
+    const action = event.target.closest('.tree-action');
+    if (action) return send(action.dataset.action || 'menu', node);
     if (event.target.closest('.twisty') || node.kind === 'folder') return toggle(node);
     send(node.kind === 'error' ? 'showLog' : 'openSession', node);
   });
   tree.addEventListener('keydown', (event) => {
+    // Let focused action buttons handle Enter/Space as native button clicks.
+    if (event.target.closest('.tree-action') && ['Enter', ' '].includes(event.key)) return;
     const element = event.target.closest('.tree-node');
     const node = nodes.get(element?.dataset.key);
     if (!node) return;
