@@ -21,6 +21,7 @@
   const usageResetEl = document.getElementById('usage-reset');
   const attachmentsEl = document.getElementById('attachments');
   const configBarEl = document.getElementById('config-bar');
+  let modelPicker = null;
   const slashMenuEl = document.getElementById('slash-menu');
   const subagentsEl = document.getElementById('subagents');
   const subagentsSummaryEl = document.getElementById('subagents-summary');
@@ -2806,6 +2807,9 @@
 
   function setConfigOptions(options) {
     state.configOptions = options;
+    const restoreModelFocus = modelPicker?.containsFocus();
+    modelPicker?.dispose();
+    modelPicker = null;
     configBarEl.replaceChildren();
     const list = Array.isArray(options) ? options : [];
     for (const option of list) {
@@ -2815,6 +2819,13 @@
         continue;
       }
       if (option.type !== 'select' || !Array.isArray(option.options)) continue;
+      if (option.category === 'model' || option.id === 'model') {
+        modelPicker = OpenCodeModelPicker.create(option, (value) => vscode.postMessage({
+          type: 'setConfigOption', configId: option.id, value,
+        }));
+        configBarEl.appendChild(modelPicker.element);
+        continue;
+      }
       const label = el('label', 'config');
       label.appendChild(el('span', null, option.name || option.id));
       const select = document.createElement('select');
@@ -2840,6 +2851,7 @@
     }
     appendPermissionProfiles();
     configBarEl.hidden = configBarEl.children.length === 0;
+    if (restoreModelFocus) modelPicker?.focus();
   }
 
   function isSkippedReplayUser(update) {

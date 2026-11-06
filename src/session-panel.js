@@ -54,6 +54,9 @@ function buildHtml(webview, extensionUri) {
     .replace(/\{\{diagramsUri\}\}/g, String(webview.asWebviewUri(
       vscode.Uri.joinPath(extensionUri, 'media', 'diagrams.js')
     )))
+    .replace(/\{\{modelPickerUri\}\}/g, String(webview.asWebviewUri(
+      vscode.Uri.joinPath(extensionUri, 'media', 'model-picker.js')
+    )))
     .replace(/\{\{styleUri\}\}/g, String(styleUri))
     .replace(/\{\{scriptUri\}\}/g, String(scriptUri));
 }

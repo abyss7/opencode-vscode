@@ -1364,6 +1364,58 @@ select {
   cursor: pointer;
 }
 
+.model-picker { min-width: 0; max-width: 100%; }
+.model-picker-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 240px;
+  padding: 2px 4px;
+  border: 1px solid var(--vscode-dropdown-border, var(--oc-border));
+  border-radius: 4px;
+  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+  background: var(--vscode-dropdown-background, var(--oc-input-bg));
+  font-size: 11px;
+  cursor: pointer;
+}
+.model-picker-button[aria-disabled='true'] { opacity: 0.6; cursor: wait; }
+.model-picker-button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.model-picker-chevron { flex: none; color: var(--oc-secondary); }
+.model-provider-icon { display: block; width: 16px; height: 16px; flex: none; color: inherit; }
+.model-provider-fallback {
+  display: grid;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+}
+.model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.model-picker-list {
+  position: fixed;
+  z-index: 100;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--vscode-dropdown-border, var(--oc-border));
+  border-radius: 5px;
+  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+  background: var(--vscode-dropdown-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 4px 12px var(--vscode-widget-shadow, #0004);
+  font-size: 12px;
+}
+.model-picker-list[hidden] { display: none; }
+.model-picker-option { display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; border-radius: 3px; }
+.model-picker-option[aria-selected='true'] .model-name { font-weight: 600; }
+.model-picker-option.active {
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+  background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground));
+  outline: 1px solid var(--vscode-list-focusOutline, var(--vscode-focusBorder));
+  outline-offset: -1px;
+}
+
 .input-row {
   display: flex;
   align-items: flex-end;

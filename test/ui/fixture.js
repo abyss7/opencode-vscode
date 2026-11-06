@@ -86,6 +86,7 @@ const test = base.extend({
           .replaceAll('{{richTextUri}}', `${origin}/media/rich-text.js`)
           .replaceAll('{{richTextStyleUri}}', `${origin}/media/rich-text.css`)
           .replaceAll('{{diagramsUri}}', `${origin}/media/diagrams.js`)
+          .replaceAll('{{modelPickerUri}}', `${origin}/media/model-picker.js`)
           .replaceAll('{{scriptUri}}', `${origin}/media/chat.js`)
           .replace('<body>', `<body class="vscode-${testInfo.project.metadata.theme}">`)
           .replace('<title>', '<link rel="stylesheet" href="/theme.css"><title>');
