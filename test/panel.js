@@ -138,24 +138,26 @@ function waitFor(messages, predicate, timeoutMs) {
   );
 
   receive({ type: 'prompt', text: 'Reply with exactly: PANEL-OK' });
+  await waitFor(messages, (m) => m.type === 'status' && m.state === 'busy', 30000);
   assert.ok(
     String(panel.iconPath).includes('opencode-working.svg'),
     'a working tab must be orange'
   );
   await waitFor(messages, (m) => m.type === 'turnEnd', 120000);
-  const assistantText = messages
-    .filter((m) => m.type === 'update' && m.update.sessionUpdate === 'agent_message_chunk')
-    .map((m) => m.update.content && m.update.content.text)
-    .join('');
+  const transcript = new Map();
+  for (const event of messages.filter((message) => message.type === 'transcript')) {
+    for (const message of event.messages) transcript.set(message.id, message);
+  }
+  const answers = [...transcript.values()].filter((message) => message.type === 'assistant');
+  const assistantText = answers.flatMap((message) => message.content
+    .filter((part) => part.type === 'text').map((part) => part.text)).join('');
   console.log('assistant text:', JSON.stringify(assistantText));
   assert.ok(assistantText.includes('PANEL-OK'), 'panel did not render assistant text');
   await sessionPanel._restoreTurnStats();
   const times = messages.filter((message) => message.type === 'messageTimes').flatMap((message) => message.times);
-  const answerIds = messages
-    .filter((message) => message.type === 'update' && message.update.sessionUpdate === 'agent_message_chunk')
-    .map((message) => message.update.messageId);
+  const answerIds = answers.map((message) => message.id);
   assert.ok(answerIds.length > 0 && answerIds.every((id) => times.some((time) => time.id === id && time.timestamp > 0)),
-    'server timestamps must match the ACP message IDs rendered in the panel');
+    'server timestamps must match the message IDs rendered in the panel');
   assert.ok(
     String(panel.iconPath).includes('opencode-done.svg'),
     'a finished unseen tab must be green'

@@ -1,7 +1,7 @@
 # OpenCode for VS Code
 
 A local extension that lists OpenCode sessions in the sidebar and opens each session in its own
-editor tab as an ACP chat.
+editor tab connected to the shared OpenCode server.
 
 ## Features
 
@@ -25,7 +25,7 @@ editor tab as an ACP chat.
 - While a shell command runs, a short prefix of the command is shown; otherwise the line falls back to `working`.
 - Model output is buffered and rendered only once the message is complete, so the text never
   flickers from raw chunks into formatted markdown.
-- Paste images from the clipboard directly into the composer; they are sent as ACP image blocks.
+- Paste images from the clipboard directly into the composer, including queued messages.
 - Type `/` in the composer to autocomplete slash commands and skills.
 - File references in answers (`src/api.js:42`, markdown links to files, and tool-call locations)
   open in an editor tab beside the chat at that line and column. A reference becomes a link only
@@ -38,7 +38,7 @@ editor tab as an ACP chat.
 - The extension automatically appends a short description of its presentation formats to
   regular and queued prompts, including image prompts. You do not need to repeat it.
   This context is stored with the prompt but omitted from the extension's transcript view.
-- Tool results preserve typed ACP diffs, images and text resources. Diffs show line numbers,
+- Tool results preserve diffs, images and text resources. Diffs show line numbers,
   fold unchanged context, and open immutable before/after documents in VS Code's diff editor.
   Structured output supports sortable record tables and expandable objects. Explicit
   `{type: "search" | "diagnostics", items: [{path, line, column, text, message, severity}]}`
@@ -67,6 +67,14 @@ editor tab as an ACP chat.
 - Reasoning, plans, and tool details are collapsed by default; permission prompts stay visible.
 - Model and mode switching (build/plan) via `session/set_config_option`.
 - Tabs are restored when the VS Code window reloads.
+- Ordinary and queued inputs use the same server and live event stream. Message IDs track
+  sending, queued, running, completed, failed and interrupted states; submitting does not
+  imply completion. Stop cancels pending inputs and interrupts the current execution.
+- Reconnection reconciles message history, inbox and outstanding permissions/questions,
+  updating existing transcript nodes without replay duplicates. A recreated tab restores
+  its scroll anchor. Closing a tab leaves server work and pending permissions intact.
+- Event subscriptions are live-only. Streamed prefixes stay visible after a disconnect;
+  missing text is repaired from the server's complete text when that content block ends.
 - Every supported OpenCode setting is available in the native VS Code Settings editor and is
   kept in sync with `opencode.json(c)` at the matching scope.
 
@@ -225,8 +233,10 @@ node scripts/generate-configuration.js
   `openFile`, resolved against the session directory and opened with
   `vscode.window.showTextDocument(..., { viewColumn: ViewColumn.Beside })`.
 - Deletion uses `DELETE /api/session/{id}`.
-- A new session is created over ACP (`session/new`) in the workspace directory.
-- The chat tab is a webview connected to a dedicated `opencode acp` process over JSON-RPC/stdio.
+- A new session is created with `POST /api/session` in the workspace directory.
+- The chat tab uses the shared server's HTTP API and `/api/event` subscription for both
+  ordinary and queued work. Reconnects perform full paginated history reconciliation;
+  live updates read recent messages and merge volatile text/reasoning/tool progress.
 - Answers are always printed outside the collapsible step block: an answer closes the current
   *steps* chevron, and the next thought or tool call opens a new one below the text. A turn that
   ends without any text gets one explanatory line (how many steps are collapsed, or the stop
@@ -235,7 +245,8 @@ node scripts/generate-configuration.js
 
 ## Usage display
 
-- Context usage, cost, and the context window size come from the ACP `usage_update` event.
+- Context usage and cost come from stored assistant/session counters; model metadata
+  supplies the context window size.
 - The token line shows `tokens: used (P% cached X ago) · compaction at N (M limit)`. `P` is the
   share of the last prompt that came from the provider cache, measured on the newest assistant
   message and floored to three decimals so a nearly full cache never reads as 100%; `X` says
@@ -247,14 +258,14 @@ node scripts/generate-configuration.js
 - On open, the context is restored from the last assistant message
   (`/api/session/{id}/message`), the context limit from `GET /api/model`, and the accumulated
   session cost from `GET /api/session/{id}`. These values are exact as stored by the server.
-- At the end of a turn the ACP result carries exact usage for the whole turn
+- At the end of a turn stored assistant records carry exact usage for the whole turn
   (`input`, `output`, `reasoning`, cache read/write). It replaces the estimate in the turn
   summary; the tooltip shows the breakdown. The turn header prints the uncached part first and
   the cached additions in parentheses: `12.5k tok (+140k cache read · +3.2k cache write)`, with
   zero terms dropped.
 - Restored turns use the stored per-message counters the same way, so their headers are exact
   too: the billed sum is the turn total and the cache split is read back from the same records.
-- ACP reports token usage per assistant step, not per individual tool call, so operation-level
+- OpenCode reports token usage per assistant step, not per individual tool call, so operation-level
   numbers are still estimates (`~N tok`). They are rebuilt from
   `GET /api/session/{id}/message` when a turn ends and when a session is restored, using the
   four-characters-per-token heuristic.
@@ -270,26 +281,24 @@ node scripts/generate-configuration.js
 - For DeepSeek models the account balance is read from `GET https://api.deepseek.com/user/balance`
   with the credential stored by OpenCode (`opencode auth export deepseek`) and shown after the
   cost. Other providers need their own balance source.
-- Pasting images is enabled when the agent advertises the ACP `promptCapabilities.image`
-  capability. The selected model must also accept image input.
+- Image attachments use the native prompt API. The selected model must accept image input.
 
 ## Commands and skills
 
 - Typing `/` at the start of the composer opens an autocomplete list of slash commands and skills.
-- Commands come from the ACP `available_commands_update` event and from `GET /api/command`.
+- Commands come from `GET /api/command`.
 - Skills come from `GET /api/skill` scoped to the workspace directory; they are inserted as
   `@skill-id` mentions, which OpenCode resolves into a skill load.
 - Selecting an entry inserts `/name ` or `@skill-id `; arrow keys move the selection, `Enter` or
   `Tab` accepts it, `Esc` closes the list.
 - Slash commands are executed by the background server (`POST /api/session/{id}/command`); `/compact`
-  uses `POST /api/session/{id}/compact`. ACP only advertises commands, it cannot run them.
-- After a command finishes, the transcript is reloaded with `session/load`; the expanded command
-  template is replaced by the text you typed.
+  uses `POST /api/session/{id}/compact`. Their output arrives through the same live subscription
+  and incremental reconciliation as ordinary prompts.
 
 ## Diagnostics
 
 - The **OpenCode: Show Log** command (`opencode.showLog`) opens the `OpenCode` output
-  channel with ACP/REST logs.
+  channel with server connection and reconciliation logs.
 - If the list is empty or shows an error, check:
 
 ```bash

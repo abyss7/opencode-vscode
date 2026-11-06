@@ -57,7 +57,7 @@ const test = base.extend({
     await page.clock.setFixedTime(new Date('2026-01-01T12:00:00Z'));
     await page.addInitScript(() => {
       window.hostMessages = [];
-      let state;
+      let state = JSON.parse(sessionStorage.getItem('vscode-state') || 'null');
       window.acquireVsCodeApi = () => ({
         postMessage(message) {
           window.hostMessages.push(message);
@@ -68,7 +68,7 @@ const test = base.extend({
             }, '*');
           }
         },
-        setState(value) { state = value; },
+        setState(value) { state = value; sessionStorage.setItem('vscode-state', JSON.stringify(value)); },
         getState() { return state; },
       });
     });

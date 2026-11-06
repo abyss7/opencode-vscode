@@ -104,6 +104,11 @@
     skipUserIndex: -1,
     skipUserId: null,
     replaySeen: new Set(),
+    nativeTransport: false,
+    nativeMessages: new Map(),
+    nativeParts: new Map(),
+    nativeUsers: new Map(),
+    pendingInputs: new Map(),
     fileChecks: new Map(),
     fileCheckPending: new Set(),
   };
@@ -192,6 +197,32 @@
     }
   }
 
+  let restoredViewport = vscode.getState?.()?.viewport || null;
+  let restoredSubmissions = vscode.getState?.()?.submissions || [];
+  let viewportTimer;
+  function captureViewport() {
+    const top = messagesEl.getBoundingClientRect().top;
+    const anchor = [...messagesEl.children].find((node) => node.dataset.anchorId &&
+      node.getBoundingClientRect().bottom > top);
+    return { bottom: state.autoScroll, top: messagesEl.scrollTop,
+      anchor: anchor?.dataset.anchorId, offset: anchor ? anchor.getBoundingClientRect().top - top : 0 };
+  }
+
+  function restoreViewport(viewport) {
+    if (!viewport) return;
+    state.autoScroll = viewport.bottom;
+    if (viewport.bottom) { scrollToBottom(); return; }
+    const anchor = [...messagesEl.children].find((node) => node.dataset.anchorId === viewport.anchor);
+    messagesEl.scrollTop = anchor ? messagesEl.scrollTop + anchor.getBoundingClientRect().top -
+      messagesEl.getBoundingClientRect().top - viewport.offset : viewport.top;
+  }
+
+  function saveViewport() {
+    if (state.replaying || restoredViewport) return;
+    clearTimeout(viewportTimer);
+    viewportTimer = setTimeout(() => vscode.setState({ ...vscode.getState?.(), viewport: captureViewport() }), 80);
+  }
+
   function jumpToBottom() {
     state.autoScroll = true;
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -205,8 +236,8 @@
     }
   }
 
-  function focusComposer() {
-    jumpToBottom();
+  function focusComposer(preserveScroll = false) {
+    if (!restoredViewport && (!preserveScroll || state.autoScroll)) jumpToBottom();
     try {
       inputEl.focus();
     } catch {
@@ -504,13 +535,17 @@
     const selection = state.selection;
     const wasBusy = state.busy;
     if ((!text && images.length === 0) || !state.connected) return;
-    if (wasBusy && images.length > 0) {
+    if (wasBusy && images.length > 0 && !state.nativeTransport) {
       addInfo('Image attachments cannot be queued while OpenCode is working.');
       return;
     }
     const command =
       wasBusy || images.length > 0 || selection ? null : knownCommand(text);
-    addUserMessage(text, null, images, Date.now());
+    const id = state.nativeTransport ? `msg_${crypto.randomUUID().replaceAll('-', '')}` : null;
+    if (state.nativeTransport && !command) {
+      showSubmission({ id, state: 'sending', item: { id, time: { created: Date.now() }, payload: { text,
+        files: images.map((image) => ({ uri: image.dataUrl || `data:${image.mimeType};base64,${image.data}` })) } } });
+    } else addUserMessage(text, null, images, Date.now());
     if (command) {
       state.commandEchoIndex = state.userMessageCount - 1;
       state.commandEchoText = text;
@@ -539,6 +574,7 @@
     } else {
       vscode.postMessage({
         type: 'prompt',
+        ...(id ? { id } : {}),
         text,
         ...(selection ? { selection } : {}),
         images: images.map((image) => ({
@@ -1980,6 +2016,11 @@
   }
 
   function addPermission(message) {
+    for (const card of messagesEl.querySelectorAll('.permission[data-request-id]')) {
+      if (card.dataset.requestId !== String(message.requestId)) continue;
+      resolveAttention(card);
+      card.remove();
+    }
     hideEmpty();
     finalizeAssistant();
     finalizeThought();
@@ -2137,6 +2178,11 @@
   }
 
   function addElicitation(message) {
+    for (const card of messagesEl.querySelectorAll('.elicitation[data-request-id]')) {
+      if (card.dataset.requestId !== String(message.requestId)) continue;
+      resolveAttention(card);
+      card.remove();
+    }
     hideEmpty();
     finalizeAssistant();
     finalizeThought();
@@ -2150,6 +2196,7 @@
     const limits = {};
 
     const card = el('div', 'elicitation');
+    card.dataset.requestId = String(message.requestId);
     card.appendChild(el('div', 'permission-title', 'Question'));
     if (typeof message.message === 'string' && message.message) {
       card.appendChild(el('div', 'elicitation-message', message.message));
@@ -2874,6 +2921,158 @@
     }
   }
 
+  const inputStatus = { sending: 'Sending…', queued: 'Queued', running: 'Running', completed: 'Completed',
+    failed: 'Failed', interrupted: 'Interrupted', cancelled: 'Cancelled', unknown: 'Delivery unconfirmed' };
+
+  function nativeImages(files) {
+    return (files || []).flatMap((file) => {
+      const uri = file.uri || (/^image\/(png|jpeg|gif|webp)$/.test(file.mime || '') && typeof file.data === 'string'
+        ? `data:${file.mime};base64,${file.data}` : '');
+      return /^data:image\/(png|jpeg|gif|webp);base64,/.test(uri) ? [{ dataUrl: uri, name: file.name }] : [];
+    });
+  }
+
+  function setInputStatus(wrap, status) {
+    let label = wrap.querySelector('.delivery-status');
+    if (!label) { label = el('div', 'delivery-status'); label.setAttribute('role', 'status'); wrap.appendChild(label); }
+    wrap.dataset.delivery = status;
+    label.textContent = inputStatus[status] || status;
+  }
+
+  function showSubmission(submission) {
+    if (!submission.id) return;
+    const delivered = state.nativeUsers.get(submission.id);
+    if (delivered) return; // An SSE snapshot may win the race with POST's response.
+    let entry = state.pendingInputs.get(submission.id);
+    if (!entry) {
+      hideEmpty();
+      const wrap = el('div', 'message user queued-input');
+      wrap.dataset.anchorId = submission.id;
+      wrap.dataset.messageId = submission.id;
+      const payload = submission.item?.payload || {};
+      wrap.appendChild(el('div', 'body', OpenCodeRichText.visiblePrompt(payload.text || '')));
+      const images = nativeImages(payload.files);
+      addUserImages(wrap, images, submission.id);
+      stampMessage(wrap, submission.id, submission.item?.time?.created);
+      messagesEl.appendChild(wrap);
+      entry = { wrap, state: submission.state };
+      state.pendingInputs.set(submission.id, entry);
+    }
+    entry.state = submission.state;
+    entry.item = submission.item || entry.item;
+    setInputStatus(entry.wrap, submission.state);
+    if (submission.error) entry.wrap.title = submission.error;
+    saveSubmissions();
+    scrollToBottom();
+  }
+
+  function saveSubmissions() {
+    if (!state.sessionId) return;
+    vscode.setState({ ...vscode.getState?.(), submissions: [...state.pendingInputs].map(([id, entry]) => ({
+      id, state: entry.state, item: entry.item,
+    })) });
+  }
+
+  function renderTranscript(snapshot) {
+    state.nativeTransport = true;
+    const viewport = restoredViewport || captureViewport();
+    // Suppress intermediate appends moving the viewport during a batch.
+    state.autoScroll = false;
+    for (const message of snapshot.messages || []) {
+      const signature = JSON.stringify(message);
+      if (state.nativeMessages.get(message.id) === signature) continue;
+      state.nativeMessages.set(message.id, signature);
+      const before = new Set(messagesEl.children);
+      state.messageTimes.set(message.id, message.time?.streamed || message.time?.created);
+      if (message.type === 'user' && !state.nativeUsers.has(message.id)) {
+        state.pendingInputs.get(message.id)?.wrap.remove();
+        state.pendingInputs.delete(message.id);
+        addUserMessage(message.text || '', message.id, nativeImages(message.files), message.time?.created);
+        state.nativeUsers.set(message.id, state.lastUser.wrap);
+      } else if (message.type === 'assistant') {
+        for (const [index, part] of (message.content || []).entries()) {
+          const key = `${message.id}:${index}`;
+          let record = state.nativeParts.get(key);
+          if (part.type === 'tool') {
+            const serialized = JSON.stringify(part.update);
+            if (record?.serialized !== serialized) {
+              upsertTool(part.update);
+              state.nativeParts.set(key, { serialized });
+            }
+          } else if (part.type === 'text' && part.text) {
+            if (!record) {
+              addAssistantChunk({ type: 'text', text: part.text }, key);
+              record = state.currentAssistant;
+              state.nativeParts.set(key, record);
+            }
+            if (record.text !== part.text || record.wrap.hidden) {
+              record.text = part.text;
+              record.wrap.hidden = false;
+              record.body.classList.add('md');
+              record.body.innerHTML = renderMarkdown(record.text);
+            }
+            stampMessage(record.wrap, message.id, message.time?.streamed || message.time?.created);
+            if (message.time?.completed && !record.nativeComplete) {
+              record.nativeComplete = true;
+              if (state.currentAssistant === record) finalizeAssistant();
+              else { OpenCodeRichText.hydrate(record.body, scrollToBottom); artifacts.ingest(record.body); }
+            }
+          } else if (part.type === 'reasoning' && part.text) {
+            if (!record) {
+              addThoughtChunk({ type: 'text', text: part.text }, key);
+              record = state.currentThought;
+              state.nativeParts.set(key, record);
+            } else if (record.text !== part.text) {
+              record.text = part.text;
+              record.body.textContent = part.text;
+              updateThoughtCaption(record, Boolean(message.time?.completed));
+              syncThoughtLayout(record);
+            }
+          }
+        }
+        if (message.time?.completed) {
+          finalizeAssistant();
+          finalizeThought();
+        }
+      } else if (message.type === 'idle') {
+        finalizeAssistant();
+        finalizeThought();
+        finalizeToolGroup();
+        finalizeTurnSteps();
+      }
+      let index = 0;
+      for (const node of messagesEl.children) {
+        if (!before.has(node) && !node.dataset.anchorId) node.dataset.anchorId = `${message.id}:${index++}`;
+      }
+    }
+    if (snapshot.partial) {
+      for (const entry of state.pendingInputs.values()) messagesEl.appendChild(entry.wrap);
+      restoreViewport(viewport);
+      return;
+    }
+    for (const [id, status] of snapshot.states || []) {
+      const wrap = state.nativeUsers.get(id);
+      if (wrap) setInputStatus(wrap, status);
+    }
+    const pending = new Set((snapshot.inbox || []).map((item) => item.id));
+    for (const [id, entry] of state.pendingInputs) {
+      if (!pending.has(id) && entry.state === 'queued') {
+        setInputStatus(entry.wrap, 'cancelled');
+        entry.state = 'cancelled';
+      }
+    }
+    for (const item of snapshot.inbox || []) {
+      if (item.type !== 'user') continue;
+      showSubmission({ id: item.id, item, state: item.submissionState || 'queued' });
+    }
+    // Pending inputs live below the transcript, never interrupting the active
+    // assistant block. Delivery inserts the actual user message at server order.
+    for (const entry of state.pendingInputs.values()) messagesEl.appendChild(entry.wrap);
+    restoreViewport(viewport);
+    saveSubmissions();
+    saveViewport();
+  }
+
   function handleMessage(message) {
     if (!message || typeof message.type !== 'string') return;
     switch (message.type) {
@@ -2882,9 +3081,25 @@
         break;
       case 'session':
         setSession(message);
+        for (const submission of restoredSubmissions) showSubmission(submission);
+        restoredSubmissions = [];
         break;
       case 'capabilities':
         state.imageSupport = Boolean(message.images);
+        state.nativeTransport = message.transport === 'server';
+        break;
+      case 'transcript':
+        renderTranscript(message);
+        break;
+      case 'submission':
+        showSubmission(message);
+        break;
+      case 'requestResolved':
+        for (const card of messagesEl.querySelectorAll('.permission[data-request-id], .elicitation[data-request-id]')) {
+          if (card.dataset.requestId !== String(message.requestId)) continue;
+          resolveAttention(card);
+          card.remove();
+        }
         break;
       case 'slashItems':
         state.skills = Array.isArray(message.skills) ? message.skills : [];
@@ -2903,7 +3118,7 @@
         setTitle(message.title);
         break;
       case 'focus':
-        focusComposer();
+        focusComposer(message.preserveScroll === true);
         break;
       case 'config':
         setConfigOptions(message.configOptions);
@@ -2988,7 +3203,12 @@
         finalizeThought();
         finalizeToolGroup();
         finalizeTurnSteps();
-        jumpToBottom();
+        if (restoredViewport) {
+          const viewport = restoredViewport;
+          restoredViewport = null;
+          restoreViewport(viewport);
+          requestAnimationFrame(() => restoreViewport(viewport));
+        } else if (state.autoScroll) jumpToBottom();
         break;
       case 'turnEnd': {
         const fresh = !state.turnEnded;
@@ -3363,6 +3583,7 @@
   messagesEl.addEventListener('scroll', () => {
     const distance = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
     state.autoScroll = distance < 120;
+    saveViewport();
   });
 
   (document.getElementById('workspace') || messagesEl).addEventListener('click', async (event) => {

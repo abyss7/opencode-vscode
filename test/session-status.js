@@ -99,19 +99,24 @@ function fixture() {
   const token = { sessionID: 'session', turn: 'interrupted' };
   const completed = [];
   let submitted;
+  let submitOptions;
   recovery.panel.deps.continuations = {
     claim: () => token, complete: (value) => completed.push(value),
     begin: () => assert.fail('a recovered turn keeps its original intent token'),
   };
   recovery.panel.deps.api.getSession = async () => ({ id: 'session', time: { busy: 20, idle: 10 } });
-  recovery.panel._client = { child: { pid: 123 }, prompt: async (blocks) => {
+  recovery.panel._client = { shared: true, reconcile: async () => {}, prompt: async (blocks, options) => {
     submitted = blocks;
+    submitOptions = options;
     return { stopReason: 'end_turn' };
   } };
   await recovery.panel._refreshServerStatus();
   await Promise.resolve();
   assert.ok(submitted[0].text.startsWith(CONTINUE_TEXT));
-  assert.deepEqual(submitted[0].annotations, { audience: ['assistant'] }, 'resume is synthetic context, not a visible user message');
+  assert.equal(submitOptions.synthetic, true, 'resume uses the server synthetic endpoint, not a visible user message');
+  assert.deepEqual(completed, [], 'durable admission does not complete a continuation');
+  recovery.panel._onServerActivity('running');
+  recovery.panel._onServerActivity('idle');
   assert.deepEqual(completed, [token]);
   assert.equal(recovery.panel._busy, false);
 

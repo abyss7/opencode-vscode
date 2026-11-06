@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
-const { AcpClient } = require('./acp');
+const { SessionClient, toolUpdate } = require('./session-client');
 const { normalizeAgentOptions } = require('./agent-label');
 const { DiffDocuments } = require('./diff-documents');
 const { exportArtifact } = require('./artifact-export');
@@ -246,12 +246,12 @@ class SessionPanel {
   _focusIfActive() {
     if (this._disposed) return;
     if (this.panel.active === false) return;
-    this._post({ type: 'focus' });
+    this._post({ type: 'focus', preserveScroll: true });
     // The webview may still be hidden while the panel is being revealed, so ask
     // again once it has been laid out.
     this._trackTimeout(() => {
       if (!this._disposed && this.panel.active !== false) {
-        this._post({ type: 'focus' });
+        this._post({ type: 'focus', preserveScroll: true });
       }
     }, 80);
   }
@@ -280,7 +280,7 @@ class SessionPanel {
     this._externalTurn = external;
     this._busy = true;
     this._serverActivity = 'running';
-    if (!external) this.deps.api?.setSessionRunning?.(this.sessionId, this, true);
+    if (!external && !this._client?.shared) this.deps.api?.setSessionRunning?.(this.sessionId, this, true);
     this._setIcon('working');
     this._post({ type: 'status', state: 'busy', ...(external ? {
       external: true,
@@ -321,13 +321,20 @@ class SessionPanel {
           this._post({ type: 'sessionInfo', title: this._sessionTitle });
         }
         this._resendSubagents();
-        this._start();
+        if (this._started && this._client?.shared) {
+          this._post({ type: 'session', sessionId: this.sessionId, cwd: this.cwd, loaded: true });
+          this._post({ type: 'config', configOptions: this._client.configOptions });
+          this._client.replay().then(() => this._post({ type: 'historyEnd' }))
+            .catch((error) => this._post({ type: 'error', message: error.message }));
+        } else this._start();
         break;
       case 'prompt':
         this._prompt(
           String(message.text || ''),
           Array.isArray(message.images) ? message.images : [],
-          message.selection || null
+          message.selection || null,
+          null,
+          message.id
         );
         break;
       case 'command':
@@ -403,12 +410,32 @@ class SessionPanel {
     this._post({ type: 'status', state: 'connecting' });
 
     const config = this.deps.getConfig();
-    const client = new AcpClient({
-      command: config.command,
+    const client = new SessionClient({
+      api: this.deps.api,
       cwd: this.cwd,
       log: this.deps.log,
     });
     this._client = client;
+
+    client.on('transcript', (snapshot) => this._post({ type: 'transcript', ...snapshot,
+      messages: snapshot.messages.map((message) => message.type !== 'assistant' ? message : {
+        ...message, content: message.content.map((part) => part.type === 'tool'
+          ? { ...part, update: toolUpdate(part) } : part),
+      }),
+    }));
+    client.on('submission', (submission) => this._post({ type: 'submission', ...submission }));
+    client.on('activity', (activity) => this._onServerActivity(activity));
+    client.on('connection', (connected) => {
+      if (!connected) this._post({ type: 'status', state: 'connecting',
+        message: 'Reconnecting — server work continues.' });
+    });
+    client.on('notice', (message) => this._post({ type: 'error', message }));
+    client.on('childActivity', () => this._refreshSubagents());
+    client.on('requestResolved', ({ kind, id }) => {
+      (kind === 'permission' ? this._permissions : this._elicitations).delete(id);
+      this._post({ type: 'requestResolved', kind, requestId: id });
+      this._refreshAttention();
+    });
 
     client.on('update', (params) => this._onAcpUpdate(params));
     client.on('childUpdate', (params) => this._onChildUpdate(params));
@@ -427,6 +454,7 @@ class SessionPanel {
       if (this._disposed) return;
       this._post({
         type: 'capabilities',
+        transport: 'server',
         images: Boolean(
           client.capabilities &&
             client.capabilities.promptCapabilities &&
@@ -444,16 +472,8 @@ class SessionPanel {
           loaded: true,
         });
       } else {
-        const result = await client.newSession();
+        const result = await client.newSession(this._initialAgent);
         this.sessionId = result.sessionId;
-        if (this._initialAgent) {
-          const mode = client.configOptions.find((option) =>
-            option.id === 'mode' || option.id === 'agent' || option.category === 'mode');
-          if (!mode) throw new Error('The server does not expose agent selection for new sessions');
-          if (mode.currentValue !== this._initialAgent) {
-            await client.setConfigOption(mode.id, this._initialAgent);
-          }
-        }
         if (this._disposed) {
           this.deps.onSessionCreated(this, result.sessionId, this.cwd);
           return;
@@ -486,10 +506,17 @@ class SessionPanel {
       this._startLimitsTimer();
       this._startSubagentsPolling();
     } catch (error) {
-      this.deps.log(`ACP start failed: ${error.stack || error.message}`);
+      if (!this.sessionId && client.sessionId) {
+        this.sessionId = client.sessionId;
+        this.deps.onSessionCreated(this, this.sessionId, this.cwd);
+      }
+      this._started = false;
+      client.dispose();
+      this.deps.log(`Session connection failed: ${error.stack || error.message}`);
       if (this._disposed) return;
       this._post({ type: 'status', state: 'error' });
       this._post({ type: 'error', message: this._friendlyError(error, config.command) });
+      if (this.sessionId) this._trackTimeout(() => this._start(), 5000);
     }
   }
 
@@ -545,7 +572,7 @@ class SessionPanel {
     this._refreshAttention();
     if (this.deps.permissions) {
       try {
-        request.policy = await this.deps.permissions.describe(this.sessionId, this.cwd, request.toolCall?.toolCallId);
+        request.policy = await this.deps.permissions.describe(request.sessionId || this.sessionId, this.cwd, request.toolCall?.toolCallId);
       } catch (error) {
         request.policy = { reason: `Rule details unavailable: ${error.message}`, choices: [] };
       }
@@ -586,7 +613,7 @@ class SessionPanel {
       // Refresh settings too; the plugin rejects an outdated description rather than
       // authorizing a request under a different profile or newly edited project rules.
       await this._refreshPermissionProfile();
-      await this.deps.permissions.remember(this.sessionId, this.cwd, request.toolCall?.toolCallId,
+      await this.deps.permissions.remember(request.sessionId || this.sessionId, this.cwd, request.toolCall?.toolCallId,
         request.policy, message.choiceId, message.effect);
       if (this._disposed || !this._permissions.has(message.requestId)) return;
       request.saving = false;
@@ -595,7 +622,7 @@ class SessionPanel {
         note: `${message.effect === 'allow' ? 'Allow' : 'Forbid'} saved for this project · ${request.policy.profileLabel}` });
     } catch (error) {
       try {
-        request.policy = await this.deps.permissions.describe(this.sessionId, this.cwd, request.toolCall?.toolCallId);
+        request.policy = await this.deps.permissions.describe(request.sessionId || this.sessionId, this.cwd, request.toolCall?.toolCallId);
       } catch {
         request.policy = { reason: 'This request is no longer available for saving.', choices: [] };
       }
@@ -651,7 +678,7 @@ class SessionPanel {
     this.deps.onSessionChanged();
   }
 
-  async _prompt(text, images, selection, continuation = null) {
+  async _prompt(text, images, selection, continuation = null, id = undefined) {
     const value = text.trim();
     const blocks = [];
     if (value) blocks.push({ type: 'text', text: value });
@@ -672,72 +699,51 @@ class SessionPanel {
     if (blocks.length === 0 || !this._client || !this.sessionId) {
       return;
     }
-    if (this.deps.permissions && !(await this._permissionsBeforePrompt())) return;
-
-    // ACP has no way to send a second prompt while a turn is running, so route
-    // busy-time submissions through the REST endpoint as a queued request.
-    if (this._busy) {
-      if (continuation) return;
-      await this._queuePrompt(value, selection);
+    if (this.deps.permissions && !(await this._permissionsBeforePrompt())) {
+      if (id) this._post({ type: 'submission', id, state: 'failed', error: 'Permission settings could not be applied.' });
       return;
     }
 
-    this._startTurn();
+    if (continuation && this._busy) return;
     try {
-      this._continuation = continuation || this.deps.continuations?.begin(this.sessionId, this._client.child?.pid);
+      this._continuation = continuation || this._continuation ||
+        this.deps.continuations?.begin(this.sessionId, process.pid);
     } catch (error) {
       this.deps.log(`Cannot save continuation state: ${error.message}`);
     }
 
     const textBlock = blocks.find((block) => block.type === 'text');
-    // ACP turns assistant-only context into a synthetic input. No visible
-    // user instruction is invented, and permissions/streaming stay on ACP.
-    if (continuation && textBlock) textBlock.annotations = { audience: ['assistant'] };
     if (textBlock) textBlock.text = withClientContext(textBlock.text, selection);
     else blocks.unshift({ type: 'text', text: withClientContext('', selection) });
 
-    let stopReason = null;
-    let usage = null;
-    let promptError = null;
     try {
-      const result = await this._client.prompt(blocks);
-      if (this._disposed) return;
-      stopReason = result && result.stopReason;
-      usage = result && result.usage;
+      await this._client.prompt(blocks, { id, synthetic: Boolean(continuation) });
     } catch (error) {
       this.deps.log(`Prompt failed: ${error.stack || error.message}`);
-      promptError = error;
+      this._post({ type: 'error', message: error.message || String(error) });
     }
+  }
 
+  _onServerActivity(activity) {
     if (this._disposed) return;
-    const alive = this._client && !this._client.closed;
-    if (!alive) {
-      this._post({ type: 'turnEnd', stopReason: 'error' });
-      this._finishTurn('error');
-      this._afterTurn();
-      return;
-    }
-
-    if (promptError) {
-      this._post({ type: 'turnEnd', stopReason: 'error' });
-      this._post({
-        type: 'error',
-        message: promptError.message || String(promptError),
-      });
-      this._finishTurn('ready');
-      this._afterTurn();
-      return;
-    }
-
-    // A queued request keeps the tab busy until the server has drained it, so
-    // skip the normal turnEnd and let _drainQueue reload the transcript.
-    if (this._queuedCount > 0) {
-      await this._drainQueue();
+    const previous = this._serverActivity;
+    this._serverActivity = activity;
+    if (activity === 'running' || activity === 'queued') {
+      this._busy = true;
+      this._setIcon('working');
+      this._post({ type: 'status', state: 'busy' });
     } else {
-      this._post({ type: 'turnEnd', stopReason, usage });
-      this._finishTurn('ready');
+      const finished = this._busy;
+      if (finished && activity === 'idle') this._post({ type: 'turnEnd', stopReason: 'end_turn' });
+      if (finished || (previous && previous !== activity)) {
+        this._finishTurn(activity === 'unconfirmed' ? 'unconfirmed' : 'ready');
+      } else {
+        this._post({ type: 'status', state: activity === 'unconfirmed' ? 'unconfirmed' : 'ready',
+          ...(activity === 'unconfirmed' ? { message: UNCONFIRMED_MESSAGE } : {}) });
+      }
+      if (finished) this._afterTurn();
     }
-    this._afterTurn();
+    if (previous !== activity) this.deps.onSessionChanged?.();
   }
 
   _afterTurn() {
@@ -752,58 +758,6 @@ class SessionPanel {
     this._refreshLastTurnStats();
     this._refreshSubagents();
     this._refreshSmartReviews();
-  }
-
-  async _queuePrompt(text, selection) {
-    if (!this.sessionId || !text) return;
-    this._queuedCount += 1;
-    try {
-      await this.deps.api.prompt(this.sessionId, withClientContext(text, selection), { delivery: 'queue' });
-      if (this._disposed) return;
-      this._post({
-        type: 'info',
-        text: 'Queued — will run after the current turn.',
-      });
-    } catch (error) {
-      this._queuedCount = Math.max(0, this._queuedCount - 1);
-      this.deps.log(`Queue prompt failed: ${error.stack || error.message}`);
-      if (this._disposed) return;
-      this._post({ type: 'error', message: error.message || String(error) });
-    }
-  }
-
-  /**
-   * Wait for queued requests to finish on the server, then reload the
-   * transcript. ACP does not stream turns it did not initiate, so the only way
-   * to see a queued turn's output is a full reload once the session is idle.
-   */
-  async _drainQueue() {
-    if (this._disposed || !this._client || !this.sessionId) return;
-    while (
-      this._queuedCount > 0 &&
-      !this._disposed &&
-      this._client &&
-      !this._client.closed
-    ) {
-      this._queuedCount = 0;
-      const finished = await this._waitForIdle();
-      if (this._disposed) return;
-      if (!finished) {
-        this._post({
-          type: 'info',
-          text: 'Queued requests are still running on the OpenCode server; reopen the tab later to see the result.',
-        });
-        break;
-      }
-      try {
-        await this._reloadTranscript();
-      } catch (error) {
-        this.deps.log(`Reload after queue failed: ${error.stack || error.message}`);
-        break;
-      }
-    }
-    if (this._disposed) return;
-    this._finishTurn(this._client && !this._client.closed ? 'ready' : 'error');
   }
 
   async _loadSlashItems() {
@@ -827,71 +781,25 @@ class SessionPanel {
     if (!command || !this.sessionId || !this._client || this._busy) return;
     if (this.deps.permissions && !(await this._permissionsBeforePrompt())) return;
 
-    this._startTurn();
-
     try {
       if (command === 'compact') {
         await this.deps.api.compactSession(this.sessionId);
       } else {
         await this.deps.api.runCommand(this.sessionId, command, text);
       }
-      const finished = await this._waitForIdle();
-      if (this._disposed) return;
-      await this._reloadTranscript();
-      if (finished) {
-        this._post({ type: 'info', text: `Ran /${command}.` });
-      } else {
-        this._post({
-          type: 'info',
-          text: `/${command} is still running on the OpenCode server; reopen the tab later to see the rest.`,
-        });
-      }
+      this._client.full = true;
+      await this._client.reconcile();
     } catch (error) {
       this.deps.log(`Command /${command} failed: ${error.stack || error.message}`);
       if (this._disposed) return;
       this._post({ type: 'error', message: error.message || String(error) });
-      this._post({ type: 'turnEnd', stopReason: 'error' });
-      this._finishTurn('ready');
-      return;
-    }
-
-    if (this._disposed) return;
-    this._busy = false;
-    this._post({ type: 'turnEnd', stopReason: 'end_turn' });
-    this._finishTurn('ready');
-    this.deps.onSessionChanged();
-    this._refreshMetadata(800);
-    this._refreshSessionUsage();
-    this._refreshLimits();
-    this._refreshCompaction();
-    this._refreshBalance();
-  }
-
-  async _waitForIdle(timeoutMs = 600000) {
-    const started = Date.now();
-    for (;;) {
-      if (this._disposed) return false;
-      let info = null;
-      try {
-        info = await this.deps.api.getSession(this.sessionId);
-      } catch (error) {
-        this.deps.log(`Failed to poll session state: ${error.message}`);
-      }
-      const time = (info && info.time) || {};
-      const busy = Number(time.busy) || 0;
-      const idle = Number(time.idle) || 0;
-      if (Date.now() - started > 2500 && idle >= busy) return true;
-      if (Date.now() - started > timeoutMs) return false;
-      await new Promise((resolve) => setTimeout(resolve, 800));
     }
   }
 
   async _reloadTranscript() {
     if (this._disposed || !this._client || !this.sessionId) return;
-    this._post({ type: 'historyReset' });
-    await this._client.loadSession(this.sessionId);
-    if (this._disposed) return;
-    this._post({ type: 'historyEnd' });
+    this._client.full = true;
+    await this._client.reconcile();
     this._post({ type: 'config', configOptions: this._client.configOptions || [] });
     this._syncModelOptions(this._client.configOptions || []);
     this._refreshUsageFromHistory();
@@ -1486,6 +1394,21 @@ class SessionPanel {
    * count. Only direct children are shown; deeper nesting stays in the tree.
    */
   async _refreshServerStatus() {
+    if (this._client?.shared) {
+      if (this._disposed || !this.sessionId || this._client.closed) return;
+      try {
+        await this._client.reconcile();
+        if (this._resuming || this._busy || !this.deps.continuations) return;
+        const info = await this.deps.api.getSession(this.sessionId);
+        if (this._disposed || sessionActivity(info) === 'running') return;
+        const continuation = this.deps.continuations.claim(info, process.pid);
+        if (!continuation) return;
+        this._resuming = true;
+        try { await this._prompt(CONTINUE_TEXT, [], null, continuation); }
+        finally { this._resuming = false; }
+      } catch (error) { this.deps.log(`Server reconciliation failed: ${error.message}`); }
+      return;
+    }
     if (this._disposed || !this.sessionId || !this._client || this._client.closed ||
         this._serverStatusRefreshing || (this._busy && !this._externalTurn)) return;
     this._serverStatusRefreshing = true;
@@ -1816,7 +1739,7 @@ class SessionPanel {
     this._disposed = true;
     this.deps.api?.setSessionRunning?.(this.sessionId, this, false);
 
-    for (const request of this._permissions.values()) {
+    for (const request of this._client?.shared ? [] : this._permissions.values()) {
       try {
         request.respond(null);
       } catch {
@@ -1825,7 +1748,7 @@ class SessionPanel {
     }
     this._permissions.clear();
 
-    for (const request of this._elicitations.values()) {
+    for (const request of this._client?.shared ? [] : this._elicitations.values()) {
       try {
         request.respond('cancel');
       } catch {

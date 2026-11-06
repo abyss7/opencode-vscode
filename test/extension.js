@@ -241,7 +241,7 @@ const context = {
   await waitFor(
     () => panel.messages.find((message) => message.type === 'status' && message.state === 'ready'),
     30000,
-    'ACP ready'
+    'server ready'
   );
 
   panel.send({ type: 'prompt', text: 'Reply with exactly: EXT-OK' });
@@ -250,10 +250,15 @@ const context = {
     120000,
     'turn end'
   );
-  const assistantText = panel.messages
-    .filter((message) => message.type === 'update' && message.update.sessionUpdate === 'agent_message_chunk')
-    .map((message) => message.update.content && message.update.content.text)
-    .join('');
+  const assistantTextFrom = (events) => {
+    const messages = new Map();
+    for (const event of events.filter((item) => item.type === 'transcript')) {
+      for (const message of event.messages) messages.set(message.id, message);
+    }
+    return [...messages.values()].filter((message) => message.type === 'assistant')
+      .flatMap((message) => message.content.filter((part) => part.type === 'text').map((part) => part.text)).join('');
+  };
+  const assistantText = assistantTextFrom(panel.messages);
   console.log('assistant:', JSON.stringify(assistantText));
   assert.ok(assistantText.includes('EXT-OK'));
 
@@ -266,7 +271,7 @@ const context = {
   const titled = findSession(sessionMessage.sessionId);
   console.log('titles after wait:', JSON.stringify(panel.title), JSON.stringify(titled && titled.title));
 
-  // A sidebar refresh must repair a missing ACP title update in the open tab.
+  // A sidebar refresh must repair a missing server title update in the open tab.
   panel.title = 'OpenCode';
   await commands.get('opencode.refreshSessions')();
   assert.strictEqual(panel.title, findSession(session.id).title);
@@ -334,7 +339,7 @@ const context = {
   await commands.get('opencode.openSession')(renamed);
   const reopened = panels[1];
   assert.ok(reopened, 'reopened panel was not created');
-  assert.strictEqual(reopened.title, 'EXT renamed', 'known title must be visible before ACP starts');
+  assert.strictEqual(reopened.title, 'EXT renamed', 'known title must be visible before connecting');
   reopened.send({ type: 'ready' });
   const loadedMessage = await waitFor(
     () => reopened.messages.find((message) => message.type === 'session'),
@@ -348,10 +353,7 @@ const context = {
     30000,
     'history replay'
   );
-  const replayText = reopened.messages
-    .filter((message) => message.type === 'update' && message.update.sessionUpdate === 'agent_message_chunk')
-    .map((message) => message.update.content && message.update.content.text)
-    .join('');
+  const replayText = assistantTextFrom(reopened.messages);
   console.log('replayed:', JSON.stringify(replayText));
   assert.ok(replayText.includes('EXT-OK'), 'history was not replayed in the reopened panel');
 
