@@ -108,6 +108,7 @@
     nativeMessages: new Map(),
     nativeParts: new Map(),
     nativeUsers: new Map(),
+    nativeInbox: null,
     pendingInputs: new Map(),
     fileChecks: new Map(),
     fileCheckPending: new Set(),
@@ -2937,6 +2938,8 @@
     if (!label) { label = el('div', 'delivery-status'); label.setAttribute('role', 'status'); wrap.appendChild(label); }
     wrap.dataset.delivery = status;
     label.textContent = inputStatus[status] || status;
+    label.title = status === 'unknown'
+      ? 'Delivery or cancellation could not be confirmed. This message has not been resent.' : '';
   }
 
   function showSubmission(submission) {
@@ -2945,6 +2948,8 @@
     if (delivered) return; // An SSE snapshot may win the race with POST's response.
     let entry = state.pendingInputs.get(submission.id);
     if (!entry) {
+      // Cancellation events can also refer to synthetic work with no user card.
+      if (!submission.item) return;
       hideEmpty();
       const wrap = el('div', 'message user queued-input');
       wrap.dataset.anchorId = submission.id;
@@ -2959,9 +2964,11 @@
       state.pendingInputs.set(submission.id, entry);
     }
     entry.state = submission.state;
+    entry.cancellationConfirmed = submission.state === 'cancelled';
     entry.item = submission.item || entry.item;
     setInputStatus(entry.wrap, submission.state);
     if (submission.error) entry.wrap.title = submission.error;
+    placeSubmissions();
     saveSubmissions();
     scrollToBottom();
   }
@@ -2970,7 +2977,32 @@
     if (!state.sessionId) return;
     vscode.setState({ ...vscode.getState?.(), submissions: [...state.pendingInputs].map(([id, entry]) => ({
       id, state: entry.state, item: entry.item,
+      cancellationConfirmed: entry.cancellationConfirmed,
     })) });
+  }
+
+  function reconcileSubmissions() {
+    if (!state.nativeInbox) return;
+    for (const [id, entry] of state.pendingInputs) {
+      // Inbox absence is not a cancellation acknowledgement: delivery may race
+      // the history read, or the item may have disappeared while disconnected.
+      if (!state.nativeInbox.has(id) && entry.state === 'queued') {
+        entry.state = 'unknown';
+        setInputStatus(entry.wrap, entry.state);
+      }
+    }
+  }
+
+  function placeSubmissions() {
+    const created = (entry) => entry.item?.time?.created ||
+      Number(entry.wrap.querySelector('.message-time')?.dataset.timestamp) || Infinity;
+    const users = [...state.nativeUsers].map(([id, wrap]) => ({ wrap, time: state.messageTimes.get(id) }));
+    for (const entry of [...state.pendingInputs.values()].sort((a, b) => created(a) - created(b))) {
+      // Keep an unresolved/cancelled input before later user turns. Appending
+      // every saved card to the bottom reverses history as new turns arrive.
+      const next = users.find((user) => user.time > created(entry));
+      messagesEl.insertBefore(entry.wrap, next?.wrap || null);
+    }
   }
 
   function renderTranscript(snapshot) {
@@ -3046,7 +3078,7 @@
       }
     }
     if (snapshot.partial) {
-      for (const entry of state.pendingInputs.values()) messagesEl.appendChild(entry.wrap);
+      placeSubmissions();
       restoreViewport(viewport);
       return;
     }
@@ -3054,20 +3086,14 @@
       const wrap = state.nativeUsers.get(id);
       if (wrap) setInputStatus(wrap, status);
     }
-    const pending = new Set((snapshot.inbox || []).map((item) => item.id));
-    for (const [id, entry] of state.pendingInputs) {
-      if (!pending.has(id) && entry.state === 'queued') {
-        setInputStatus(entry.wrap, 'cancelled');
-        entry.state = 'cancelled';
-      }
-    }
+    state.nativeInbox = new Set((snapshot.inbox || []).map((item) => item.id));
+    reconcileSubmissions();
     for (const item of snapshot.inbox || []) {
       if (item.type !== 'user') continue;
       showSubmission({ id: item.id, item, state: item.submissionState || 'queued' });
     }
-    // Pending inputs live below the transcript, never interrupting the active
-    // assistant block. Delivery inserts the actual user message at server order.
-    for (const entry of state.pendingInputs.values()) messagesEl.appendChild(entry.wrap);
+    // Delivery replaces the local card with the actual server-ordered message.
+    placeSubmissions();
     restoreViewport(viewport);
     saveSubmissions();
     saveViewport();
@@ -3081,8 +3107,18 @@
         break;
       case 'session':
         setSession(message);
-        for (const submission of restoredSubmissions) showSubmission(submission);
+        for (const submission of restoredSubmissions) {
+          if (state.pendingInputs.has(submission.id)) continue; // A fresh snapshot wins over cached state.
+          // Older clients inferred cancellation from inbox absence. Only keep
+          // it when an explicit server cancellation was recorded by this client.
+          const unconfirmed = submission.state === 'sending' ||
+            (submission.state === 'cancelled' && !submission.cancellationConfirmed);
+          showSubmission({ ...submission, state: unconfirmed ? 'unknown' : submission.state });
+        }
         restoredSubmissions = [];
+        reconcileSubmissions();
+        placeSubmissions();
+        saveSubmissions();
         break;
       case 'capabilities':
         state.imageSupport = Boolean(message.images);

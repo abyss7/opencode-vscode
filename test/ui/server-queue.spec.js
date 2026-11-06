@@ -58,3 +58,70 @@ test('a partial snapshot never cancels a queued input', async ({ page, chat }) =
   await expect(page.locator('.queued-input')).toHaveAttribute('data-delivery', 'queued');
   await expect(page.locator('.assistant .body')).toContainText('Streaming during reconciliation');
 });
+
+test('inbox absence is unconfirmed until delivery or explicit cancellation arrives', async ({ page, chat }) => {
+  const item = { id: 'msg_racing', type: 'user', payload: { text: 'Racing delivery' }, time: { created: 1767268802000 } };
+  await chat.send(transcript([user('msg_first', 'First')]), { type: 'historyEnd' },
+    { type: 'submission', id: item.id, state: 'queued', item }, transcript([]));
+  await expect(page.locator('.queued-input .delivery-status')).toHaveText('Delivery unconfirmed');
+  await chat.send(transcript([{ ...user(item.id, item.payload.text), time: item.time }], [], [[item.id, 'completed']]));
+  await expect(page.locator('.queued-input')).toHaveCount(0);
+  await expect(page.locator(`[data-message-id="${item.id}"] .delivery-status`)).toHaveText('Completed');
+  await expect(page.locator('.message.user')).toHaveCount(2);
+  expect(await chat.received('prompt')).toEqual([]);
+});
+
+for (const cachedState of ['queued', 'cancelled', 'sending']) {
+  test(`restored ${cachedState} input is unconfirmed and stays before the newer turn`, async ({ page, chat }) => {
+    const old = { id: 'msg_old', state: cachedState,
+      item: { id: 'msg_old', type: 'user', payload: { text: 'Earlier request' }, time: { created: 1767268801000 } } };
+    const newer = { ...user('msg_new', 'New request'), time: { created: 1767268802000 } };
+    await page.evaluate((submission) => sessionStorage.setItem('vscode-state', JSON.stringify({
+      submissions: [submission],
+    })), old);
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => window.hostMessages.some((m) => m.type === 'ready'))).toBe(true);
+    // The host loads history before posting the session identity on reopening.
+    await chat.send(transcript([user('msg_first', 'First'), newer]),
+      { type: 'session', sessionId: 'ses_visual_fixture', cwd: '/workspace', loaded: true }, { type: 'historyEnd' });
+    await expect(page.locator('.queued-input .delivery-status')).toHaveText('Delivery unconfirmed');
+    await chat.send(transcript([answer('New answer', true)], [], [[newer.id, 'completed']]));
+    expect(await page.locator('.message').evaluateAll((nodes) => nodes.map((n) => n.dataset.messageId)))
+      .toEqual(['msg_first', old.id, newer.id, 'msg_answer']);
+    expect(await chat.received('prompt')).toEqual([]);
+    expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem('vscode-state')).submissions[0].state)).toBe('unknown');
+  });
+}
+
+test('explicit cancellation survives reload without following subsequent replies to the bottom', async ({ page, chat }) => {
+  const item = { id: 'msg_cancelled', type: 'user', payload: { text: 'Cancelled request' }, time: { created: 1767268801000 } };
+  const newer = { ...user('msg_new', 'New request'), time: { created: 1767268802000 } };
+  await chat.send(transcript([user('msg_first', 'First')]), { type: 'historyEnd' },
+    { type: 'submission', id: item.id, state: 'queued', item },
+    { type: 'submission', id: item.id, state: 'cancelled' },
+    { type: 'submission', id: 'msg_synthetic', state: 'cancelled' },
+    transcript([newer, answer('New answer', true)], [], [[newer.id, 'completed']]));
+  await expect(page.locator('.queued-input .delivery-status')).toHaveText('Cancelled');
+  expect(await page.locator('.message').evaluateAll((nodes) => nodes.map((n) => n.dataset.messageId)))
+    .toEqual(['msg_first', item.id, newer.id, 'msg_answer']);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => window.hostMessages.some((m) => m.type === 'ready'))).toBe(true);
+  await chat.send({ type: 'session', sessionId: 'ses_visual_fixture', cwd: '/workspace', loaded: true },
+    transcript([user('msg_first', 'First'), newer, answer('New answer', true)], [], [[newer.id, 'completed']]),
+    { type: 'historyEnd' });
+  await expect(page.locator('.queued-input .delivery-status')).toHaveText('Cancelled');
+  expect(await page.locator('.message').evaluateAll((nodes) => nodes.map((n) => n.dataset.messageId)))
+    .toEqual(['msg_first', item.id, newer.id, 'msg_answer']);
+});
+
+test('a restored cancellation cannot overwrite a freshly confirmed queue entry', async ({ page, chat }) => {
+  const item = { id: 'msg_queued', type: 'user', payload: { text: 'Still queued' }, time: { created: 1767268801000 } };
+  await page.evaluate((item) => sessionStorage.setItem('vscode-state', JSON.stringify({
+    submissions: [{ id: item.id, item, state: 'cancelled' }],
+  })), item);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => window.hostMessages.some((m) => m.type === 'ready'))).toBe(true);
+  await chat.send(transcript([user('msg_first', 'First')], [item]),
+    { type: 'session', sessionId: 'ses_visual_fixture', cwd: '/workspace', loaded: true }, { type: 'historyEnd' });
+  await expect(page.locator('.queued-input .delivery-status')).toHaveText('Queued');
+});
