@@ -211,6 +211,7 @@ global.window = {
   },
 };
 global.Element = Element;
+global.window.MutationObserver = class { observe() {} };
 global.OpenCodeRichText = require('../media/rich-text.js');
 
 require('../media/chat.js');

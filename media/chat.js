@@ -134,7 +134,7 @@
     }
     state.autoScroll = false;
     target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    if (request) target.querySelector('input, textarea, select, button')?.focus({ preventScroll: true });
+    if (request) target.querySelector('input, textarea, select, button:not(.disclosure-collapse)')?.focus({ preventScroll: true });
   });
 
   function el(tag, className, text) {
@@ -3674,6 +3674,33 @@
     state.autoScroll = distance < 120;
     saveViewport();
   });
+
+  function addCollapseControl(details) {
+    if (!details.open || !details.querySelector(':scope > summary')) return;
+    let button = details.querySelector(':scope > .disclosure-collapse');
+    if (!button) {
+      button = el('button', 'disclosure-collapse', 'Collapse');
+      button.type = 'button';
+      button.addEventListener('click', () => {
+        const summary = details.querySelector(':scope > summary');
+        const top = summary.getBoundingClientRect().top;
+        details.open = false;
+        summary.focus({ preventScroll: true });
+        if (top < messagesEl.getBoundingClientRect().top) {
+          summary.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+      });
+    }
+    if (details.lastElementChild !== button) details.appendChild(button);
+  }
+
+  document.addEventListener('toggle', (event) => {
+    if (event.target instanceof HTMLDetailsElement) addCollapseControl(event.target);
+  }, true);
+  // Streaming renderers may replace a disclosure's contents while it stays open.
+  new window.MutationObserver(() => {
+    for (const details of document.querySelectorAll('details[open]')) addCollapseControl(details);
+  }).observe(document.body, { childList: true, subtree: true });
 
   (document.getElementById('workspace') || messagesEl).addEventListener('click', async (event) => {
     const target = event.target;

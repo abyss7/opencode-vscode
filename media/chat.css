@@ -262,6 +262,54 @@ select {
   overflow-wrap: anywhere;
 }
 
+.messages > .message.user:not(:has(~ .message.user)) {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  flex-shrink: 0;
+  max-height: 35vh;
+  overflow-y: auto;
+  background: var(--vscode-editor-background);
+}
+
+.disclosure-collapse {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--oc-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.disclosure-collapse::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+  transform: translateY(2px) rotate(45deg);
+}
+
+.disclosure-collapse:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-list-hoverBackground);
+}
+
+.disclosure-collapse:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+details:not([open]) > .disclosure-collapse,
+.thought.compact > .disclosure-collapse { display: none; }
+
 .message.user .body:empty {
   display: none;
 }
