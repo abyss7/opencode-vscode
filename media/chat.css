@@ -387,6 +387,11 @@ details:not([open]) > .disclosure-collapse,
   position: relative;
 }
 
+.message.user > :is(.body, .user-images) {
+  /* Keep the corner badge and its focus ring inside the message scrollport. */
+  margin-right: 8px;
+}
+
 .delivery-indicator {
   position: absolute;
   right: -6px;

@@ -48,6 +48,21 @@ test('status is accessible without a visible extra line and follows live theme c
   expect(await page.locator('#messages').evaluate((node) => node.scrollHeight)).toBe(height);
 });
 
+test('latest prompt status badges never overflow horizontally', async ({ page, chat }) => {
+  const message = page.locator('[data-message-id="msg_queued"]');
+  for (const state of ['queued', 'unknown', 'cancelled', 'failed']) {
+    await chat.send({ type: 'submission', id: 'msg_queued', state,
+      item: { id: 'msg_queued', type: 'user', payload: { text: 'Сделай коммит своих изменений' } } });
+    await expect(message).toHaveAttribute('data-delivery', state);
+    expect(await message.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const badge = await message.locator('.delivery-indicator').boundingBox();
+    const box = await message.boundingBox();
+    expect(badge.x + badge.width + 4).toBeLessThanOrEqual(box.x + box.width);
+  }
+  await message.locator('button.delivery-indicator').focus();
+  expect(await message.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+});
+
 test('unconfirmed and failed inputs keep their meaning and image-only inputs have a status border', async ({ page, chat }) => {
   await showMessages(chat, ['sending', 'unknown', 'failed', 'interrupted']);
   await expect(page.locator('[data-message-id="msg_unknown"]')).toHaveAttribute('title', 'Message undelivered.');
