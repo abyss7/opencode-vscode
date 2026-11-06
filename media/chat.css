@@ -264,12 +264,15 @@ select {
 
 .messages > .message.user:not(:has(~ .message.user)) {
   position: sticky;
-  top: 0;
+  /* Sticky offsets in this flex scroller start inside its 16px padding. */
+  top: -16px;
   z-index: 3;
   flex-shrink: 0;
   max-height: 35vh;
   overflow-y: auto;
   background: var(--vscode-editor-background);
+  /* Cover the scroller's side gutters as well as the message itself. */
+  box-shadow: -16px 0 var(--vscode-editor-background), 16px 0 var(--vscode-editor-background);
 }
 
 .disclosure-collapse {

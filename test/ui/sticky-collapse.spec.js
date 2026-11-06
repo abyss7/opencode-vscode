@@ -7,8 +7,12 @@ test('latest user message sticks during scrolling and is replaced by the next pr
   await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Long answer.\n\n'.repeat(100) } });
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
   await page.locator('#messages').evaluate((node) => { node.style.scrollBehavior = 'auto'; node.scrollTop = 500; });
-  const top = await page.locator('#messages').evaluate((node) => node.getBoundingClientRect().top + parseFloat(getComputedStyle(node).paddingTop));
+  const top = await page.locator('#messages').evaluate((node) => node.getBoundingClientRect().top);
   await expect.poll(async () => (await page.locator('.message.user').boundingBox()).y).toBeCloseTo(top, 0);
+  await page.locator('#messages').evaluate((node) => { node.scrollTop = 900; });
+  await expect.poll(async () => (await page.locator('.message.user').boundingBox()).y).toBeCloseTo(top, 0);
+  await page.locator('#messages').evaluate((node) => { node.scrollTop = 0; });
+  await expect.poll(async () => (await page.locator('.message.user').boundingBox()).y).toBeCloseTo(top + 16, 0);
   await chat.update({ sessionUpdate: 'user_message_chunk', messageId: 'u2', content: { type: 'text', text: 'Next question' } });
   await expect(page.locator('.message.user').first()).toHaveCSS('position', 'static');
   await expect(page.locator('.message.user').last()).toHaveCSS('position', 'sticky');
