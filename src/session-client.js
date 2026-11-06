@@ -405,6 +405,9 @@ class SessionClient extends EventEmitter {
       this.api.getSession(this.sessionId), this.api.listModels(this.cwd), this.api.listAgents(this.cwd),
     ]);
     const model = info?.model;
+    // Like ACP's catalog, preserve server ordering: its resolved default is
+    // the first visible primary agent. Session.agent only stores an override.
+    const modes = agents.filter((agent) => !agent.hidden && agent.mode !== 'subagent');
     this.models = new Map();
     const options = [];
     for (const item of models.filter((m) => m.type === 'chat' && m.enabled !== false)) {
@@ -419,8 +422,8 @@ class SessionClient extends EventEmitter {
       }
     }
     this.configOptions = [
-      { id: 'mode', category: 'mode', type: 'select', name: 'Agent', currentValue: info?.agent,
-        options: agents.filter((a) => !a.hidden).map((a) => ({ value: a.id, name: a.name })) },
+      { id: 'mode', category: 'mode', type: 'select', name: 'Agent', currentValue: info?.agent || modes[0]?.id,
+        options: modes.map((a) => ({ value: a.id, name: a.name })) },
       { id: 'model', category: 'model', type: 'select', name: 'Model',
         currentValue: model ? `${model.providerID}/${model.id}${model.variant ? `#${model.variant}` : ''}` : '', options },
     ];

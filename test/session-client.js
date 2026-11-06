@@ -43,6 +43,26 @@ const assistant = (content, completed) => ({ id: 'msg_answer', type: 'assistant'
   time: { created: 2, ...(completed ? { completed: 3 } : {}) }, content });
 
 (async () => {
+  const config = fixture();
+  config.api.listModels = async () => [];
+  config.api.listAgents = async () => [
+    { id: 'hidden', name: 'Hidden', mode: 'primary', hidden: true },
+    { id: 'explore', name: 'Explore', mode: 'subagent' },
+    { id: 'custom', name: 'Custom default', mode: 'all' },
+    { id: 'build', name: 'Build', mode: 'primary' },
+  ];
+  await config.client.refreshConfig();
+  assert.equal(config.client.configOptions[0].currentValue, 'custom',
+    'sessions without an override use the server-ordered default, not a hardcoded Build');
+  assert.deepEqual(config.client.configOptions[0].options.map((option) => option.value), ['custom', 'build']);
+  config.api.getSession = async () => ({ agent: 'build' });
+  await config.client.refreshConfig();
+  assert.equal(config.client.configOptions[0].currentValue, 'build', 'explicit session selection overrides the default');
+  config.api.getSession = async () => ({});
+  config.api.listAgents = async () => [];
+  await config.client.refreshConfig();
+  assert.equal(config.client.configOptions[0].currentValue, undefined, 'an unavailable catalog must not invent an agent');
+
   const { client, data } = fixture();
   data.history = [user('msg_first'), assistant([{ type: 'reasoning', text: '' }, { type: 'text', text: '' }])];
   data.inbox = [{ id: 'msg_next', type: 'user', payload: { text: 'Next' }, time: { created: 3 } }];
