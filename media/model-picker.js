@@ -1,8 +1,10 @@
 (function () {
   'use strict';
 
-  const sprite = new URL('provider-icons.svg', document.currentScript.src).href;
-  const icons = new Set(['openai', 'opencode', 'deepseek', 'anthropic', 'google', 'xai', 'mistral', 'groq', 'openrouter', 'azure']);
+  // Webview resources are cross-origin: Chromium blocks external SVG <use>.
+  // Clone the bundled paths from the inert template embedded by the host.
+  const icons = new Map(Array.from(document.getElementById('provider-icons')?.content.querySelectorAll('symbol') || [],
+    (symbol) => [symbol.id, symbol]));
   const aliases = { 'opencode-go': 'opencode', 'google-vertex': 'google', 'azure-cognitive-services': 'azure' };
   let sequence = 0;
 
@@ -25,13 +27,11 @@
     const id = aliases[provider] || provider;
     let node;
     if (icons.has(id)) {
+      const symbol = icons.get(id);
       node = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      node.setAttribute('viewBox', '0 0 40 40');
-      const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-      use.setAttribute('href', `${sprite}#${id}`);
-      use.setAttribute('width', '40');
-      use.setAttribute('height', '40');
-      node.appendChild(use);
+      node.setAttribute('viewBox', symbol.getAttribute('viewBox'));
+      node.setAttribute('focusable', 'false');
+      node.append(...Array.from(symbol.children, (child) => child.cloneNode(true)));
       node.setAttribute('class', 'model-provider-icon');
     } else {
       const words = provider.split(/[^a-z0-9]+/i).filter(Boolean);
@@ -41,6 +41,23 @@
     node.setAttribute('aria-hidden', 'true');
     node.dataset.provider = provider;
     return node;
+  }
+
+  function chevron() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'model-picker-chevron');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M3.5 5.75 8 10.25 12.5 5.75');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(path);
+    return svg;
   }
 
   function create(option, onChange) {
@@ -64,7 +81,7 @@
     const entries = option.options.map((item) => ({ ...item, ...identity(item) }));
     const selected = entries.findIndex((item) => item.value === option.currentValue);
     const current = entries[selected] || identity({ value: option.currentValue || '', name: 'No model selected' });
-    button.append(icon(current.provider), element('span', 'model-name', current.name), element('span', 'model-picker-chevron', '⌄'));
+    button.append(icon(current.provider), element('span', 'model-name', current.name), chevron());
     button.title = current.label;
     button.setAttribute('aria-description', current.label);
     if (!entries.length) button.setAttribute('aria-disabled', 'true');

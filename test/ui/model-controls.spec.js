@@ -32,13 +32,13 @@ test('server default and separate Effort selector survive changes and reopening'
   const effort = page.getByRole('combobox', { name: 'Effort', exact: true });
   await expect(model.locator('.model-name')).toHaveText('Preferred');
   await expect(model).toHaveAttribute('title', 'openai: Preferred');
-  await expect(model.locator('use')).toHaveAttribute('href', /provider-icons\.svg#openai$/);
-  await expect.poll(() => model.locator('svg').evaluate((svg) => svg.getBBox().width)).toBeGreaterThan(0);
+  await expect(model.locator('svg.model-provider-icon')).toHaveAttribute('data-provider', 'openai');
+  await expect.poll(() => model.locator('.model-provider-icon').evaluate((svg) => svg.getBBox().width)).toBeGreaterThan(0);
   await model.click();
   const list = page.getByRole('listbox', { name: 'Models' });
   await expect(list.locator('.model-name')).toHaveText(['First', 'Preferred', 'Preferred']);
-  await expect(list.getByRole('option', { name: 'opencode: Preferred', exact: true }).locator('use'))
-    .toHaveAttribute('href', /#opencode$/);
+  await expect(list.getByRole('option', { name: 'opencode: Preferred', exact: true }).locator('svg.model-provider-icon'))
+    .toHaveAttribute('data-provider', 'opencode');
   await model.press('Escape');
   await expect(effort).toHaveValue('default');
   await expect(effort.locator('option')).toHaveText(['Low', 'High', 'Default']);
@@ -63,7 +63,7 @@ test('server default and separate Effort selector survive changes and reopening'
   await expect(model).toBeFocused();
   await expect(model).toHaveAttribute('title', 'opencode: Preferred');
   await expect(model.locator('.model-name')).toHaveText('Preferred');
-  await expect(model.locator('use')).toHaveAttribute('href', /#opencode$/);
+  await expect(model.locator('svg.model-provider-icon')).toHaveAttribute('data-provider', 'opencode');
   expect(session.model).toEqual({ providerID: 'opencode', id: 'preferred' });
   await expect(effort.locator('option')).toHaveText(['Default']);
 });

@@ -47,7 +47,8 @@ function themeCss(theme) {
 }
 
 const test = base.extend({
-  chat: async ({ page }, use, testInfo) => {
+  resourceOrigin: [origin, { option: true }],
+  chat: async ({ page, resourceOrigin }, use, testInfo) => {
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     page.on('console', (message) => {
@@ -74,20 +75,22 @@ const test = base.extend({
     });
     await page.route('**/*', async (route) => {
       const url = new URL(route.request().url());
-      if (url.origin !== origin) {
+      if (url.origin !== origin && url.origin !== resourceOrigin) {
         errors.push(`Unexpected external request: ${url.href}`);
         return route.abort();
       }
       if (url.pathname === '/') {
+        const providerIcons = await fs.readFile(path.join(root, 'media/provider-icons.svg'), 'utf8');
         const html = (await fs.readFile(path.join(root, 'media/chat.html'), 'utf8'))
-          .replaceAll('{{cspSource}}', origin)
+          .replaceAll('{{cspSource}}', `${origin} ${resourceOrigin}`)
           .replaceAll('{{nonce}}', 'test-nonce')
-          .replaceAll('{{styleUri}}', `${origin}/media/chat.css`)
-          .replaceAll('{{richTextUri}}', `${origin}/media/rich-text.js`)
-          .replaceAll('{{richTextStyleUri}}', `${origin}/media/rich-text.css`)
-          .replaceAll('{{diagramsUri}}', `${origin}/media/diagrams.js`)
-          .replaceAll('{{modelPickerUri}}', `${origin}/media/model-picker.js`)
-          .replaceAll('{{scriptUri}}', `${origin}/media/chat.js`)
+          .replaceAll('{{styleUri}}', `${resourceOrigin}/media/chat.css`)
+          .replaceAll('{{richTextUri}}', `${resourceOrigin}/media/rich-text.js`)
+          .replaceAll('{{richTextStyleUri}}', `${resourceOrigin}/media/rich-text.css`)
+          .replaceAll('{{diagramsUri}}', `${resourceOrigin}/media/diagrams.js`)
+          .replaceAll('{{modelPickerUri}}', `${resourceOrigin}/media/model-picker.js`)
+          .replaceAll('{{scriptUri}}', `${resourceOrigin}/media/chat.js`)
+          .replace('{{providerIcons}}', () => providerIcons)
           .replace('<body>', `<body class="vscode-${testInfo.project.metadata.theme}">`)
           .replace('<title>', '<link rel="stylesheet" href="/theme.css"><title>');
         return route.fulfill({ contentType: 'text/html', body: html });

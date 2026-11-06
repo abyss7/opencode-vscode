@@ -1381,7 +1381,7 @@ select {
 }
 .model-picker-button[aria-disabled='true'] { opacity: 0.6; cursor: wait; }
 .model-picker-button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
-.model-picker-chevron { flex: none; color: var(--oc-secondary); }
+.model-picker-chevron { display: block; width: 16px; height: 16px; flex: none; color: inherit; }
 .model-provider-icon { display: block; width: 16px; height: 16px; flex: none; color: inherit; }
 .model-provider-fallback {
   display: grid;
