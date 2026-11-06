@@ -327,11 +327,18 @@ class SessionPanel {
           this._post({ type: 'sessionInfo', title: this._sessionTitle });
         }
         this._resendSubagents();
+        // Metadata may have resolved before this webview was listening. The
+        // unchanged model selection will not trigger another limits update.
+        this._refreshModelContext();
         if (this._started && this._client?.shared) {
           this._post({ type: 'session', sessionId: this.sessionId, cwd: this.cwd, loaded: true });
           this._post({ type: 'config', configOptions: this._client.configOptions });
           this._client.replay().then(() => this._post({ type: 'historyEnd' }))
             .catch((error) => this._post({ type: 'error', message: error.message }));
+          this._refreshLimits();
+          this._refreshCompaction();
+          this._refreshUsageFromHistory();
+          this._refreshBalance(true);
         } else this._start();
         break;
       case 'prompt':

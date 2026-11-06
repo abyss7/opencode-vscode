@@ -250,7 +250,60 @@ async function checkSubscription() {
   assert.strictEqual(messages.at(-1).subscription, false);
 }
 
-checkSubscription().then(() => console.log('USAGE OK')).catch((error) => {
+async function checkUsageRestoration() {
+  const { SessionPanel } = require('../src/session-panel');
+  const panel = Object.create(SessionPanel.prototype);
+  const messages = [];
+  const model = { providerID: 'openai', id: 'chat', variant: 'high' };
+  const configOptions = [
+    { category: 'model', currentValue: 'openai/chat' },
+    { id: 'effort', currentValue: 'high' },
+  ];
+  Object.assign(panel, {
+    sessionId: 'session', cwd: '/workspace',
+    _post: (message) => messages.push(message),
+    _resendSubagents: () => {}, _refreshBalance: () => {}, _postCostSplit: () => {},
+    _start: () => panel._syncModelOptions(configOptions),
+    deps: {
+      log: (error) => { throw new Error(error); },
+      api: {
+        listModels: async () => [{ ...model, limit: { context: 400000, input: 272000 } }],
+        getChatGPTSubscription: async () => true,
+        getUsageLimits: async () => null,
+        getConfig: async () => [{ info: { compaction: { buffer: 40800 } } }],
+        getSession: async () => ({ model, cost: 0 }),
+        listMessages: async () => [{ type: 'assistant', id: 'message' }],
+        getMessage: async () => ({ model, tokens: { input: 1200 } }),
+      },
+    },
+  });
+  const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+  // Constructor metadata can finish before the webview installs its listener.
+  panel._setModelRef(model);
+  await settled();
+  messages.length = 0;
+  panel._onMessage({ type: 'ready' });
+  await settled();
+  const limit = messages.find((message) => message.type === 'modelLimit');
+  assert.equal(limit?.input, 272000, 'initial ready resends input limits even when the model is unchanged');
+  assert.equal(limit.subscription, true, 'initial ready restores ChatGPT billing before the turn ends');
+
+  // A new webview can attach to the existing client while its turn is running.
+  panel._started = true;
+  panel._busy = true;
+  panel._client = { shared: true, configOptions, replay: async () => {} };
+  messages.length = 0;
+  panel._onMessage({ type: 'ready' });
+  await settled();
+  assert.equal(messages.find((message) => message.type === 'modelLimit')?.input, 272000);
+  assert.equal(messages.find((message) => message.type === 'modelLimit')?.subscription, true);
+  assert.deepEqual(messages.find((message) => message.type === 'compaction')?.compaction, { buffer: 40800 });
+  assert.equal(messages.find((message) => message.update?.sessionUpdate === 'usage_update')?.update.used, 1200);
+  assert.equal(panel._busy, true, 'usage restoration does not wait for or finish the running turn');
+}
+
+checkSubscription().then(checkUsageRestoration).then(() => console.log('USAGE OK')).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
