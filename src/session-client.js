@@ -46,24 +46,74 @@ function toolKind(name) {
   return 'other';
 }
 
+function choiceOptions(options) {
+  return (options || []).map((option) => ({
+    const: option.value, title: option.label,
+    ...(option.description ? { description: option.description } : {}),
+  }));
+}
+
+function stringLimits(field) {
+  const limits = {};
+  if (field.format !== undefined) limits.format = field.format;
+  if (field.minLength !== undefined) limits.minLength = field.minLength;
+  if (field.maxLength !== undefined) limits.maxLength = field.maxLength;
+  if (field.pattern !== undefined) limits.pattern = field.pattern;
+  return limits;
+}
+
+// Mirror OpenCode's ACP elicitation schema: a native form select becomes a
+// oneOf/anyOf list, and `custom` adds the "type your own answer" input that the
+// question tool needs. Hidden and conditional fields cannot be represented.
 function formSchema(fields) {
   const properties = {};
   const required = [];
   for (const field of fields || []) {
-    if (field.type === 'external') continue;
-    const { key, options, hidden, when, ...schema } = field;
-    delete schema.required;
+    if (field.type === 'external' || field.hidden) continue;
+    const { key, options, hidden, when, custom, required: isRequired, ...schema } = field;
+    const choices = options?.length ? options : null;
     if (field.type === 'multiselect') {
       schema.type = 'array';
-      schema.items = { type: 'string', enum: (options || []).map((o) => o.value) };
-    } else if (options && !field.custom) {
-      schema.enum = options.map((o) => o.value);
-      schema.enumNames = options.map((o) => o.label);
+      if (choices) schema.items = { anyOf: choiceOptions(choices) };
+      if (isRequired) schema.minItems = Math.max(field.minItems ?? 0, 1);
+    } else if (field.type === 'string' && choices) {
+      schema.oneOf = choiceOptions(choices);
     }
     properties[key] = schema;
-    if (field.required) required.push(key);
+    if (isRequired) required.push(key);
+    // A required choice cannot be satisfied by a free-form answer alone.
+    if (custom && choices && !isRequired && (field.type === 'string' ||
+        field.type === 'multiselect' && field.minItems === undefined && field.maxItems === undefined)) {
+      properties[`${key}_custom`] = { type: 'string', title: `${field.title || key} (other)`,
+        description: field.type === 'string' ? 'Type your own answer' : 'Add your own answer',
+        ...(field.type === 'string' ? stringLimits(field) : {}) };
+    }
   }
   return { type: 'object', properties, required };
+}
+
+// The schema sends free-form answers under `<key>_custom`; the server reads
+// them from the field itself. Hidden fields keep their defaults.
+function formAnswer(fields, content) {
+  const answer = { ...(content || {}) };
+  for (const field of fields || []) {
+    if (field.type === 'external') continue;
+    if (field.hidden) {
+      if (field.default === undefined) delete answer[field.key];
+      else answer[field.key] = field.default;
+      continue;
+    }
+    const key = `${field.key}_custom`;
+    if (!(key in answer)) continue;
+    const custom = answer[key];
+    delete answer[key];
+    if (typeof custom !== 'string' || custom.trim() === '') continue;
+    if (field.type === 'string') answer[field.key] = custom;
+    else if (field.type === 'multiselect') {
+      answer[field.key] = [...(Array.isArray(answer[field.key]) ? answer[field.key] : []), custom];
+    }
+  }
+  return answer;
 }
 
 // One server owns prompts, queued work, tools, permissions and cancellation.
@@ -319,6 +369,26 @@ class SessionClient extends EventEmitter {
     this.emit('connection', this.connected);
   }
 
+  /**
+   * A pending permission names the tool call that raised it, but the arguments
+   * live on that call, not in `permission.metadata`: shell, read and grep pass
+   * no metadata at all, so the card would otherwise show no command or context.
+   * Child sessions are not part of this transcript; read their message instead.
+   */
+  async permissionInput(permission) {
+    const source = permission?.source;
+    if (source?.type !== 'tool' || !source.id || !source.messageID) return null;
+    const find = (message) => (Array.isArray(message?.content) ? message.content : [])
+      .find((part) => part?.type === 'tool' && part.id === source.id)?.state?.input ?? null;
+    const cached = find(this.messages.get(source.messageID));
+    if (cached) return cached;
+    try {
+      return find(await this.api.getMessage(permission.sessionID, source.messageID));
+    } catch {
+      return null;
+    }
+  }
+
   async syncRequests(permissions, forms) {
     for (const [id] of this.permissions) if (!permissions.some((p) => p.id === id)) {
       this.permissions.delete(id);
@@ -328,6 +398,7 @@ class SessionClient extends EventEmitter {
       if (this.permissions.has(permission.id)) continue;
       this.permissions.set(permission.id, permission);
       const diffs = await nativeDiffs(permission.metadata, this.cwd, false);
+      const input = await this.permissionInput(permission);
       if (this.closed) return;
       const options = [
         { optionId: 'once', kind: 'allow_once', name: 'Allow' },
@@ -337,7 +408,7 @@ class SessionClient extends EventEmitter {
       this.emit('permission', { requestId: permission.id, sessionId: permission.sessionID, options,
         toolCall: { toolCallId: permission.source?.id || permission.id,
           title: permission.message || `${permission.action}: ${(permission.resources || []).join(', ')}`,
-          kind: toolKind(permission.action), rawInput: permission.metadata, content: diffs },
+          kind: toolKind(permission.action), rawInput: input ?? permission.metadata, content: diffs },
         respond: (decision) => this.reply('permission', permission.id, 'POST',
           `/permission/${encodeURIComponent(permission.id)}/reply`, { decision: decision || 'reject' }, permission.sessionID),
       });
@@ -354,7 +425,7 @@ class SessionClient extends EventEmitter {
         respond: (action, answer) => this.reply('elicitation', form.id,
           action === 'accept' ? 'POST' : 'DELETE',
           `/form/${encodeURIComponent(form.id)}${action === 'accept' ? '/reply' : ''}`,
-          action === 'accept' ? { answer: answer || {} } : undefined, form.sessionID),
+          action === 'accept' ? { answer: formAnswer(form.fields, answer) } : undefined, form.sessionID),
       });
     }
   }
@@ -503,4 +574,4 @@ class SessionClient extends EventEmitter {
   }
 }
 
-module.exports = { SessionClient, toolUpdate, formSchema, messageID };
+module.exports = { SessionClient, toolUpdate, formSchema, formAnswer, messageID };

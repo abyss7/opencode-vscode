@@ -3,8 +3,34 @@
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { once } = require('node:events');
-const { SessionClient, toolUpdate } = require('../src/session-client');
+const { SessionClient, toolUpdate, formSchema, formAnswer } = require('../src/session-client');
 const { ServerEvents } = require('../src/server-events');
+
+const questionFields = () => [{ key: 'q0', title: 'Запуск проверок', description: 'Можно ли выполнить?',
+  type: 'string', custom: true,
+  options: [{ value: 'Да', label: 'Да', description: 'Запустить' }, { value: 'Нет', label: 'Нет' }] }];
+
+// Native selects and the question tool's free-form answer must survive the
+// translation to the elicitation schema the webview renders.
+const questionSchema = formSchema(questionFields());
+assert.deepEqual(questionSchema.properties.q0.oneOf.map((option) => option.const), ['Да', 'Нет']);
+assert.ok(!('enum' in questionSchema.properties.q0), 'choices use oneOf so labels stay visible');
+assert.deepEqual(questionSchema.properties.q0_custom,
+  { type: 'string', title: 'Запуск проверок (other)', description: 'Type your own answer' });
+assert.deepEqual(formAnswer(questionFields(), { q0: 'Да', q0_custom: '' }), { q0: 'Да' });
+assert.deepEqual(formAnswer(questionFields(), { q0_custom: 'Свой вариант' }), { q0: 'Свой вариант' });
+assert.ok(!('q0_custom' in formSchema([{ ...questionFields()[0], custom: false }]).properties));
+
+const multi = [{ key: 'q0', title: 'Шаги', type: 'multiselect', custom: true,
+  options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] }];
+assert.deepEqual(formSchema(multi).properties.q0.items.anyOf.map((option) => option.const), ['a', 'b']);
+assert.deepEqual(formAnswer(multi, { q0: ['a'], q0_custom: 'c' }), { q0: ['a', 'c'] });
+assert.deepEqual(formAnswer(multi, { q0_custom: 'c' }), { q0: ['c'] });
+assert.deepEqual(formAnswer([{ key: 'hidden', type: 'string', hidden: true, default: 'x' }], {}),
+  { hidden: 'x' });
+assert.equal(formSchema([{ key: 'q0', title: 't', type: 'string', required: true, custom: true,
+  options: [{ value: 'a', label: 'A' }] }]).properties.q0_custom, undefined,
+'a required choice cannot be replaced by a free-form answer');
 
 function fixture() {
   const data = { history: [], inbox: [], permissions: [], forms: [], activity: 'running', calls: [] };
@@ -12,6 +38,7 @@ function fixture() {
     listAllMessages: async () => structuredClone(data.history),
     listMessages: async () => structuredClone(data.history).reverse(),
     getSession: async () => ({ id: 'ses_test', _activity: data.activity, time: {} }),
+    getMessage: async (sessionID, messageID) => structuredClone(data.messages?.[messageID] ?? null),
     _request: async (method, path, body) => {
       data.calls.push({ method, path, body });
       if (method === 'GET') {
@@ -149,6 +176,34 @@ const assistant = (content, completed) => ({ id: 'msg_answer', type: 'assistant'
   assert.equal(requests.data.calls.filter((call) => call.method !== 'GET').length, replies, 'closing a tab never denies server requests');
   assert.equal(toolUpdate({ id: 't', name: 'shell', state: { status: 'error', input: {},
     error: { message: 'Denied' }, content: [] } }).status, 'failed');
+
+  // Shell permissions carry no metadata, so the arguments must come from the
+  // tool call that raised the request; the card otherwise shows no command.
+  const contextual = fixture();
+  const shellPart = { id: 'tool_shell', type: 'tool', name: 'shell',
+    state: { status: 'running', input: { command: 'rm -- old.txt', workdir: '/work' } } };
+  contextual.data.history = [user('msg_user'), assistant([shellPart], false)];
+  contextual.data.permissions = [{ id: 'per_shell', sessionID: 'ses_test', action: 'shell',
+    resources: ['rm -- old.txt'], message: 'Run command',
+    source: { type: 'tool', messageID: 'msg_answer', id: 'tool_shell' } }];
+  let shellRequest;
+  contextual.client.on('permission', (request) => { shellRequest = request; });
+  await contextual.client.reconcile();
+  assert.deepEqual(shellRequest.toolCall.rawInput, { command: 'rm -- old.txt', workdir: '/work' });
+
+  // Parent tabs answer child-session permissions, but hold no child transcript.
+  const childContext = fixture();
+  childContext.api.getSession = async (id) => ({ id,
+    ...(id === 'ses_child' ? { parentID: 'ses_test' } : {}), _activity: 'running' });
+  childContext.data.messages = { msg_child: { id: 'msg_child', type: 'assistant', time: { created: 2 },
+    content: [{ ...shellPart, id: 'tool_child' }] } };
+  childContext.data.permissions = [{ id: 'per_child_shell', sessionID: 'ses_child', action: 'shell',
+    resources: ['rm -- old.txt'], source: { type: 'tool', messageID: 'msg_child', id: 'tool_child' } }];
+  let childShellRequest;
+  childContext.client.on('permission', (request) => { childShellRequest = request; });
+  await childContext.client.reconcile();
+  assert.deepEqual(childShellRequest.toolCall.rawInput, { command: 'rm -- old.txt', workdir: '/work' },
+    'missing child transcripts are read from the owning message');
 
   let response;
   const server = http.createServer((request, res) => {
