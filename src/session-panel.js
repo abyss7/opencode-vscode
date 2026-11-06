@@ -11,7 +11,7 @@ const { SessionClient, toolUpdate } = require('./session-client');
 const { normalizeAgentOptions } = require('./agent-label');
 const { DiffDocuments } = require('./diff-documents');
 const { exportArtifact } = require('./artifact-export');
-const { withClientContext } = require('./client-context');
+const { withClientContext, visiblePrompt } = require('./client-context');
 const { resolveFileTarget } = require('./file-links');
 const { getBalance } = require('./balance');
 const { buildTurnStats, estimatePartTokens } = require('./turn-stats');
@@ -343,6 +343,11 @@ class SessionPanel {
           message.id
         );
         break;
+      case 'resend': {
+        const item = message.item;
+        if (!item || typeof item.id !== 'string' || !item.payload || typeof item.payload !== 'object') break;
+        return this._prompt(String(item.payload.text || ''), [], item.selection || null, null, item.id, item.payload);
+      }
       case 'command':
         this._runCommand(
           String(message.name || ''),
@@ -684,7 +689,7 @@ class SessionPanel {
     this.deps.onSessionChanged();
   }
 
-  async _prompt(text, images, selection, continuation = null, id = undefined) {
+  async _prompt(text, images, selection, continuation = null, id = undefined, resubmission = null) {
     const value = text.trim();
     const blocks = [];
     if (value) blocks.push({ type: 'text', text: value });
@@ -702,7 +707,8 @@ class SessionPanel {
         mimeType: image.mimeType,
       });
     }
-    if (blocks.length === 0 || !this._client || !this.sessionId) {
+    if ((!blocks.length && !resubmission?.files?.length) || !this._client || !this.sessionId) {
+      if (resubmission && id) this._post({ type: 'submission', id, state: 'failed' });
       return;
     }
     if (this.deps.permissions && !(await this._permissionsBeforePrompt())) {
@@ -718,12 +724,16 @@ class SessionPanel {
       this.deps.log(`Cannot save continuation state: ${error.message}`);
     }
 
+    // Server inbox payloads already include the original client/selection
+    // context. Locally failed submissions still need it attached once.
+    const promptText = resubmission && visiblePrompt(value) !== value ? value : withClientContext(value, selection);
     const textBlock = blocks.find((block) => block.type === 'text');
-    if (textBlock) textBlock.text = withClientContext(textBlock.text, selection);
-    else blocks.unshift({ type: 'text', text: withClientContext('', selection) });
+    if (textBlock) textBlock.text = promptText;
+    else blocks.unshift({ type: 'text', text: promptText });
 
     try {
-      await this._client.prompt(blocks, { id, synthetic: Boolean(continuation) });
+      if (resubmission) await this._client.resend(id, { ...resubmission, text: promptText });
+      else await this._client.prompt(blocks, { id, synthetic: Boolean(continuation) });
     } catch (error) {
       this.deps.log(`Prompt failed: ${error.stack || error.message}`);
       this._post({ type: 'error', message: error.message || String(error) });

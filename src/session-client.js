@@ -374,17 +374,32 @@ class SessionClient extends EventEmitter {
     const id = options.id || messageID();
     const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n\n');
     const files = blocks.filter((b) => b.type === 'image').map((b) => ({ uri: `data:${b.mimeType};base64,${b.data}` }));
-    const body = { id, text, delivery: 'queue', ...(files.length ? { files } : {}) };
     const item = { id, type: options.synthetic ? 'synthetic' : 'user', time: { created: Date.now() }, payload: { text, files } };
+    if (options.synthetic) item.payload = { text, description: 'Editor continuation' };
+    return this.submit(item);
+  }
+
+  async resend(id, payload) {
+    // Native admission reconciles the same ID with queued or delivered work.
+    // Cancelled inbox entries are removed, so that ID can be admitted again.
+    const { text, files, agents, skills, metadata } = payload;
+    return this.submit({ id, type: 'user', time: { created: Date.now() }, payload: {
+      text, ...(files?.length ? { files } : {}), ...(agents?.length ? { agents } : {}),
+      ...(skills?.length ? { skills } : {}), ...(metadata ? { metadata } : {}),
+    } });
+  }
+
+  async submit(item) {
+    const { id, type, payload } = item;
+    const synthetic = type === 'synthetic';
     this.submissions.set(id, { item, state: 'sending' });
     this.revision++;
-    if (!options.synthetic) this.emit('submission', { id, state: 'sending', item });
+    if (!synthetic) this.emit('submission', { id, state: 'sending', item });
     try {
-      const result = await this.request('POST', options.synthetic ? '/synthetic' : '/prompt',
-        options.synthetic ? { id, text, delivery: 'queue', description: 'Editor continuation' } : body);
+      const result = await this.request('POST', synthetic ? '/synthetic' : '/prompt', { ...payload, id, delivery: 'queue' });
       this.submissions.set(id, { item: result, state: 'queued' });
       this.revision++;
-      if (!options.synthetic) this.emit('submission', { id, state: 'queued', item: result });
+      if (!synthetic) this.emit('submission', { id, state: 'queued', item: result });
       this.full = true;
       await this.reconcile();
       return result;
@@ -393,7 +408,7 @@ class SessionClient extends EventEmitter {
       // the ID so reconciliation can find it without inventing a second input.
       const state = error.statusCode && error.statusCode < 500 ? 'failed' : 'unknown';
       this.submissions.set(id, { item, state });
-      if (!options.synthetic) this.emit('submission', { id, state, item, error: error.message });
+      if (!synthetic) this.emit('submission', { id, state, item, error: error.message });
       this.full = true;
       this.schedule();
       throw error;

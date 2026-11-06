@@ -34,6 +34,9 @@ function themeCss(theme) {
     'errorForeground': dark ? '#f48771' : '#a1260d',
     'testing-iconPassed': dark ? '#73c991' : '#388a34',
     'testing-iconFailed': dark ? '#f14c4c' : '#e51400',
+    'testing-iconQueued': dark ? '#cca700' : '#a66d00',
+    'testing-iconSkipped': dark ? '#848484' : '#707070',
+    'progressBar-background': dark ? '#0e70c0' : '#0063a5',
     'charts-green': dark ? '#89d185' : '#388a34',
     'charts-orange': dark ? '#d18616' : '#b46b00',
   };

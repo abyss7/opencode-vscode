@@ -545,7 +545,7 @@
       wasBusy || images.length > 0 || selection ? null : knownCommand(text);
     const id = state.nativeTransport ? `msg_${crypto.randomUUID().replaceAll('-', '')}` : null;
     if (state.nativeTransport && !command) {
-      showSubmission({ id, state: 'sending', item: { id, time: { created: Date.now() }, payload: { text,
+      showSubmission({ id, state: 'sending', item: { id, time: { created: Date.now() }, ...(selection ? { selection } : {}), payload: { text,
         files: images.map((image) => ({ uri: image.dataUrl || `data:${image.mimeType};base64,${image.data}` })) } } });
     } else addUserMessage(text, null, images, Date.now());
     if (command) {
@@ -2947,11 +2947,52 @@
 
   function setInputStatus(wrap, status) {
     let label = wrap.querySelector('.delivery-status');
-    if (!label) { label = el('div', 'delivery-status'); label.setAttribute('role', 'status'); wrap.appendChild(label); }
+    if (!label) {
+      label = el('span', 'delivery-status');
+      label.id = `delivery-${wrap.dataset.messageId}`;
+      label.setAttribute('role', 'status');
+      label.setAttribute('aria-atomic', 'true');
+      wrap.appendChild(label);
+    }
     wrap.dataset.delivery = status;
-    label.textContent = inputStatus[status] || status;
-    label.title = status === 'unknown'
-      ? 'Delivery or cancellation could not be confirmed. This message has not been resent.' : '';
+    const text = inputStatus[status] || status;
+    if (label.textContent !== text) label.textContent = text;
+    const id = wrap.dataset.messageId;
+    const canResend = ['unknown', 'failed', 'cancelled'].includes(status) && state.pendingInputs.get(id)?.item;
+    wrap.title = canResend ? 'Message undelivered — click icon to resend.'
+      : status === 'unknown' ? 'Message undelivered.' : text;
+    for (const content of wrap.querySelectorAll('.body, .user-images')) content.setAttribute('aria-describedby', label.id);
+    const body = wrap.querySelector('.body');
+    const target = body?.textContent ? body : wrap.querySelector('.user-images');
+    const kind = canResend ? 'resend' : status === 'queued' ? 'queued' : null;
+    let indicator = wrap.querySelector('.delivery-indicator');
+    if (indicator && (indicator.dataset.kind !== kind || indicator.parentElement !== target)) {
+      indicator.parentElement.classList.remove('has-delivery-indicator');
+      indicator.remove();
+      indicator = null;
+    }
+    if (kind && target && !indicator) {
+      indicator = el(canResend ? 'button' : 'span', 'delivery-indicator');
+      indicator.dataset.kind = kind;
+      indicator.title = wrap.title;
+      indicator.setAttribute('aria-label', canResend ? 'Resend message' : 'Queued');
+      if (canResend) {
+        indicator.type = 'button';
+        indicator.addEventListener('click', () => resendSubmission(id));
+      } else indicator.setAttribute('role', 'img');
+      indicator.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+        (canResend ? '<path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7"/>' : '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>') + '</svg>';
+      target.classList.add('has-delivery-indicator');
+      target.appendChild(indicator);
+    }
+  }
+
+  function resendSubmission(id) {
+    const entry = state.pendingInputs.get(id);
+    if (!entry?.item || !['unknown', 'failed', 'cancelled'].includes(entry.state)) return;
+    const item = entry.item;
+    showSubmission({ id, state: 'sending', item });
+    vscode.postMessage({ type: 'resend', item });
   }
 
   function showSubmission(submission) {
@@ -2979,7 +3020,7 @@
     entry.cancellationConfirmed = submission.state === 'cancelled';
     entry.item = submission.item || entry.item;
     setInputStatus(entry.wrap, submission.state);
-    if (submission.error) entry.wrap.title = submission.error;
+    if (submission.error) entry.wrap.dataset.deliveryError = submission.error;
     placeSubmissions();
     saveSubmissions();
     scrollToBottom();
