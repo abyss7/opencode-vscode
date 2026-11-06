@@ -45,6 +45,7 @@ const assistant = (content, completed) => ({ id: 'msg_answer', type: 'assistant'
 (async () => {
   const config = fixture();
   config.api.listModels = async () => [];
+  config.api.getDefaultModel = async () => null;
   config.api.listAgents = async () => [
     { id: 'hidden', name: 'Hidden', mode: 'primary', hidden: true },
     { id: 'explore', name: 'Explore', mode: 'subagent' },

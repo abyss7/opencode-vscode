@@ -379,6 +379,15 @@ class OpenCodeApi {
     return Array.isArray(response && response.data) ? response.data : [];
   }
 
+  /** Resolved server default, including provider fallback when no model is configured. */
+  async getDefaultModel(directory) {
+    const query = new URLSearchParams();
+    if (directory) query.set('location[directory]', directory);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const response = await this._request('GET', `/api/model/default${suffix}`);
+    return response?.data ?? null;
+  }
+
   /** Agents available for a directory, including hidden internal ones. */
   async listAgents(directory) {
     const query = new URLSearchParams();

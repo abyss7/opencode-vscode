@@ -404,35 +404,61 @@ class SessionClient extends EventEmitter {
     const [info, models, agents] = await Promise.all([
       this.api.getSession(this.sessionId), this.api.listModels(this.cwd), this.api.listAgents(this.cwd),
     ]);
-    const model = info?.model;
     // Like ACP's catalog, preserve server ordering: its resolved default is
     // the first visible primary agent. Session.agent only stores an override.
     const modes = agents.filter((agent) => !agent.hidden && agent.mode !== 'subagent');
+    const model = info?.model || await this.api.getDefaultModel(this.cwd);
+    // The switch endpoint may persist "default" explicitly rather than omit it.
+    const variant = model?.variant !== 'default' ? model?.variant : undefined;
+    this.modelRef = model ? { providerID: model.providerID, id: model.id,
+      ...(variant ? { variant } : {}) } : null;
+    const currentValue = model ? `${model.providerID}/${model.id}` : '';
     this.models = new Map();
     const options = [];
-    for (const item of models.filter((m) => m.type === 'chat' && m.enabled !== false)) {
+    for (const item of models.filter((m) => (!m.type || m.type === 'chat') && m.enabled !== false)) {
       const base = `${item.providerID}/${item.id}`;
-      this.models.set(base, { providerID: item.providerID, id: item.id });
+      this.models.set(base, item);
       options.push({ value: base, name: item.name || base });
-      for (const variant of item.variants || []) {
-        const name = typeof variant === 'string' ? variant : variant.id;
-        if (!name) continue;
-        this.models.set(`${base}#${name}`, { providerID: item.providerID, id: item.id, variant: name });
-        options.push({ value: `${base}#${name}`, name: `${item.name || base} (${name})` });
-      }
+    }
+    // An unresolved/unlisted selection must never look like the first catalog item.
+    if (!this.models.has(currentValue)) options.unshift({ value: currentValue,
+      name: currentValue || 'No default model available' });
+    const variants = (this.models.get(currentValue)?.variants || []).flatMap((variant) => {
+      const id = typeof variant === 'string' ? variant : variant.id;
+      return id && id !== 'default' ? [{ value: id, name: id.charAt(0).toUpperCase() + id.slice(1) }] : [];
+    });
+    if (variant && !variants.some((item) => item.value === variant)) {
+      variants.push({ value: variant, name: variant });
     }
     this.configOptions = [
       { id: 'mode', category: 'mode', type: 'select', name: 'Agent', currentValue: info?.agent || modes[0]?.id,
         options: modes.map((a) => ({ value: a.id, name: a.name })) },
       { id: 'model', category: 'model', type: 'select', name: 'Model',
-        currentValue: model ? `${model.providerID}/${model.id}${model.variant ? `#${model.variant}` : ''}` : '', options },
+        currentValue, options },
+      ...(model ? [{ id: 'effort', category: 'thought_level', type: 'select', name: 'Effort',
+        description: 'Available effort levels for this model', currentValue: variant || 'default',
+        options: [...variants, { value: 'default', name: 'Default' }] }] : []),
     ];
     this.emit('configOptions', this.configOptions);
   }
 
   async setConfigOption(id, value) {
-    if (id !== 'model' || !this.models.has(value)) throw new Error('Unknown model selection');
-    await this.request('POST', '/model', { model: this.models.get(value) });
+    let model;
+    if (id === 'model' && this.models.has(value)) {
+      const item = this.models.get(value);
+      model = { providerID: item.providerID, id: item.id };
+      // ACP keeps effort for the same model, but resets it when switching models.
+      if (this.modelRef?.providerID === model.providerID && this.modelRef.id === model.id && this.modelRef.variant) {
+        model.variant = this.modelRef.variant;
+      }
+    } else if (id === 'effort' && this.modelRef && this.configOptions
+      .find((option) => option.id === 'effort')?.options.some((option) => option.value === value)) {
+      model = { providerID: this.modelRef.providerID, id: this.modelRef.id,
+        ...(value !== 'default' ? { variant: value } : {}) };
+    } else {
+      throw new Error('Unknown model or effort selection');
+    }
+    await this.request('POST', '/model', { model });
     await this.refreshConfig();
     return this.configOptions;
   }

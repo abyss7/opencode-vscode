@@ -1016,7 +1016,7 @@ class SessionPanel {
   }
 
   /**
-   * Adopt the model selected in the ACP config bar immediately, before the
+   * Adopt the model selected in the config bar immediately, before the
    * server reports its own selection in the session info.
    */
   _syncModelOptions(options) {
@@ -1024,6 +1024,11 @@ class SessionPanel {
     const option = options.find((item) => item && item.category === 'model');
     if (!option) return;
     const ref = parseModelRef(option.currentValue);
+    const effort = options.find((item) => item && item.id === 'effort');
+    if (ref && effort) {
+      if (effort.currentValue && effort.currentValue !== 'default') ref.variant = effort.currentValue;
+      else delete ref.variant;
+    }
     if (ref) this._setModelRef(ref);
   }
 
