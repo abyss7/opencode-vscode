@@ -31,6 +31,7 @@ try {
     { providerID: 'p', id: 'first', name: 'First', type: 'chat', variants: ['high'] },
     { providerID: 'p', id: 'preferred', name: 'Preferred', type: 'chat', variants: [{ id: 'low' }, { id: 'high' }] },
     { providerID: 'p', id: 'plain', name: 'Plain', variants: [] },
+    { providerID: 'other', id: 'preferred', name: 'Preferred', type: 'chat', variants: [] },
     { providerID: 'p', id: 'disabled', type: 'chat', enabled: false },
     { providerID: 'p', id: 'image', type: 'image' },
   ];
@@ -51,7 +52,9 @@ try {
   const option = (id) => client.configOptions.find((item) => item.id === id);
   await client.refreshConfig();
   assert.equal(option('model').currentValue, 'p/preferred', 'use server default, not catalog order');
-  assert.deepEqual(option('model').options.map((item) => item.value), ['p/first', 'p/preferred', 'p/plain']);
+  assert.deepEqual(option('model').options.map((item) => item.value), ['p/first', 'p/preferred', 'p/plain', 'other/preferred']);
+  assert.deepEqual(option('model').options.map((item) => item.name), ['p/First', 'p/Preferred', 'p/Plain', 'other/Preferred'],
+    'identically named models remain distinguishable by provider');
   assert.equal(option('effort').currentValue, 'default');
   assert.deepEqual(option('effort').options.map((item) => item.value), ['low', 'high', 'default']);
   assert.equal(writes.length, 0, 'opening a session must not pin the inherited default');

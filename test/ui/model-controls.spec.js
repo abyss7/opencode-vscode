@@ -8,6 +8,7 @@ test('server default and separate Effort selector survive changes and reopening'
   const models = [
     { providerID: 'p', id: 'first', name: 'First', type: 'chat', variants: [] },
     { providerID: 'p', id: 'preferred', name: 'Preferred', type: 'chat', variants: [{ id: 'low' }, { id: 'high' }] },
+    { providerID: 'other', id: 'preferred', name: 'Preferred', type: 'chat', variants: [] },
   ];
   const client = new SessionClient({ cwd: '/work', api: {
     getSession: async () => session,
@@ -30,7 +31,7 @@ test('server default and separate Effort selector survive changes and reopening'
   const model = page.getByRole('combobox', { name: 'Model', exact: true });
   const effort = page.getByRole('combobox', { name: 'Effort', exact: true });
   await expect(model).toHaveValue('p/preferred');
-  await expect(model.locator('option')).toHaveText(['First', 'Preferred']);
+  await expect(model.locator('option')).toHaveText(['p/First', 'p/Preferred', 'other/Preferred']);
   await expect(effort).toHaveValue('default');
   await expect(effort.locator('option')).toHaveText(['Low', 'High', 'Default']);
   await effort.selectOption('high');

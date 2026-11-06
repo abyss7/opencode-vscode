@@ -418,7 +418,7 @@ class SessionClient extends EventEmitter {
     for (const item of models.filter((m) => (!m.type || m.type === 'chat') && m.enabled !== false)) {
       const base = `${item.providerID}/${item.id}`;
       this.models.set(base, item);
-      options.push({ value: base, name: item.name || base });
+      options.push({ value: base, name: `${item.providerID}/${item.name || item.id}` });
     }
     // An unresolved/unlisted selection must never look like the first catalog item.
     if (!this.models.has(currentValue)) options.unshift({ value: currentValue,

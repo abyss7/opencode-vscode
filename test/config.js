@@ -25,6 +25,10 @@ const log = (message) => console.log('[log]', message);
     }
     assert.deepEqual(option(shared, 'effort')?.options.map((item) => item.value),
       option(client, 'effort')?.options.map((item) => item.value), 'effort catalog matches ACP');
+    const names = new Map(option(client, 'model').options.map((item) => [item.value, item.name]));
+    for (const item of option(shared, 'model').options) {
+      assert.equal(item.name, names.get(item.value), 'model labels retain the ACP provider prefix');
+    }
   };
   const select = async (id, value) => {
     await client.setConfigOption(id, value);
