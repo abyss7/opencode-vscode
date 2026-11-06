@@ -2,6 +2,8 @@
   'use strict';
 
   const vscode = acquireVsCodeApi();
+  const initialState = document.getElementById('chat-script')?.dataset.initialState;
+  if (initialState && !vscode.getState()) vscode.setState(JSON.parse(decodeURIComponent(initialState)));
 
   const messagesEl = document.getElementById('messages');
   const emptyEl = document.getElementById('empty');

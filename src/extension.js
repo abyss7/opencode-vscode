@@ -7,6 +7,7 @@ const { OpenCodeApi } = require('./api');
 const { SessionsProvider, sessionTitle } = require('./sessions-view');
 const { SessionFolders } = require('./session-folders');
 const { SessionPanel } = require('./session-panel');
+const { SessionEditors } = require('./session-editor');
 const { SessionContinuation } = require('./session-continuation');
 const { OpenCodeSync } = require('./opencode-sync');
 const { refreshSettingEnums } = require('./setting-enums');
@@ -16,7 +17,6 @@ const { SessionsSidebar } = require('./sessions-sidebar');
 const { agentLabel } = require('./agent-label');
 
 const VIEW_ID = 'opencode.sessions';
-const PANEL_VIEW_TYPE = 'opencode.session';
 
 function isFolderNode(node) {
   return Boolean(node) && node.kind === 'folder';
@@ -139,17 +139,19 @@ function activate(context) {
     permissions,
     defaultAgent,
     openSession: (sessionId, cwd) => openSession(sessionId, cwd),
-    onSessionCreated(panel, sessionId, cwd) {
+    async onSessionCreated(panel, sessionId, cwd) {
       log(`Session created: ${sessionId} (${cwd})`);
       if (!panel.disposed) {
         panels.set(sessionId, panel);
       }
       scheduleRefresh();
+      await editors.sessionCreated(sessionId);
     },
     onSessionDisposed(panel) {
       allPanels.delete(panel);
-      if (panel.sessionId && panels.get(panel.sessionId) === panel) {
-        panels.delete(panel.sessionId);
+      const id = panel.sessionId || panel.newSessionId;
+      if (id && panels.get(id) === panel) {
+        panels.delete(id);
       }
     },
     onSessionChanged() {
@@ -157,28 +159,18 @@ function activate(context) {
     },
   };
 
-  function openPanel(sessionId, cwd, title) {
-    const panel = vscode.window.createWebviewPanel(
-      PANEL_VIEW_TYPE,
-      sessionId ? 'OpenCode' : 'New Session',
-      vscode.ViewColumn.Active,
-      {
+  const editors = new SessionEditors({ vscode, context, api, getCwd,
+    createPanel({ panel, title, ...options }) {
+      panel.webview.options = {
         enableScripts: true,
-        retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
-      }
-    );
-    const sessionPanel = new SessionPanel({
-      panel,
-      sessionId,
-      cwd,
-      deps,
-    });
-    if (title) sessionPanel.applyTitle(title);
-    allPanels.add(sessionPanel);
-    if (sessionId) panels.set(sessionId, sessionPanel);
-    return sessionPanel;
-  }
+      };
+      const sessionPanel = new SessionPanel({ panel, deps, ...options });
+      if (title) sessionPanel.applyTitle(title);
+      allPanels.add(sessionPanel);
+      panels.set(options.sessionId || options.newSessionId, sessionPanel);
+    },
+  });
 
   function openSession(sessionOrItem, cwdHint) {
     const session =
@@ -204,7 +196,7 @@ function activate(context) {
       return;
     }
 
-    openPanel(sessionId, cwd, session.title);
+    return editors.open(sessionId, cwd, session.title);
   }
 
   async function newSession() {
@@ -213,7 +205,7 @@ function activate(context) {
       vscode.window.showWarningMessage('Open a workspace folder first.');
       return;
     }
-    openPanel(null, cwd);
+    return editors.open(null, cwd);
   }
 
   async function selectDefaultAgent() {
@@ -484,31 +476,6 @@ function activate(context) {
       catch (error) { vscode.window.showErrorMessage(`Cannot open permission rules: ${error.message}`); }
     }),
     vscode.commands.registerCommand('opencode.openProjectConfig', openProjectConfig)
-  );
-
-  context.subscriptions.push(
-    vscode.window.registerWebviewPanelSerializer(PANEL_VIEW_TYPE, {
-      async deserializeWebviewPanel(panel, state) {
-        const sessionId = state && state.sessionId;
-        const cwd = (state && state.cwd) || getCwd();
-        if (!sessionId || !cwd) {
-          panel.dispose();
-          return;
-        }
-        panel.webview.options = {
-          enableScripts: true,
-          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
-        };
-        const sessionPanel = new SessionPanel({
-          panel,
-          sessionId,
-          cwd,
-          deps,
-        });
-        allPanels.add(sessionPanel);
-        panels.set(sessionId, sessionPanel);
-      },
-    })
   );
 
   context.subscriptions.push(

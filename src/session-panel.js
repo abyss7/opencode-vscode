@@ -32,7 +32,7 @@ const HTML_PATH = path.join(__dirname, '..', 'media', 'chat.html');
 const SUBAGENT_LIVE_TTL_MS = 15000;
 const SUBAGENT_LIVE_BUSY_MS = 4000;
 
-function buildHtml(webview, extensionUri) {
+function buildHtml(webview, extensionUri, initialState) {
   const nonce = crypto.randomBytes(16).toString('base64');
   const styleUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'media', 'chat.css')
@@ -43,6 +43,8 @@ function buildHtml(webview, extensionUri) {
 
   return fs
     .readFileSync(HTML_PATH, 'utf8')
+    .replace('<script id="chat-script"', () => '<script id="chat-script"' +
+      (initialState ? ` data-initial-state="${encodeURIComponent(JSON.stringify(initialState))}"` : ''))
     .replace(/\{\{cspSource\}\}/g, webview.cspSource)
     .replace(/\{\{nonce\}\}/g, nonce)
     .replace('{{providerIcons}}', () => fs.readFileSync(
@@ -144,6 +146,7 @@ class SessionPanel {
     this.panel = options.panel;
     this.deps = options.deps;
     this.sessionId = options.sessionId || null;
+    this.newSessionId = options.newSessionId;
     this.cwd = options.cwd;
     this._initialAgent = !this.sessionId && this.deps.defaultAgent
       ? this.deps.defaultAgent(this.cwd) : null;
@@ -180,7 +183,7 @@ class SessionPanel {
     this._missingSessionIdLogged = false;
     this._disposables = [];
 
-    this.panel.webview.html = buildHtml(this.panel.webview, this.deps.extensionUri);
+    this.panel.webview.html = buildHtml(this.panel.webview, this.deps.extensionUri, options.initialState);
     this._iconKind = null;
     this._setIcon('idle');
     if (this.sessionId) {
@@ -362,8 +365,7 @@ class SessionPanel {
         );
         break;
       case 'openSession':
-        this._openSession(String(message.sessionId || ''));
-        break;
+        return this._openSession(String(message.sessionId || ''));
       case 'cancel':
         this._cancel();
         break;
@@ -490,10 +492,10 @@ class SessionPanel {
           loaded: true,
         });
       } else {
-        const result = await client.newSession(this._initialAgent);
+        const result = await client.newSession(this._initialAgent, this.newSessionId);
         this.sessionId = result.sessionId;
         if (this._disposed) {
-          this.deps.onSessionCreated(this, result.sessionId, this.cwd);
+          await this.deps.onSessionCreated(this, result.sessionId, this.cwd);
           return;
         }
         this.panel.title = 'New Session';
@@ -503,7 +505,7 @@ class SessionPanel {
           cwd: this.cwd,
           loaded: false,
         });
-        this.deps.onSessionCreated(this, this.sessionId, this.cwd);
+        await this.deps.onSessionCreated(this, this.sessionId, this.cwd);
       }
 
       if (this.deps.permissions) await this._refreshPermissionProfile();
@@ -526,7 +528,7 @@ class SessionPanel {
     } catch (error) {
       if (!this.sessionId && client.sessionId) {
         this.sessionId = client.sessionId;
-        this.deps.onSessionCreated(this, this.sessionId, this.cwd);
+        await this.deps.onSessionCreated(this, this.sessionId, this.cwd);
       }
       this._started = false;
       client.dispose();
@@ -861,10 +863,15 @@ class SessionPanel {
   /**
    * Open another session (for example a sub-agent) in its own tab.
    */
-  _openSession(sessionId) {
+  async _openSession(sessionId) {
     if (this._disposed || !sessionId) return;
     if (typeof this.deps.openSession === 'function') {
-      this.deps.openSession(sessionId, this.cwd);
+      try {
+        await this.deps.openSession(sessionId, this.cwd);
+      } catch (error) {
+        this.deps.log(`Cannot open session ${sessionId}: ${error.message}`);
+        this._post({ type: 'error', message: `Cannot open session: ${error.message}` });
+      }
     }
   }
 

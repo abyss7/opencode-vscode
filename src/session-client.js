@@ -189,8 +189,7 @@ class SessionClient extends EventEmitter {
     this.stream.start();
   }
 
-  async newSession(agent) {
-    const id = `ses_${randomUUID().replaceAll('-', '')}`;
+  async newSession(agent, id = `ses_${randomUUID().replaceAll('-', '')}`) {
     let info;
     try {
       info = unwrap(await this.api._request('POST', '/api/session', {

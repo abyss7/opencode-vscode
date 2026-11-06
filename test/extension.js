@@ -54,6 +54,7 @@ const commands = new Map();
 const output = [];
 const errors = [];
 let serializer = null;
+let editorProvider = null;
 let treeProvider = null;
 let sidebarView = null;
 const pendingInputs = [];
@@ -115,9 +116,20 @@ const vscode = {
     file: (fsPath) => ({ fsPath, scheme: 'file' }),
     joinPath: (base, ...parts) => [base, ...parts].join('/'),
     parse: (value) => value,
+    from: (value) => ({ ...value, toString() { return `${this.scheme}:${this.path}`; } }),
   },
   env: { openExternal: async () => true },
   commands: {
+    executeCommand: async (command, uri, viewType, options) => {
+      assert.strictEqual(command, 'vscode.openWith');
+      assert.strictEqual(viewType, 'opencode.sessionEditor');
+      assert.strictEqual(options.preview, false);
+      const document = await editorProvider.openCustomDocument(uri);
+      const panel = createWebview();
+      panel.uri = uri;
+      panels.push(panel);
+      await editorProvider.resolveCustomEditor(document, panel, { isCancellationRequested: false });
+    },
     registerCommand: (name, handler) => {
       commands.set(name, handler);
       return { dispose: () => commands.delete(name) };
@@ -137,10 +149,11 @@ const vscode = {
       provider.resolveWebviewView(sidebarView);
       return { dispose: () => sidebarView.dispose() };
     },
-    createWebviewPanel: () => {
-      const panel = createWebview();
-      panels.push(panel);
-      return panel;
+    registerCustomEditorProvider: (type, provider, options) => {
+      assert.strictEqual(type, 'opencode.sessionEditor');
+      assert.strictEqual(options.supportsMultipleEditorsPerDocument, false);
+      editorProvider = provider;
+      return { dispose() {} };
     },
     registerWebviewPanelSerializer: (type, value) => {
       serializer = value;
@@ -204,6 +217,7 @@ async function waitFor(predicate, timeoutMs, description) {
 const context = {
   extensionUri: path.resolve(__dirname, '..'),
   globalState: memento,
+  workspaceState: memento,
   subscriptions: [],
 };
 
@@ -238,6 +252,8 @@ const context = {
     'session creation'
   );
   console.log('created', sessionMessage.sessionId);
+  assert.strictEqual(panel.uri.path, `/${sessionMessage.sessionId}.opencode-session`,
+    'the new tab and the server must share the reserved session identity');
   await waitFor(
     () => panel.messages.find((message) => message.type === 'status' && message.state === 'ready'),
     30000,
@@ -339,6 +355,7 @@ const context = {
   await commands.get('opencode.openSession')(renamed);
   const reopened = panels[1];
   assert.ok(reopened, 'reopened panel was not created');
+  assert.strictEqual(reopened.uri.toString(), panel.uri.toString(), 'reopening uses the same editor resource');
   assert.strictEqual(reopened.title, 'EXT renamed', 'known title must be visible before connecting');
   reopened.send({ type: 'ready' });
   const loadedMessage = await waitFor(

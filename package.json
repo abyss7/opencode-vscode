@@ -26,6 +26,14 @@
     "onWebviewPanel:opencode.session"
   ],
   "contributes": {
+    "customEditors": [
+      {
+        "viewType": "opencode.sessionEditor",
+        "displayName": "OpenCode Session",
+        "selector": [{ "filenamePattern": "*.opencode-session" }],
+        "priority": "option"
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
