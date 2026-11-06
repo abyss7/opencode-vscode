@@ -184,7 +184,7 @@ const groupByName = (provider, name) =>
   assert.strictEqual(provider.getTreeItem(ses1).collapsibleState, 1);
   assert.strictEqual(
     provider.getTreeItem(ses1).description,
-    '1 sub-agent'
+    new Date(ses1.time.updated).toLocaleDateString()
   );
   const subagentItem = provider.getTreeItem(subagentChildren[0]);
   assert.strictEqual(subagentItem.contextValue, 'opencode.session.subagent');

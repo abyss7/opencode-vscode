@@ -2,7 +2,7 @@
 
 const vscode = require('vscode');
 const { UNGROUPED_ID, ARCHIVED_ID } = require('./session-folders');
-const { sessionActivity, UNCONFIRMED_MESSAGE } = require('./session-activity');
+const { sessionActivity } = require('./session-activity');
 
 function isBusy(session) {
   return sessionActivity(session) === 'running';
@@ -262,8 +262,6 @@ class SessionsProvider {
       item.description = 'working';
     } else if (unconfirmed) {
       item.description = 'execution unconfirmed';
-    } else if (hasChildren) {
-      item.description = `${children.length} sub-agent${children.length === 1 ? '' : 's'}`;
     } else {
       item.description = formatRelative(sessionTimestamp(session));
     }
@@ -281,24 +279,7 @@ class SessionsProvider {
       : this._archivedIds.has(session.id)
         ? 'opencode.session.archived'
         : 'opencode.session';
-    item.tooltip = [
-      sessionTitle(session),
-      unconfirmed ? UNCONFIRMED_MESSAGE : null,
-      subagent ? 'Sub-agent' : null,
-      `ID: ${session.id}`,
-      session.location && session.location.directory
-        ? `Folder: ${session.location.directory}`
-        : null,
-      this._archivedIds.has(session.id) ? 'Archived' : null,
-      hasChildren
-        ? `${children.length} sub-agent${children.length === 1 ? '' : 's'}`
-        : null,
-      session.time && session.time.updated
-        ? `Updated: ${new Date(session.time.updated).toLocaleString()}`
-        : null,
-    ]
-      .filter(Boolean)
-      .join('\n');
+    item.tooltip = sessionTitle(session);
     item.command = {
       command: 'opencode.openSession',
       title: 'Open Session',
