@@ -563,6 +563,18 @@
           "scope": "resource",
           "description": "Permission profile for a new session unless its agent has a profile assignment. Built-ins: read-only, workspace, host, all. Host currently behaves like All."
         },
+        "opencodeSessions.allowSessionTemp": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Allow file access and edits in the current session's temporary directory without prompting, unless explicitly denied. Each session gets its own directory and shell `TMPDIR`/`TMP`/`TEMP` and `OUT`. Other sessions' directories and shell command approvals keep their normal permissions. Changes apply on the next turn."
+        },
+        "opencodeSessions.sessionTempBaseDirectory": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "Host base directory for session temporary files. Empty uses the host's system temporary directory (`TMPDIR` on Linux). Set an absolute path or `~/...` to override it. Session files go under `<base>/opencode/sessions/<sessionID>/`. Changes apply on the next turn."
+        },
         "opencodeSessions.smartTimeoutSeconds": {
           "type": "number",
           "default": 30,

@@ -6,6 +6,7 @@ const { fileURLToPath } = require('node:url');
 const engine = require('./engine.cjs');
 const project = require('./project.cjs');
 const globalPermissions = require('./global.cjs');
+const { createManager, resolveBase } = require('./session-temp.cjs');
 const { createBridge, result: rpcResult, failure } = require('./bridge.cjs');
 const { classify, CLASSIFIER } = require('./classifier.cjs');
 const { randomUUID, createHash } = require('node:crypto');
@@ -15,6 +16,7 @@ async function setup(ctx, contract, directory, configDirectory = path.resolve(__
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   const inputs = new Map();
   const reviews = [];
+  const temporary = createManager();
   const callKey = (event) => `${event.sessionID}/${event.messageID}/${event.id}`;
   const file = (id) => {
     if (!/^ses_[\w-]+$/.test(id)) throw new Error('Invalid session ID');
@@ -63,6 +65,7 @@ async function setup(ctx, contract, directory, configDirectory = path.resolve(__
     }
     return states;
   };
+  const disposeTemporary = await temporary.register(ctx, async (id) => (await ancestors(id))[0]);
   const view = (state, inherited = false) => {
     const profiles = engine.compileLayers(state.layers);
     const profile = profiles[state.selected];
@@ -75,6 +78,8 @@ async function setup(ctx, contract, directory, configDirectory = path.resolve(__
       layers: profile.layers.map(({ name }) => name),
       fallbackLocked: ['all', 'host', 'read-only'].includes(state.selected),
       rulesFile: project.filename(state.cwd),
+      allowSessionTemp: state.allowSessionTemp !== false,
+      sessionTempBaseDirectory: state.sessionTempBaseDirectory || resolveBase(),
     };
   };
   const decisionFor = (states, request) => {
@@ -92,11 +97,15 @@ async function setup(ctx, contract, directory, configDirectory = path.resolve(__
         }
         continue;
       }
+      const ownTemporary = request.sessionID && states.every((state) => state.allowSessionTemp !== false) &&
+        temporary.contains(request.sessionID, request.action, resource, ctx.location.directory, states[0].sessionTempBaseDirectory);
       for (const state of states) {
         const profiles = engine.compileLayers(state.layers);
         const next = engine.evaluate(profiles[state.selected], state.choices[state.selected],
           request.action, [resource], state.cwd, state.projectRules?.profiles[state.selected]?.rules || []);
-        if (priority[next.effect] >= priority[decision.effect]) decision = next;
+        const effective = ownTemporary && next.effect !== 'deny'
+          ? { effect: 'allow', reason: 'Current session temporary directory' } : next;
+        if (priority[effective.effect] >= priority[decision.effect]) decision = effective;
       }
     }
     return decision;
@@ -259,6 +268,8 @@ async function setup(ctx, contract, directory, configDirectory = path.resolve(__
       state.layers = input.layers;
       state.agentProfiles = assignments;
       state.smartTimeoutMs = Math.min(120000, Math.max(5000, Number(input.smartTimeoutMs) || 30000));
+      state.allowSessionTemp = input.allowSessionTemp !== false;
+      state.sessionTempBaseDirectory = resolveBase(input.sessionTempBaseDirectory);
       state.sessionID = info.id;
       state.cwd = info.location?.directory || ctx.location.directory;
       project.read(state.cwd); // Invalid project JSON must not silently disable saved decisions.
@@ -266,7 +277,7 @@ async function setup(ctx, contract, directory, configDirectory = path.resolve(__
       return view(state);
     },
   });
-  return async () => { await rpc.dispose(); await afterHook.dispose(); await toolHook.dispose(); await hook.dispose(); await bridge.dispose(); };
+  return async () => { await disposeTemporary(); await rpc.dispose(); await afterHook.dispose(); await toolHook.dispose(); await hook.dispose(); await bridge.dispose(); };
 }
 
 module.exports = { setup };

@@ -352,6 +352,24 @@ them somewhere else.
 The settings sync is disabled in `test/extension.js` through
 `OPENCODE_DISABLE_SETTINGS_SYNC=1` so tests never touch the real user configuration.
 
+### Per-session temporary files
+
+**OpenCode Sessions: Allow Session Temp** (`opencodeSessions.allowSessionTemp`, enabled by default)
+allows file access and edits in a session's own temporary directory without approval.
+Explicit permission denies still apply. Turn it off to use the normal permission rules;
+changes apply on the next turn.
+
+The host plugin gives each managed session, including child sessions, its own
+`<base>/opencode/sessions/<sessionID>/` directory. The base defaults to the host's
+system temporary directory (`TMPDIR` on Linux). Set
+`opencodeSessions.sessionTempBaseDirectory` to an absolute path or `~/...` to override
+it; empty restores the system default. For example, `/place/vartmp` produces
+`/place/vartmp/opencode/sessions/<sessionID>/`. Changes apply on the next turn.
+The agent receives the path in its context. Shell `TMPDIR`, `TMP`, and `TEMP` point there, and
+`OUT` points to its `out/` subdirectory. Existing scratch files are not moved.
+Other sessions' paths retain their normal permissions. Shell commands still require
+their usual approvals; this feature is not a filesystem sandbox.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

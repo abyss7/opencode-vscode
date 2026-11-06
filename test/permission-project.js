@@ -29,7 +29,7 @@ async function main() {
   const plugin = path.join(temp, 'plugin');
   fs.mkdirSync(plugin);
   fs.writeFileSync(path.join(plugin, 'global.cjs'), `module.exports = require(${JSON.stringify(require.resolve('../src/permission-global'))});`);
-  for (const name of ['runtime.cjs', 'classifier.cjs', 'bridge.cjs']) fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles', name), path.join(plugin, name));
+  for (const name of ['runtime.cjs', 'classifier.cjs', 'bridge.cjs', 'session-temp.cjs']) fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles', name), path.join(plugin, name));
   fs.copyFileSync(path.join(__dirname, '../src/permission-profiles.js'), path.join(plugin, 'engine.cjs'));
   fs.writeFileSync(path.join(plugin, 'project.cjs'), fs.readFileSync(path.join(__dirname, '../src/permission-project.js'), 'utf8')
     .replace("require('./permission-profiles')", "require('./engine.cjs')"));

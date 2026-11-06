@@ -56,6 +56,7 @@ class PermissionService {
       'runtime.cjs': path.join(__dirname, '../plugins/permission-profiles/runtime.cjs'),
       'classifier.cjs': path.join(__dirname, '../plugins/permission-profiles/classifier.cjs'),
       'bridge.cjs': path.join(__dirname, '../plugins/permission-profiles/bridge.cjs'),
+      'session-temp.cjs': path.join(__dirname, '../plugins/permission-profiles/session-temp.cjs'),
       'engine.cjs': path.join(__dirname, 'permission-profiles.js'),
       'project.cjs': path.join(__dirname, 'permission-project.js'),
       'global.cjs': path.join(__dirname, 'permission-global.js'),
@@ -108,6 +109,8 @@ class PermissionService {
       sessionID, layers: readLayers(this.vscode, cwd),
       agentProfiles: defaults,
       smartTimeoutMs: config.get('smartTimeoutSeconds', 30) * 1000,
+      allowSessionTemp: config.get('allowSessionTemp', true),
+      sessionTempBaseDirectory: config.get('sessionTempBaseDirectory', ''),
       defaultProfile: defaults[agent] || config.get('defaultPermissionProfile', 'workspace'),
       ...change,
     }, cwd);
