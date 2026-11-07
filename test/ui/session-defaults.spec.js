@@ -20,6 +20,27 @@ const session = (id, name, children = []) => ({ kind: 'session', id, name, descr
 const folder = (id, name, children = []) => ({ kind: 'folder', id, name, description: String(children.length),
   icon: 'folder', custom: true, actions: ['deleteFolder'], children });
 
+for (const [locale, timezoneId, expected] of [
+  ['en-US', 'America/Los_Angeles', '10/29/2020'],
+  ['de-DE', 'Europe/Berlin', '30.10.2020'],
+]) {
+  test.describe(`sidebar dates in ${locale}`, () => {
+    test.use({ locale, timezoneId });
+    test('formats timestamps in the window locale and timezone', async ({ page, chat }) => {
+      await openSidebar(page);
+      await chat.send({ type: 'sessions', items: [
+        { ...session('dated', 'Old session'), timestamp: Date.parse('2020-10-30T00:30:00Z'), description: '' },
+        { ...session('busy', 'Busy session'), description: 'working' },
+        { ...session('unknown', 'Unknown session'), description: 'execution unconfirmed' },
+      ] });
+      await expect(page.locator('[data-key="session:dated"] .tree-description')).toHaveText(expected);
+      await expect(page.locator('[data-key="session:dated"]')).toHaveAttribute('aria-label', `Old session, ${expected}`);
+      await expect(page.locator('[data-key="session:busy"] .tree-description')).toHaveText('working');
+      await expect(page.locator('[data-key="session:unknown"] .tree-description')).toHaveText('execution unconfirmed');
+    });
+  });
+}
+
 test('agent card is pinned to the bottom of the same Sessions view', async ({ page, chat }) => {
   await openSidebar(page);
   const agents = [{ id: 'build', name: 'Build', description: 'Implementation' }, { id: 'plan', name: 'Plan', description: 'Planning' }];

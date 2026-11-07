@@ -50,12 +50,26 @@
   function send(action, node, extra = {}) {
     vscode.postMessage({ type: 'sidebarAction', action, sidebarKind: node?.kind, sidebarId: node?.id, ...extra });
   }
+  function formatRelative(timestamp) {
+    if (!timestamp) return '';
+    const diff = Math.max(0, Date.now() - timestamp);
+    if (diff < 60_000) return 'just now';
+    const minutes = Math.floor(diff / 60_000);
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days} d ago`;
+    // Use the window's local formatting environment, never the SSH host's locale/timezone.
+    return new Intl.DateTimeFormat().format(timestamp);
+  }
   function render() {
     const top = scroll.scrollTop;
     const focus = document.activeElement.closest?.('.tree-node')?.dataset.key;
     nodes = new Map();
     function build(list, parent, depth) {
       list.forEach((node, index) => {
+        const description = node.timestamp === undefined ? node.description : formatRelative(node.timestamp);
         nodes.set(key(node), node);
         const li = document.createElement('li');
         li.className = 'tree-node';
@@ -65,7 +79,7 @@
         li.setAttribute('aria-level', depth);
         li.setAttribute('aria-posinset', index + 1);
         li.setAttribute('aria-setsize', list.length);
-        li.setAttribute('aria-label', `${node.name}${node.description ? `, ${node.description}` : ''}`);
+        li.setAttribute('aria-label', `${node.name}${description ? `, ${description}` : ''}`);
         li.setAttribute('aria-selected', String(selected === key(node)));
         li.tabIndex = selected === key(node) ? 0 : -1;
         const hasChildren = node.kind === 'folder' || node.children?.length > 0;
@@ -82,7 +96,7 @@
         twisty.setAttribute('aria-label', `${expanded(node) ? 'Collapse' : 'Expand'} ${node.name}`);
         twisty.appendChild(icon(expanded(node) ? 'down' : 'chevron'));
         row.append(twisty, icon(node.icon || 'comment-discussion'), text('span', 'tree-label', node.name));
-        if (node.description) row.appendChild(text('span', 'tree-description', node.description));
+        if (description) row.appendChild(text('span', 'tree-description', description));
         if (node.kind === 'session') {
           const actions = { archiveSession: ['archive', 'Archive'], restoreSession: ['restore', 'Restore'],
             deleteSession: ['trash', 'Delete session'] };

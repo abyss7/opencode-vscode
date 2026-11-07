@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { agentLabel } = require('./agent-label');
+const { sessionActivity } = require('./session-activity');
 
 class SessionsSidebar {
   constructor(options) { Object.assign(this, options); this.sequence = 0; this.nodes = new Map(); }
@@ -29,7 +30,9 @@ class SessionsSidebar {
         : element.parentID ? ['openSession', 'deleteSession']
           : ['openSession', 'renameSession', 'moveSessionTo',
             item.contextValue === 'opencode.session.archived' ? 'restoreSession' : 'archiveSession', 'deleteSession'];
-      return { kind, id: element.id, name: item.label, description: item.description || '',
+      const dated = kind === 'session' && !['running', 'unconfirmed'].includes(sessionActivity(element));
+      return { kind, id: element.id, name: item.label, description: dated ? '' : item.description || '',
+        timestamp: dated ? element.time?.updated || element.time?.created || 0 : undefined,
         tooltip: item.tooltip || '', icon: item.iconPath?.id || 'comment-discussion', actions,
         archived: item.contextValue === 'opencode.session.archived', subagent: Boolean(element.parentID),
         custom: element.system === 'custom',
