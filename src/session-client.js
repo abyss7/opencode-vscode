@@ -5,6 +5,8 @@ const { randomUUID } = require('node:crypto');
 const { ServerEvents } = require('./server-events');
 const { sessionActivity } = require('./session-activity');
 const { nativeDiffs } = require('./native-diffs');
+const { parseModelRef } = require('./usage');
+const { modelRefString } = require('./setting-enums');
 
 const messageID = () => `msg_${randomUUID().replaceAll('-', '')}`;
 const unwrap = (value) => value?.data ?? value;
@@ -192,8 +194,20 @@ class SessionClient extends EventEmitter {
   async newSession(agent, id = `ses_${randomUUID().replaceAll('-', '')}`) {
     let info;
     try {
+      const [documents, agents] = await Promise.all([
+        this.api.getConfig(this.cwd), this.api.listAgents(this.cwd),
+      ]);
+      // The catalog's /model/default drops the configured #variant. Preserve
+      // an explicit default on creation, rather than guessing a provider level
+      // or changing existing sessions when settings are edited later.
+      const configured = documents.reduce((model, entry) => entry.info?.model === undefined ? model
+        : parseModelRef(modelRefString(entry.info.model)), null);
+      const selectedAgent = agent ? agents.find((item) => item.id === agent)
+        : agents.find((item) => !item.hidden && item.mode !== 'subagent');
+      const model = selectedAgent?.model || configured;
       info = unwrap(await this.api._request('POST', '/api/session', {
         id, location: { directory: this.cwd }, ...(agent ? { agent } : {}),
+        ...(model?.variant && model.variant !== 'default' ? { model } : {}),
       }));
     } catch (error) {
       // The request layer may retry a lost response; use the same ID and
