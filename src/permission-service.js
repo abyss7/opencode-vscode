@@ -112,6 +112,7 @@ class PermissionService {
       allowSessionTemp: config.get('allowSessionTemp', true),
       sessionTempBaseDirectory: config.get('sessionTempBaseDirectory', ''),
       defaultProfile: defaults[agent] || config.get('defaultPermissionProfile', 'workspace'),
+      defaultNewActions: config.get('defaultNewActions', 'smart'),
       ...change,
     }, cwd);
   }

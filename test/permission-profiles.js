@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { compileLayers, evaluate, selectProfile, VERSION } = require('../src/permission-profiles');
-const { readLayers } = require('../src/permission-service');
+const { PermissionService, readLayers } = require('../src/permission-service');
 
 const temp = fs.mkdtempSync(path.join(process.env.OUT || os.tmpdir(), 'permission-test-'));
 const cleanups = [];
@@ -118,6 +118,46 @@ async function main() {
   };
   const cleanup = await setup(ctx, {}, path.join(plugin, 'state'), temp);
   cleanups.push(cleanup);
+  // Real service -> plugin initialization: settings seed a session only once.
+  const settings = {};
+  const service = new PermissionService({
+    vscode: { Uri: { file: (value) => value }, workspace: {
+      getConfiguration: (section, resource) => {
+        assert.equal(section, 'opencodeSessions');
+        assert.equal(resource, cwd);
+        return { get: (key, fallback) => settings[key] ?? fallback, inspect: () => ({}) };
+      },
+    } },
+    api: { permissionProfiles: (method, input) => rpc[method](input) },
+  });
+  const configure = (id, change) => {
+    sessions[id] = { id, agent: 'build', location: { directory: cwd } };
+    return service.configure(id, cwd, 'build', change);
+  };
+  const defaults = await configure('ses_defaults');
+  assert.equal(defaults.selected, 'workspace');
+  assert.equal(defaults.newActions, 'smart');
+  for (const mode of ['forbid', 'ask', 'smart', 'permit']) {
+    settings.defaultNewActions = mode;
+    assert.equal((await configure(`ses_default_${mode}`)).newActions, mode);
+  }
+  settings.defaultPermissionProfile = 'all';
+  settings.defaultNewActions = 'ask';
+  const unchanged = await configure('ses_defaults');
+  assert.equal(unchanged.selected, 'workspace');
+  assert.equal(unchanged.newActions, 'smart', 'settings changes do not reset saved session choices');
+  assert.equal((await configure('ses_defaults', { newActions: 'forbid' })).newActions, 'forbid');
+  assert.equal((await configure('ses_defaults')).newActions, 'forbid', 'manual selections survive reconfiguration');
+  for (const [id, mode] of [['read-only', 'forbid'], ['host', 'permit'], ['all', 'permit']]) {
+    settings.defaultPermissionProfile = id;
+    assert.equal((await configure(`ses_fixed_${id}`)).newActions, mode);
+  }
+  settings.agentPermissionProfiles = { build: 'read-only' };
+  assert.equal((await configure('ses_agent_default')).selected, 'read-only', 'agent assignment wins');
+  delete settings.agentPermissionProfiles;
+  settings.defaultPermissionProfile = 'workspace';
+  settings.defaultNewActions = 'invalid';
+  await assert.rejects(() => configure('ses_invalid_default'), /Invalid new-actions mode/);
   const config = { sessionID: 'ses_root', layers: [], defaultProfile: 'read-only', agentProfiles: { reviewer: 'read-only' } };
   assert.equal((await rpc.configure(config)).selected, 'read-only');
   const event = { sessionID: 'ses_child', action: 'edit', resources: ['file'], effect: 'allow' };

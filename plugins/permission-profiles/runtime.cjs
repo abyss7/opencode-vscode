@@ -261,10 +261,12 @@ async function setup(ctx, contract, directory, configDirectory = path.resolve(__
           Object.values(assignments).some((id) => typeof id !== 'string' || !Object.hasOwn(profiles, id))) {
         throw new Error('Invalid agent permission profile assignment');
       }
-      let state = read(info.id) || {
+      let state = read(info.id);
+      const initialNewActions = state ? undefined : input.defaultNewActions;
+      state ||= {
         selected: input.defaultProfile || 'workspace', choices: {}, agent: info.agent || 'build',
       };
-      state = engine.selectProfile(state, profiles, input.selected, input.newActions);
+      state = engine.selectProfile(state, profiles, input.selected, input.newActions ?? initialNewActions);
       state.layers = input.layers;
       state.agentProfiles = assignments;
       state.smartTimeoutMs = Math.min(120000, Math.max(5000, Number(input.smartTimeoutMs) || 30000));

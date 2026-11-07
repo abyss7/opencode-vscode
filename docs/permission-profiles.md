@@ -9,6 +9,17 @@ view to enable or arrange. The list retains folders, nested subagents, keyboard
 navigation, context actions and drag-and-drop. Agent display names are consistent
 with the chat. Model selection remains independent.
 
+## Session defaults
+
+In VS Code Settings, **OpenCode Sessions: Default Permission Profile** selects the
+initial profile (`workspace` by default, or a built-in/custom profile ID).
+**OpenCode Sessions: Default New Actions** selects the initial **Without a rule**
+mode: Forbid, Ask, Smart (default), or Permit. Both settings support Workspace and
+Folder overrides and apply when a session's permissions are first initialized.
+Agent-specific profile assignments take precedence over the default profile.
+Saved session choices are preserved. Read only always uses Forbid; Host and All
+always use Permit. Explicit permission rules still take precedence over the mode.
+
 ## Configuration layers
 
 These are extension settings, not OpenCode's native `permissions` array:
@@ -97,6 +108,7 @@ Example `.vscode/settings.json`:
     }
   },
   "opencodeSessions.defaultPermissionProfile": "workspace",
+  "opencodeSessions.defaultNewActions": "smart",
   "opencodeSessions.agentPermissionProfiles": {
     "plan": "read-only",
     "security-reviewer": "read-only"

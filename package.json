@@ -573,6 +573,20 @@
           "scope": "resource",
           "description": "Permission profile for a new session unless its agent has a profile assignment. Built-ins: read-only, workspace, host, all. Host currently behaves like All."
         },
+        "opencodeSessions.defaultNewActions": {
+          "type": "string",
+          "enum": ["forbid", "ask", "smart", "permit"],
+          "enumItemLabels": ["Forbid", "Ask", "Smart", "Permit"],
+          "enumDescriptions": [
+            "Block actions without a matching permission rule.",
+            "Ask before actions without a matching permission rule.",
+            "Review actions without a matching permission rule with the permission classifier.",
+            "Allow actions without a matching permission rule."
+          ],
+          "default": "smart",
+          "scope": "resource",
+          "markdownDescription": "Default **Without a rule** mode for new sessions. Existing sessions keep their selected mode. Explicit permission rules still take precedence. Read only always uses Forbid; Host and All always use Permit."
+        },
         "opencodeSessions.allowSessionTemp": {
           "type": "boolean",
           "default": true,
