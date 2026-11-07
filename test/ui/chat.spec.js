@@ -104,6 +104,55 @@ test('question form round-trip and single-use permission response', async ({ pag
   await expect(page.getByRole('button', { name: 'Reject', exact: true })).toBeDisabled();
 });
 
+test('questions replace the composer, queue in order, and leave the transcript untouched', async ({ page, chat }) => {
+  await page.locator('#input').fill('Unsent draft');
+  const question = (id) => ({ type: 'elicitation', requestId: id, message: `Question ${id}`,
+    requestedSchema: { type: 'object', required: ['answer'], properties: {
+      answer: { type: 'string', title: 'Answer' },
+    } } });
+  await chat.send(question('one'), question('two'));
+  await expect(page.locator('#messages .elicitation')).toHaveCount(0);
+  await expect(page.locator('#questions .elicitation')).toHaveCount(2);
+  await expect(page.locator('#questions .elicitation').first()).toBeVisible();
+  await expect(page.locator('#questions .elicitation').last()).toBeHidden();
+  await expect(page.locator('#input')).toBeHidden();
+  await page.locator('#questions input').first().fill('Yes');
+  await page.getByRole('button', { name: 'Submit' }).click();
+  expect(await chat.received('elicitationResponse')).toEqual([
+    { type: 'elicitationResponse', requestId: 'one', action: 'accept', content: { answer: 'Yes' } },
+  ]);
+  await expect(page.locator('#questions .elicitation')).toHaveCount(1);
+  await expect(page.locator('#questions .elicitation')).toContainText('Question two');
+  await page.getByRole('button', { name: 'Decline' }).click();
+  await expect(page.locator('#questions')).toBeHidden();
+  await expect(page.locator('#input')).toBeVisible();
+  await expect(page.locator('#input')).toHaveValue('Unsent draft');
+  expect(await chat.received('elicitationResponse')).toHaveLength(2);
+});
+
+test('question description leads choices and custom answer has a clear label', async ({ page, chat }) => {
+  await chat.send({ type: 'elicitation', requestId: 'presentation', message: 'Questions', requestedSchema: {
+    type: 'object', properties: {
+      view: { type: 'string', title: 'Presentation', description: 'How should the answer be displayed?',
+        oneOf: [{ const: 'diagram', title: 'Diagram' }, { const: 'table', title: 'Table' }] },
+      view_custom: { type: 'string', title: 'Presentation (other)', description: 'Type your own answer' },
+    },
+  } });
+  const card = page.locator('#questions .elicitation');
+  await expect(card.locator('.permission-title, .elicitation-message')).toHaveCount(0);
+  await expect(card.locator('.elicitation-question')).toHaveText('How should the answer be displayed?');
+  await expect(card.locator('.elicitation-label')).toHaveText(['How should the answer be displayed?', 'Custom answer']);
+  await expect(card.locator('.elicitation-description')).toHaveCount(0);
+  await expect(card.locator('.elicitation-question')).toHaveCSS('font-size', '13px');
+  await expect(card.locator('.elicitation-question')).toHaveCSS('font-weight', '600');
+  await card.getByLabel('Custom answer').fill('Timeline');
+  await card.getByRole('button', { name: 'Submit' }).click();
+  expect(await chat.received('elicitationResponse')).toEqual([{
+    type: 'elicitationResponse', requestId: 'presentation', action: 'accept',
+    content: { view_custom: 'Timeline' },
+  }]);
+});
+
 test('composer stays in the viewport while transcript scrolls', async ({ page, chat }) => {
   for (let index = 0; index < 12; index += 1) {
     await chat.update({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: `Question ${index + 1}` } });

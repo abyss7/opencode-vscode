@@ -35,6 +35,15 @@ function createPanel() {
   panel.setArchiveFinalizing(false);
   assert.match(panel.panel.iconPath, /opencode-archived.svg$/, 'completed finalization returns to the archive icon');
   panel.setArchived(false);
+  const declined = [];
+  panel._onElicitation({ requestId: 'first', respond: (action) => declined.push(action) });
+  panel.setArchived(true);
+  assert.deepEqual(declined, ['decline'], 'archiving declines pending questions');
+  assert.equal(panel._elicitations.size, 0);
+  panel._onElicitation({ requestId: 'late', respond: (action) => declined.push(action) });
+  assert.deepEqual(declined, ['decline', 'decline'], 'archived sessions decline incoming questions');
+  assert.equal(panel._elicitations.size, 0);
+  panel.setArchived(false);
   panel._startTurn();
   let answered = 0;
   const permission = {

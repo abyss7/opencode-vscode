@@ -86,8 +86,7 @@ function formSchema(fields) {
     // A required choice cannot be satisfied by a free-form answer alone.
     if (custom && choices && !isRequired && (field.type === 'string' ||
         field.type === 'multiselect' && field.minItems === undefined && field.maxItems === undefined)) {
-      properties[`${key}_custom`] = { type: 'string', title: `${field.title || key} (other)`,
-        description: field.type === 'string' ? 'Type your own answer' : 'Add your own answer',
+      properties[`${key}_custom`] = { type: 'string', title: 'Custom answer',
         ...(field.type === 'string' ? stringLimits(field) : {}) };
     }
   }

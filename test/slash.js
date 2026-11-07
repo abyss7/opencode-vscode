@@ -170,6 +170,8 @@ for (const id of [
   'messages',
   'empty',
   'input',
+  'composer',
+  'questions',
   'send',
   'stop',
   'status',
@@ -190,6 +192,7 @@ for (const id of [
 ids.input.tagName = 'textarea';
 ids.send.tagName = 'button';
 ids.stop.tagName = 'button';
+ids.questions.hidden = true;
 
 const posted = [];
 let handler = null;

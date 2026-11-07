@@ -7,6 +7,7 @@
   const emptyEl = document.getElementById('empty');
   const inputEl = document.getElementById('input');
   const composerEl = document.getElementById('composer');
+  const questionsEl = document.getElementById('questions');
   const sendBtn = document.getElementById('send');
   const stopBtn = document.getElementById('stop');
   const statusEl = document.getElementById('status');
@@ -176,7 +177,9 @@
     state.activityPlan = '';
     state.activityThought = '';
     state.activityPurpose = '';
-    state.attentionRequests.clear();
+    for (const target of state.attentionRequests.keys()) {
+      if (!questionsEl.contains(target)) state.attentionRequests.delete(target);
+    }
     stopLiveClock();
     renderLiveElapsed();
     state.subagentCost = 0;
@@ -242,6 +245,10 @@
 
   function focusComposer(preserveScroll = false) {
     if (state.archived) return;
+    if (!questionsEl.hidden) {
+      questionsEl.querySelector('.elicitation:not([hidden]) button.allow, .elicitation:not([hidden]) input')?.focus();
+      return;
+    }
     if (!restoredViewport && (!preserveScroll || state.autoScroll)) jumpToBottom();
     try {
       inputEl.focus();
@@ -281,6 +288,11 @@
   function setArchived(archived) {
     state.archived = Boolean(archived);
     composerEl.hidden = state.archived;
+    if (state.archived) {
+      for (const card of questionsEl.children) resolveAttention(card);
+      questionsEl.replaceChildren();
+      syncQuestions();
+    }
     if (state.archived) {
       state.images = [];
       state.selection = null;
@@ -2200,13 +2212,21 @@
     scrollToBottom();
   }
 
+  function syncQuestions() {
+    const cards = [...questionsEl.querySelectorAll('.elicitation')];
+    cards.forEach((card, index) => { card.hidden = index !== 0; });
+    questionsEl.hidden = cards.length === 0;
+    composerEl.classList.toggle('question-active', cards.length > 0);
+    updateComposer();
+  }
+
   function addElicitation(message) {
-    for (const card of messagesEl.querySelectorAll('.elicitation[data-request-id]')) {
+    if (state.archived) return;
+    for (const card of questionsEl.querySelectorAll('.elicitation[data-request-id]')) {
       if (card.dataset.requestId !== String(message.requestId)) continue;
       resolveAttention(card);
       card.remove();
     }
-    hideEmpty();
     finalizeAssistant();
     finalizeThought();
     finalizeToolGroup();
@@ -2220,8 +2240,7 @@
 
     const card = el('div', 'elicitation');
     card.dataset.requestId = String(message.requestId);
-    card.appendChild(el('div', 'permission-title', 'Question'));
-    if (typeof message.message === 'string' && message.message) {
+    if (typeof message.message === 'string' && message.message && !/^questions?$/i.test(message.message.trim())) {
       card.appendChild(el('div', 'elicitation-message', message.message));
     }
 
@@ -2282,36 +2301,41 @@
       if (card.dataset.resolved === '1') return;
       card.dataset.resolved = '1';
       resolveAttention(card);
-      for (const item of actions.querySelectorAll('button')) item.disabled = true;
       const payload = { type: 'elicitationResponse', requestId: message.requestId, action };
       if (action === 'accept') payload.content = collectElicitationContent(controls);
       vscode.postMessage(payload);
-      note(action === 'accept' ? 'Submitted.' : 'Declined.');
+      card.remove();
+      syncQuestions();
     }
 
     actions.appendChild(submit);
     actions.appendChild(cancel);
     card.appendChild(actions);
-    messagesEl.appendChild(card);
+    questionsEl.appendChild(card);
+    syncQuestions();
     requestAttention(card, 'question', 'Waiting for your answer', prefixLine(message.message || 'Question'));
-    scrollToBottom();
+    if (!card.hidden) card.querySelector('input, button.allow')?.focus();
   }
 
   function buildElicitationField(name, prop, required, controls, limits) {
     if (!prop || typeof prop !== 'object') return null;
     const type = prop.type;
     const isRequired = required.indexOf(name) !== -1;
-    const label = prop.title || name;
+    const custom = name.endsWith('_custom');
+    const choices = type === 'string' ? elicitationChoices(prop)
+      : type === 'array' ? elicitationChoices(prop.items) : [];
+    const question = choices.length > 0 && typeof prop.description === 'string' && prop.description.trim();
+    const label = custom ? 'Custom answer' : question || prop.title || name;
 
     const row = el('div', 'elicitation-field');
-    const labelEl = el('label', 'elicitation-label', isRequired ? label + ' *' : label);
+    const labelEl = el('label', question ? 'elicitation-label elicitation-question' : 'elicitation-label',
+      isRequired ? label + ' *' : label);
     row.appendChild(labelEl);
 
     if (
       type === 'string' &&
       (Array.isArray(prop.enum) || Array.isArray(prop.oneOf) || Array.isArray(prop.anyOf))
     ) {
-      const choices = elicitationChoices(prop);
       const selected =
         prop.default === undefined || prop.default === null ? [] : [String(prop.default)];
       const box = buildChoiceList(name, choices, false, selected);
@@ -2330,7 +2354,6 @@
       controls[name] = () => checkbox.checked;
     } else if (type === 'array') {
       const items = prop.items || {};
-      const choices = elicitationChoices(items);
       if (choices.length > 0) {
         const rawSelected = Array.isArray(prop.default)
           ? prop.default
@@ -2405,7 +2428,7 @@
       };
     }
 
-    if (prop.description) {
+    if (prop.description && !question && !custom) {
       row.appendChild(el('div', 'elicitation-description', prop.description));
     }
     return row;
@@ -3303,11 +3326,12 @@
         showSubmission(message);
         break;
       case 'requestResolved':
-        for (const card of messagesEl.querySelectorAll('.permission[data-request-id], .elicitation[data-request-id]')) {
+        for (const card of [...messagesEl.querySelectorAll('.permission[data-request-id]'), ...questionsEl.querySelectorAll('.elicitation[data-request-id]')]) {
           if (card.dataset.requestId !== String(message.requestId)) continue;
           resolveAttention(card);
           card.remove();
         }
+        syncQuestions();
         break;
       case 'slashItems':
         state.skills = Array.isArray(message.skills) ? message.skills : [];

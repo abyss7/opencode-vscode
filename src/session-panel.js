@@ -674,8 +674,8 @@ class SessionPanel {
   }
 
   _onElicitation(request) {
-    if (this._disposed) {
-      request.respond('cancel');
+    if (this._disposed || this._archived) {
+      request.respond('decline');
       return;
     }
     this._elicitations.set(request.requestId, request);
@@ -709,6 +709,13 @@ class SessionPanel {
     const value = Boolean(archived);
     if (this._archived === value) return;
     this._archived = value;
+    if (value) {
+      for (const [id, request] of this._elicitations) {
+        this._elicitations.delete(id);
+        this._post({ type: 'requestResolved', kind: 'elicitation', requestId: id });
+        request.respond('decline');
+      }
+    }
     if (!value) this._archiveFinalizing = false;
     this._refreshAttention();
     this._post({ type: 'sessionInfo', title: this._sessionTitle, archived: value });

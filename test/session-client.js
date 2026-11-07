@@ -16,7 +16,7 @@ const questionSchema = formSchema(questionFields());
 assert.deepEqual(questionSchema.properties.q0.oneOf.map((option) => option.const), ['Да', 'Нет']);
 assert.ok(!('enum' in questionSchema.properties.q0), 'choices use oneOf so labels stay visible');
 assert.deepEqual(questionSchema.properties.q0_custom,
-  { type: 'string', title: 'Запуск проверок (other)', description: 'Type your own answer' });
+  { type: 'string', title: 'Custom answer' });
 assert.deepEqual(formAnswer(questionFields(), { q0: 'Да', q0_custom: '' }), { q0: 'Да' });
 assert.deepEqual(formAnswer(questionFields(), { q0_custom: 'Свой вариант' }), { q0: 'Свой вариант' });
 assert.ok(!('q0_custom' in formSchema([{ ...questionFields()[0], custom: false }]).properties));
