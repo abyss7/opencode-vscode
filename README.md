@@ -67,6 +67,9 @@ editor tab connected to the shared OpenCode server.
 - Reasoning, plans, and tool details are collapsed by default; permission prompts stay visible.
 - Model and mode switching (build/plan) via `session/set_config_option`.
 - Tabs are restored when the VS Code window reloads.
+  Unloaded tabs display the session name captured when opened; activating a tab
+  refreshes its title. To update older ID-only tabs, close them and reopen the
+  sessions from the sidebar after reloading the extension.
 - Ordinary and queued inputs use the same server and live event stream. Message IDs track
   sending, queued, running, completed, failed and interrupted states; submitting does not
   imply completion. Stop cancels pending inputs and interrupts the current execution.

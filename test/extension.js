@@ -247,7 +247,7 @@ const context = {
     'session creation'
   );
   console.log('created', sessionMessage.sessionId);
-  assert.strictEqual(panel.uri.path, `/${sessionMessage.sessionId}.opencode-session`,
+  assert.strictEqual(panel.uri.path, `/${sessionMessage.sessionId}.opencode-session/New Session`,
     'the new tab and the server must share the reserved session identity');
   await waitFor(
     () => panel.messages.find((message) => message.type === 'status' && message.state === 'ready'),
@@ -350,7 +350,8 @@ const context = {
   await commands.get('opencode.openSession')(renamed);
   const reopened = panels[1];
   assert.ok(reopened, 'reopened panel was not created');
-  assert.strictEqual(reopened.uri.toString(), panel.uri.toString(), 'reopening uses the same editor resource');
+  assert.strictEqual(reopened.uri.path, `/${sessionMessage.sessionId}.opencode-session/EXT renamed`,
+    'reopening from the sidebar captures the latest name with the same session identity');
   assert.strictEqual(reopened.title, 'EXT renamed', 'known title must be visible before connecting');
   reopened.send({ type: 'ready' });
   const loadedMessage = await waitFor(

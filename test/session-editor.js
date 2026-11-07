@@ -14,6 +14,7 @@ function fixture(store = new Map()) {
     Uri: { from: (value) => ({ authority: '', query: '', fragment: '', ...value }) },
     ViewColumn: { Active: -1 },
     window: {
+      tabGroups: { all: [] },
       registerCustomEditorProvider(type, provider, options) {
         data.registration = { type, provider, options };
         return { dispose() {} };
@@ -45,7 +46,9 @@ function fixture(store = new Map()) {
   const f = fixture();
   const manifest = require('../package.json');
   const contribution = manifest.contributes.customEditors.find((item) => item.viewType === f.data.registration.type);
-  assert.deepEqual(contribution.selector, [{ filenamePattern: '*.opencode-session' }]);
+  assert.deepEqual(contribution.selector, [
+    { filenamePattern: '*.opencode-session' }, { filenamePattern: '**/*.opencode-session/*' },
+  ]);
   assert.equal(contribution.priority, 'option');
   assert.deepEqual(f.data.registration.options, {
     webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: false,
@@ -56,7 +59,7 @@ function fixture(store = new Map()) {
   const uri = f.opens[0].uri;
   assert.equal(first.sessionId, null);
   assert.match(first.newSessionId, /^ses_[a-f0-9]{32}$/);
-  assert.equal(uri.path, `/${first.newSessionId}.opencode-session`);
+  assert.equal(uri.path, `/${first.newSessionId}.opencode-session/New Session`);
   assert.equal(f.opens[0].command, 'vscode.openWith');
   assert.equal(f.opens[0].options.preview, false);
   assert.equal(first.cwd, '/work/кириллица # ?');
@@ -65,7 +68,7 @@ function fixture(store = new Map()) {
   first.panel.dispose();
   const restart = fixture(f.store);
   const doc = await restart.editors.openCustomDocument(uri);
-  const panel = { title: 'New Session', onDidDispose() {} };
+  const panel = { title: 'New Session', onDidDispose() {}, reveal() {} };
   await restart.editors.resolveCustomEditor(doc, panel, { isCancellationRequested: false });
   assert.equal(restart.panels[0].newSessionId, first.newSessionId);
   assert.deepEqual(restart.lookups, [], 'a pending tab does not need an existing server session');
@@ -75,6 +78,8 @@ function fixture(store = new Map()) {
   const requests = [];
   let lost = false;
   const client = new SessionClient({ cwd: first.cwd, api: {
+    async getConfig() { return []; },
+    async listAgents() { return []; },
     async _request(method, path, body) {
       requests.push({ method, path, body });
       if (lost) throw new Error('Lost response');
@@ -102,8 +107,12 @@ function fixture(store = new Map()) {
   await restored.editors.resolveCustomEditor(restoredDoc, panel, { isCancellationRequested: true });
   assert.equal(restored.panels.length, 1, 'cancelled resolves do not create clients');
 
+  restored.vscode.window.tabGroups.all = [{ viewColumn: 3, tabs: [
+    { input: { viewType: 'opencode.sessionEditor', uri } },
+  ] }];
   await restored.editors.open(first.newSessionId, '/moved', 'Renamed');
   assert.deepEqual(restored.opens[0].uri, uri, 'rename/move keep the native editor identity');
+  assert.equal(restored.opens[0].options.viewColumn, 3, 'reuse the unresolved tab in its original group');
   assert.equal(restored.panels[1].title, 'Renamed');
   assert.equal(restored.panels[1].cwd, '/moved');
 
@@ -116,6 +125,42 @@ function fixture(store = new Map()) {
   await assert.rejects(restored.editors.openCustomDocument({ ...uri, scheme: 'file' }), /Invalid/);
   await assert.rejects(restored.editors.openCustomDocument({ ...uri, path: '/bad.opencode-session' }), /Invalid/);
   await assert.rejects(restored.editors.openCustomDocument({ ...uri, path: '/ses_deleted.opencode-session' }), /not found/);
+
+  const named = fixture();
+  await named.editors.open('ses_named', '/work', 'Название / путь \\ # ?');
+  const namedUri = named.opens[0].uri;
+  assert.equal(namedUri.path, '/ses_named.opencode-session/Название   путь   # ?');
+  assert.equal(named.panels[0].sessionId, 'ses_named');
+  named.panels[0].panel.title = 'Changed title';
+  named.panels[0].panel.dispose();
+  const namedRestart = fixture(named.store);
+  const namedDoc = await namedRestart.editors.openCustomDocument(namedUri);
+  await namedRestart.editors.resolveCustomEditor(namedDoc, panel, { isCancellationRequested: false });
+  assert.equal(namedRestart.panels[0].title, 'Changed title', 'persist titles across extension restarts');
+  await namedRestart.editors.open('ses_named', '/work', 'Latest name');
+  assert.equal(namedRestart.opens[0].uri.path, '/ses_named.opencode-session/Latest name');
+  await namedRestart.editors.open('ses_external', '/work');
+  assert.equal(namedRestart.opens[1].uri.path, '/ses_external.opencode-session/Recovered title');
+  const legacy = { ...uri, path: '/ses_legacy.opencode-session' };
+  namedRestart.vscode.window.tabGroups.all = [{ viewColumn: 2, tabs: [
+    { input: { viewType: 'opencode.sessionEditor', uri: legacy } },
+  ] }];
+  await namedRestart.editors.open('ses_legacy', '/work', 'Legacy title');
+  assert.deepEqual(namedRestart.opens[2].uri, legacy, 'reuse unresolved legacy tabs');
+  await assert.rejects(namedRestart.editors.openCustomDocument({ ...uri,
+    path: '/ses_named.opencode-session/title/extra' }), /Invalid/);
+
+  const duplicate = fixture();
+  await duplicate.editors.open('ses_duplicate', '/work', 'Current name');
+  let revealed = false;
+  duplicate.panels[0].panel.reveal = () => { revealed = true; };
+  const oldDoc = await duplicate.editors.openCustomDocument({ ...uri,
+    path: '/ses_duplicate.opencode-session/Old name' });
+  let disposed = false;
+  await duplicate.editors.resolveCustomEditor(oldDoc, { dispose() { disposed = true; } },
+    { isCancellationRequested: false });
+  assert.equal(duplicate.panels.length, 1, 'native reopen of an old title must not create a second client');
+  assert.ok(revealed && disposed, 'reveal the live editor and close the duplicate resource');
 
   console.log('SESSION EDITOR OK');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

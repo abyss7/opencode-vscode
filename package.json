@@ -29,7 +29,10 @@
       {
         "viewType": "opencode.sessionEditor",
         "displayName": "OpenCode Session",
-        "selector": [{ "filenamePattern": "*.opencode-session" }],
+        "selector": [
+          { "filenamePattern": "*.opencode-session" },
+          { "filenamePattern": "**/*.opencode-session/*" }
+        ],
         "priority": "option"
       }
     ],
