@@ -7,27 +7,50 @@ const require = createRequire(import.meta.url)
 delete require.cache[require.resolve('./runtime.cjs')]
 const { setup } = require('./runtime.cjs')
 
+const Finalization = {
+  type: 'object',
+  properties: {
+    archivedAt: { type: 'number' },
+    state: { type: 'string', enum: ['pending', 'succeeded', 'failed'] },
+    error: { type: 'string' },
+  },
+  required: ['archivedAt', 'state'],
+  additionalProperties: false,
+} as const
+
 const Archive = Rpc.define({
   id: 'vscode-archive',
   methods: {
     status: {
-      input: { type: 'object', additionalProperties: false },
+      input: {
+        type: 'object',
+        properties: { sessionID: { type: 'string' } },
+        additionalProperties: false,
+      },
       output: {
         type: 'object',
-        properties: { version: { type: 'number' } },
+        properties: {
+          version: { type: 'number' },
+          finalization: Finalization,
+        },
         required: ['version'],
         additionalProperties: false,
       },
       errors: {},
     },
-    archive: {
+    afterArchive: {
       input: {
         type: 'object',
         properties: { sessionID: { type: 'string' } },
         required: ['sessionID'],
         additionalProperties: false,
       },
-      output: { type: 'object', additionalProperties: false },
+      output: {
+        type: 'object',
+        properties: { finalization: Finalization },
+        required: ['finalization'],
+        additionalProperties: false,
+      },
       errors: {},
     },
   },

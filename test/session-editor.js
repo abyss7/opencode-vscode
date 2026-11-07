@@ -128,10 +128,17 @@ function fixture(store = new Map()) {
 
   const named = fixture();
   await named.editors.open('ses_named', '/work', 'Название / путь \\ # ?', { archived: true });
+  await named.editors.setArchived('ses_named', true, { archiveFinalizing: true });
   const namedUri = named.opens[0].uri;
   assert.equal(namedUri.path, '/ses_named.opencode-session/Название   путь   # ?');
   assert.equal(named.panels[0].sessionId, 'ses_named');
   assert.equal(named.panels[0].archived, true);
+  assert.equal(named.editors.records.ses_named.archiveFinalizing, true);
+  const finalizingRestart = fixture(named.store);
+  const finalizingDoc = await finalizingRestart.editors.openCustomDocument(namedUri);
+  await finalizingRestart.editors.resolveCustomEditor(finalizingDoc, panel, { isCancellationRequested: false });
+  assert.equal(finalizingRestart.panels[0].archiveFinalizing, true,
+    'persist finalization while the extension is restarted');
   await named.editors.setArchived('ses_named', false);
   named.panels[0].panel.title = 'Changed title';
   named.panels[0].panel.dispose();
@@ -140,6 +147,7 @@ function fixture(store = new Map()) {
   await namedRestart.editors.resolveCustomEditor(namedDoc, panel, { isCancellationRequested: false });
   assert.equal(namedRestart.panels[0].title, 'Changed title', 'persist titles across extension restarts');
   assert.equal(namedRestart.panels[0].archived, false, 'persist restored state across extension restarts');
+  assert.equal(namedRestart.panels[0].archiveFinalizing, false, 'restoring clears finalization state');
   await namedRestart.editors.open('ses_named', '/work', 'Latest name');
   assert.equal(namedRestart.opens[0].uri.path, '/ses_named.opencode-session/Latest name');
   await namedRestart.editors.open('ses_external', '/work');

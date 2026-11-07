@@ -60,9 +60,19 @@ class SessionEditors {
     await this.save();
   }
 
-  async setArchived(id, archived) {
+  async setArchived(id, archived, options = {}) {
     if (!this.records[id]) return;
-    this.records[id] = { ...this.records[id], archived: Boolean(archived) };
+    const value = Boolean(archived);
+    this.records[id] = { ...this.records[id], archived: value,
+      ...(!value ? { archiveFinalizing: false } : {}),
+      ...(typeof options.archiveFinalizing === 'boolean'
+        ? { archiveFinalizing: options.archiveFinalizing } : {}) };
+    await this.save();
+  }
+
+  async setArchiveFinalizing(id, finalizing) {
+    if (!this.records[id]) return;
+    this.records[id] = { ...this.records[id], archiveFinalizing: Boolean(finalizing) };
     await this.save();
   }
 
@@ -98,7 +108,7 @@ class SessionEditors {
       return;
     }
     this.liveEditors.set(document.id, { uri: document.uri, panel });
-    const { cwd, pending, archived } = this.records[document.id];
+    const { cwd, pending, archived, archiveFinalizing } = this.records[document.id];
     // VS Code also persists the webview title when restoring an editor.
     const title = this.titles.get(document.id) || this.records[document.id].title ||
       (panel.title !== `${document.id}.opencode-session` ? panel.title : undefined);
@@ -112,6 +122,7 @@ class SessionEditors {
       sessionId: pending ? null : document.id,
       newSessionId: pending ? document.id : undefined,
       archived: Boolean(archived),
+      archiveFinalizing: Boolean(archiveFinalizing),
     });
   }
 }

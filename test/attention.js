@@ -24,6 +24,17 @@ function createPanel() {
 
 (async () => {
   const panel = createPanel();
+  panel._loading = true;
+  panel._refreshAttention();
+  assert.match(panel.panel.iconPath, /opencode-loading.svg$/, 'an unresolved tab has a loading icon');
+  panel._loading = false;
+  panel.setArchived(true);
+  assert.match(panel.panel.iconPath, /opencode-archived.svg$/, 'an archived tab has a distinct icon');
+  panel.setArchiveFinalizing(true);
+  assert.match(panel.panel.iconPath, /opencode-working.svg$/, 'archive finalization is visibly active');
+  panel.setArchiveFinalizing(false);
+  assert.match(panel.panel.iconPath, /opencode-archived.svg$/, 'completed finalization returns to the archive icon');
+  panel.setArchived(false);
   panel._startTurn();
   let answered = 0;
   const permission = {

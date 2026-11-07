@@ -14,18 +14,26 @@ const { setup } = require('../plugins/archive/runtime.cjs');
 async function main() {
   let statusAttempts = 0;
   const apiCalls = [];
+  let finalization = null;
+  let releaseHook;
   const service = new ArchiveService({
     command: 'opencode',
     log: () => {},
+    pollInterval: 0,
     api: {
       archiveIntegration: async (method, input, directory) => {
-        if (method === 'archive') {
+        if (method === 'afterArchive') {
           apiCalls.push(['rpc', input, directory]);
-          return {};
+          finalization = { archivedAt: 123, state: 'pending' };
+          return { finalization };
+        }
+        if (input.sessionID) {
+          apiCalls.push(['status', input, directory]);
+          return { version: 3, finalization };
         }
         statusAttempts += 1;
         if (statusAttempts === 1) throw new Error('reloading');
-        return { version: 2 };
+        return { version: 3 };
       },
     },
   });
@@ -38,59 +46,84 @@ async function main() {
   assert.strictEqual(statusAttempts, 2);
 
   service.api.updateSession = async (...args) => { apiCalls.push(['update', ...args]); };
-  await service.archive('ses_service', '/workspace');
+  const archived = await service.archive('ses_service', '/workspace');
   assert.deepStrictEqual(apiCalls, [
-    ['rpc', { sessionID: 'ses_service' }, '/workspace'],
     ['update', 'ses_service', { archived: true }],
-  ]);
+  ], 'the persisted archive must not wait for plugin readiness');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepStrictEqual(apiCalls.slice(0, 2), [
+    ['update', 'ses_service', { archived: true }],
+    ['rpc', { sessionID: 'ses_service' }, '/workspace'],
+  ], 'the after-archive hook starts only after the PATCH');
+  let completed = false;
+  archived.finalization.then(() => { completed = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.strictEqual(completed, false, 'background finalization remains observable while its hook runs');
+  finalization = { archivedAt: 123, state: 'succeeded' };
+  await archived.finalization;
+  assert.strictEqual(completed, true);
   service.api.archiveIntegration = async (method) => {
-    if (method === 'archive') throw new Error('plugin offline');
-    return { version: 2 };
+    if (method === 'afterArchive') throw new Error('plugin offline');
+    return { version: 3 };
   };
-  await service.archive('ses_fallback', '/workspace');
+  const fallback = await service.archive('ses_fallback', '/workspace');
   assert.deepStrictEqual(apiCalls.at(-1), ['update', 'ses_fallback', { archived: true }]);
+  assert.strictEqual((await fallback.finalization).state, 'failed');
 
   let definition;
   let controlMethods;
-  let archived = false;
+  let archivedAt = 456;
   let hookCalls = 0;
-  let releaseHook;
   const events = [];
+  const storage = new Map();
   const ctx = {
     command: { transform: async (edit) => {
       edit({ add: (value) => { definition = value; } });
       return { dispose() {} };
     } },
-    rpc: Object.assign(() => ({ beforeArchive: async (input) => {
+    rpc: Object.assign(() => ({ afterArchive: async (input) => {
       hookCalls += 1;
       events.push(['hook', input]);
       await new Promise((resolve) => { releaseHook = resolve; });
     } }), { register: async (_, methods) => { controlMethods = methods; return { dispose() {} }; } }),
     session: {
       get: async () => ({ id: 'ses_test', time: {}, location: { directory: '/workspace' } }),
-      list: async () => ({ data: archived ? [{ id: 'ses_test' }] : [], cursor: {} }),
-      wait: async () => { events.push(['wait']); },
-      update: async (input) => { events.push(['update', input]); archived = input.archived; },
+      list: async () => ({ data: archivedAt ? [{ id: 'ses_test', time: { archived: archivedAt } }] : [], cursor: {} }),
+      update: async (input) => { events.push(['update', input]); archivedAt = 456; },
+    },
+    storage: {
+      get: async (key) => structuredClone(storage.get(key)),
+      set: async (key, value) => { storage.set(key, structuredClone(value)); },
     },
   };
   await setup(ctx, {}, {}, () => {});
   assert.strictEqual(definition.name, 'archive');
-  assert.strictEqual(typeof controlMethods.archive, 'function');
-  const first = controlMethods.archive({ sessionID: 'ses_test' });
+  assert.strictEqual(typeof controlMethods.afterArchive, 'function');
+  const first = await controlMethods.afterArchive({ sessionID: 'ses_test' });
   const second = definition.execute({ sessionID: 'ses_test', delivery: 'queue' });
   await new Promise((resolve) => setImmediate(resolve));
   assert.strictEqual(hookCalls, 1, 'duplicate archive commands must share one operation');
+  assert.strictEqual(first.finalization.state, 'pending');
+  assert.strictEqual((await controlMethods.status({ sessionID: 'ses_test' })).finalization.state, 'pending');
   releaseHook();
-  await Promise.all([first, second]);
-  assert.deepStrictEqual(events.map(([name]) => name), ['wait', 'hook', 'update']);
-  assert.deepStrictEqual(events.at(-1)[1], { sessionID: 'ses_test', archived: true });
+  await second;
+  while ((await controlMethods.status({ sessionID: 'ses_test' })).finalization.state === 'pending') {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.deepStrictEqual(events.map(([name]) => name), ['hook']);
   await definition.execute({ sessionID: 'ses_test', delivery: 'queue' });
-  assert.strictEqual(hookCalls, 1, 'an archived session must not run the hook again');
+  assert.strictEqual(hookCalls, 1, 'the same archive timestamp must not run the hook again');
 
-  archived = false;
-  ctx.rpc = Object.assign(() => ({ beforeArchive: async () => { throw new Error('hook failed'); } }), ctx.rpc);
-  await definition.execute({ sessionID: 'ses_test', delivery: 'queue' });
-  assert.strictEqual(archived, true, 'hook failures must not prevent archiving');
+  archivedAt = 789;
+  ctx.rpc = Object.assign(() => ({ afterArchive: async () => { throw new Error('hook failed'); } }), ctx.rpc);
+  await controlMethods.afterArchive({ sessionID: 'ses_test' });
+  let failed;
+  do {
+    await new Promise((resolve) => setImmediate(resolve));
+    failed = (await controlMethods.status({ sessionID: 'ses_test' })).finalization;
+  } while (failed.state === 'pending');
+  assert.strictEqual(failed.state, 'failed', 'hook failure is recorded without restoring the session');
+  assert.strictEqual(hookCalls, 1);
   console.log('ARCHIVE SERVICE OK');
 }
 

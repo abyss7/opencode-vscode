@@ -7,10 +7,11 @@ const { resolveGlobalConfigDir } = require('./opencode-config');
 const { VERSION } = require('../plugins/archive/runtime.cjs');
 
 class ArchiveService {
-  constructor({ api, command, log }) {
+  constructor({ api, command, log, pollInterval = 250 }) {
     this.api = api;
     this.command = command;
     this.log = log;
+    this.pollInterval = pollInterval;
     this.installation = null;
   }
 
@@ -65,22 +66,43 @@ class ArchiveService {
   }
 
   async archive(sessionID, cwd) {
-    let commandError;
+    // Archiving is the user-visible operation. Finalization deliberately starts
+    // only after the server has persisted this state and never delays the UI.
+    await this.api.updateSession(sessionID, { archived: true });
+    return { finalization: this._afterArchive(sessionID, cwd) };
+  }
+
+  async getFinalization(sessionID, cwd) {
+    await this.ready(cwd);
+    const response = await this.api.archiveIntegration('status', { sessionID }, cwd);
+    return response.finalization || null;
+  }
+
+  async waitForFinalization(sessionID, cwd, initial) {
+    let state = initial || await this.getFinalization(sessionID, cwd);
+    let failures = 0;
+    while (state?.state === 'pending') {
+      await new Promise((resolve) => setTimeout(resolve, this.pollInterval));
+      try {
+        state = await this.getFinalization(sessionID, cwd);
+        failures = 0;
+      } catch (error) {
+        failures += 1;
+        if (failures >= 40) throw error;
+      }
+    }
+    return state;
+  }
+
+  async _afterArchive(sessionID, cwd) {
     try {
       await this.ready(cwd);
-      // RPC methods are awaited through completion. The slash-command HTTP
-      // endpoint only starts its callback and can return while the hook runs.
-      await this.api.archiveIntegration('archive', { sessionID }, cwd);
+      const response = await this.api.archiveIntegration('afterArchive', { sessionID }, cwd);
+      return await this.waitForFinalization(sessionID, cwd, response.finalization);
     } catch (error) {
-      commandError = error;
+      this.log(`After-archive finalization failed for ${sessionID}: ${error.message}`);
+      return { archivedAt: 0, state: 'failed', error: error.message || String(error) };
     }
-
-    // OpenCode 2.2.5 accepts ctx.session.update({ archived: true }) from a
-    // plugin but does not persist it. The HTTP update is also the guarantee
-    // that a missing or failed hook never prevents archiving.
-    await this.api.updateSession(sessionID, { archived: true });
-    if (commandError) this.log(`Before-archive command failed for ${sessionID}; archived anyway: ${commandError.message}`);
-    return { commandError };
   }
 }
 

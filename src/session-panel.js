@@ -147,6 +147,8 @@ class SessionPanel {
     this.newSessionId = options.newSessionId;
     this.cwd = options.cwd;
     this._archived = Boolean(options.archived);
+    this._archiveFinalizing = Boolean(options.archiveFinalizing);
+    this._loading = true;
     this._initialAgent = !this.sessionId && this.deps.defaultAgent
       ? this.deps.defaultAgent(this.cwd) : null;
     this._permissionState = null;
@@ -223,6 +225,9 @@ class SessionPanel {
   _setIcon(kind) {
     this._baseIconKind = kind;
     if (this._permissions.size || this._elicitations.size) kind = 'attention';
+    else if (this._loading) kind = 'loading';
+    else if (this._archiveFinalizing) kind = 'working';
+    else if (this._archived) kind = 'archived';
     if (this._disposed || this._iconKind === kind) return;
     this._iconKind = kind;
     if (kind === 'attention') {
@@ -231,6 +236,10 @@ class SessionPanel {
       this.panel.iconPath = this._iconUri('opencode-working.svg');
     } else if (kind === 'done') {
       this.panel.iconPath = this._iconUri('opencode-done.svg');
+    } else if (kind === 'loading') {
+      this.panel.iconPath = this._iconUri('opencode-loading.svg');
+    } else if (kind === 'archived') {
+      this.panel.iconPath = this._iconUri('opencode-archived.svg');
     } else {
       this.panel.iconPath = {
         light: this._iconUri('opencode-light.svg'),
@@ -518,6 +527,8 @@ class SessionPanel {
       this._trackTimeout(() => this._loadSlashItems(), 3000);
       await this._refreshServerStatus();
       if (this._disposed) return;
+      this._loading = false;
+      this._refreshAttention();
       if (!this._busy && this._serverActivity !== 'unconfirmed') this._post({ type: 'status', state: 'ready' });
       this._focusIfActive();
       this._refreshLimits();
@@ -698,7 +709,16 @@ class SessionPanel {
     const value = Boolean(archived);
     if (this._archived === value) return;
     this._archived = value;
+    if (!value) this._archiveFinalizing = false;
+    this._refreshAttention();
     this._post({ type: 'sessionInfo', title: this._sessionTitle, archived: value });
+  }
+
+  setArchiveFinalizing(finalizing) {
+    const value = Boolean(finalizing);
+    if (this._archiveFinalizing === value) return;
+    this._archiveFinalizing = value;
+    this._refreshAttention();
   }
 
   _onTitle(title) {
@@ -823,8 +843,8 @@ class SessionPanel {
     try {
       if (command === 'compact') {
         await this.deps.api.compactSession(this.sessionId);
-      } else if (archive && this.deps.archive) {
-        await this.deps.archive.archive(this.sessionId, this.cwd);
+      } else if (archive && this.deps.archiveSession) {
+        await this.deps.archiveSession(this.sessionId, this.cwd);
       } else {
         await this.deps.api.runCommand(this.sessionId, command, text,
           archive ? { delivery: 'queue' } : undefined);
@@ -832,7 +852,6 @@ class SessionPanel {
       this._client.full = true;
       await this._client.reconcile();
       if (archive) {
-        await this.deps.onArchivedChanged?.(this.sessionId, true);
         this.deps.onSessionChanged();
       }
     } catch (error) {

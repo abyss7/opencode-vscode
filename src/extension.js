@@ -100,6 +100,7 @@ function activate(context) {
 
   const panels = new Map();
   const allPanels = new Set();
+  const archiveFinalizations = new Map();
   context.subscriptions.push(provider.onDidChangeTreeData(() => {
     // The list can receive a generated title before (or without) an ACP title event.
     const pending = [...provider.getChildren()];
@@ -161,6 +162,7 @@ function activate(context) {
     getConfig,
     permissions,
     archive,
+    archiveSession: beginArchive,
     defaultAgent,
     openSession: (sessionId, cwd) => openSession(sessionId, cwd),
     async onSessionCreated(panel, sessionId, cwd) {
@@ -184,7 +186,6 @@ function activate(context) {
     onSessionChanged() {
       scheduleRefresh();
     },
-    onArchivedChanged: setArchivedState,
   };
 
   const editors = new SessionEditors({ vscode, context, api,
@@ -197,6 +198,9 @@ function activate(context) {
       if (title) sessionPanel.applyTitle(title);
       allPanels.add(sessionPanel);
       panels.set(options.sessionId || options.newSessionId, sessionPanel);
+      if (options.sessionId && options.archived) {
+        void reconcileArchiveFinalization(options.sessionId, options.cwd);
+      }
     },
   });
 
@@ -227,9 +231,63 @@ function activate(context) {
     return editors.open(sessionId, cwd, session.title, { archived: provider.isArchived(sessionId) });
   }
 
-  async function setArchivedState(sessionId, archived) {
-    panels.get(sessionId)?.setArchived(archived);
-    await editors.setArchived(sessionId, archived);
+  async function setArchivedState(sessionId, archived, options = {}) {
+    const panel = panels.get(sessionId);
+    panel?.setArchived(archived);
+    if (typeof options.archiveFinalizing === 'boolean') {
+      panel?.setArchiveFinalizing(options.archiveFinalizing);
+    }
+    await editors.setArchived(sessionId, archived, options);
+  }
+
+  async function setArchiveFinalizing(sessionId, finalizing) {
+    panels.get(sessionId)?.setArchiveFinalizing(finalizing);
+    await editors.setArchiveFinalizing(sessionId, finalizing);
+  }
+
+  function trackArchiveFinalization(sessionId, cwd, completion, notify = true) {
+    const marker = {};
+    archiveFinalizations.set(sessionId, marker);
+    void Promise.resolve(completion).then(async (result) => {
+      if (archiveFinalizations.get(sessionId) !== marker) return;
+      archiveFinalizations.delete(sessionId);
+      await setArchiveFinalizing(sessionId, false);
+      if (result?.state === 'failed') {
+        const detail = result.error || 'Unknown error';
+        log(`Archive finalization failed for ${sessionId}: ${detail}`);
+        if (notify) vscode.window.showWarningMessage(`Session archived, but finalization failed: ${detail}`);
+      }
+      scheduleRefresh();
+    }, async (error) => {
+      if (archiveFinalizations.get(sessionId) !== marker) return;
+      archiveFinalizations.delete(sessionId);
+      await setArchiveFinalizing(sessionId, false);
+      log(`Archive finalization failed for ${sessionId}: ${error.stack || error.message}`);
+      if (notify) vscode.window.showWarningMessage(`Session archived, but finalization failed: ${error.message}`);
+    });
+  }
+
+  async function beginArchive(sessionId, cwd) {
+    const { finalization } = await archive.archive(sessionId, cwd);
+    await setArchivedState(sessionId, true, { archiveFinalizing: true });
+    trackArchiveFinalization(sessionId, cwd, finalization);
+  }
+
+  async function reconcileArchiveFinalization(sessionId, cwd) {
+    if (archiveFinalizations.has(sessionId)) return;
+    try {
+      const state = await archive.getFinalization(sessionId, cwd);
+      if (state?.state === 'pending') {
+        await setArchiveFinalizing(sessionId, true);
+        trackArchiveFinalization(sessionId, cwd,
+          archive.waitForFinalization(sessionId, cwd, state), false);
+      } else {
+        await setArchiveFinalizing(sessionId, false);
+      }
+    } catch (error) {
+      await setArchiveFinalizing(sessionId, false);
+      log(`Cannot read archive finalization for ${sessionId}: ${error.message}`);
+    }
   }
 
   async function newSession() {
@@ -383,8 +441,7 @@ function activate(context) {
     if (!session) return;
     try {
       const cwd = session.location?.directory || getCwd();
-      await archive.archive(session.id, cwd);
-      await setArchivedState(session.id, true);
+      await beginArchive(session.id, cwd);
     } catch (error) {
       log(`Failed to archive session ${session.id}: ${error.stack || error.message}`);
       vscode.window.showErrorMessage(`Failed to archive session: ${error.message}`);
@@ -398,6 +455,7 @@ function activate(context) {
     const session = sessionFrom(item);
     if (!session) return;
     try {
+      archiveFinalizations.delete(session.id);
       await api.updateSession(session.id, { archived: false });
       await setArchivedState(session.id, false);
     } catch (error) {
