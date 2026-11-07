@@ -1062,26 +1062,13 @@ button.delivery-indicator:focus-visible {
 }
 
 .elicitation-choice[type='radio'] {
-  appearance: none;
-  width: 13px;
-  height: 13px;
-  padding: 0;
-  border: 1px solid currentColor;
   background: transparent;
-  color: var(--vscode-input-foreground);
   border-radius: 50%;
-  box-shadow: none;
+}
+
+.elicitation-choice[type='radio']:focus {
   outline: none;
-}
-
-.elicitation-choice[type='radio']:checked {
-  border-color: var(--vscode-focusBorder);
-  background: radial-gradient(circle, var(--vscode-focusBorder) 0 3px, transparent 3px);
-}
-
-.elicitation-choice[type='radio']:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--vscode-focusBorder);
 }
 
 .elicitation-option-body {
@@ -1570,7 +1557,11 @@ button.delivery-indicator:focus-visible {
   border-radius: 50%;
   background: var(--vscode-editor-background);
 }
-.effort-track input:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; border-radius: 4px; }
+.effort-track input:focus { outline: none; }
+.effort-track input:focus::-webkit-slider-thumb {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
 .effort-track input[aria-disabled='true'] { opacity: 0.6; cursor: wait; }
 .effort-ticks {
   position: absolute;
