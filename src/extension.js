@@ -13,6 +13,7 @@ const { OpenCodeSync } = require('./opencode-sync');
 const { refreshSettingEnums } = require('./setting-enums');
 const { resolveCommand } = require('./util');
 const { PermissionService } = require('./permission-service');
+const { ArchiveService } = require('./archive-service');
 const { SessionsSidebar } = require('./sessions-sidebar');
 const { agentLabel } = require('./agent-label');
 
@@ -57,6 +58,7 @@ function activate(context) {
   const continuations = new SessionContinuation(context.globalStorageUri?.fsPath
     ? path.join(context.globalStorageUri.fsPath, 'continuations') : null);
   const permissions = new PermissionService({ vscode, api, command: getConfig().command, log });
+  const archive = new ArchiveService({ api, command: getConfig().command, log });
   const sync = new OpenCodeSync({ vscode, command: getConfig().command, log });
   context.subscriptions.push(sync);
   sync.start().catch((error) => {
@@ -137,6 +139,7 @@ function activate(context) {
     continuations,
     getConfig,
     permissions,
+    archive,
     defaultAgent,
     openSession: (sessionId, cwd) => openSession(sessionId, cwd),
     async onSessionCreated(panel, sessionId, cwd) {
@@ -349,7 +352,8 @@ function activate(context) {
     const session = sessionFrom(item);
     if (!session) return;
     try {
-      await api.updateSession(session.id, { archived: true });
+      const cwd = session.location?.directory || getCwd();
+      await archive.archive(session.id, cwd);
     } catch (error) {
       log(`Failed to archive session ${session.id}: ${error.stack || error.message}`);
       vscode.window.showErrorMessage(`Failed to archive session: ${error.message}`);
@@ -501,6 +505,8 @@ function activate(context) {
         api.setCommand(command);
         permissions.command = command;
         permissions.installation = null;
+        archive.command = command;
+        archive.installation = null;
         sync.restart(command).catch((error) => {
           log(`Settings sync restart failed: ${error.stack || error.message}`);
         });

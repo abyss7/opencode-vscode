@@ -468,6 +468,7 @@ class SessionPanel {
 
     try {
       if (this.deps.permissions) await this.deps.permissions.ready(this.cwd);
+      if (this.deps.archive) await this.deps.archive.ready(this.cwd);
       await client.start();
       if (this._disposed) return;
       this._post({
@@ -801,17 +802,22 @@ class SessionPanel {
 
   async _runCommand(name, text) {
     const command = name.replace(/^\/+/, '').trim();
-    if (!command || !this.sessionId || !this._client || this._busy) return;
-    if (this.deps.permissions && !(await this._permissionsBeforePrompt())) return;
+    const archive = command === 'archive';
+    if (!command || !this.sessionId || !this._client || (this._busy && !archive)) return;
+    if (!archive && this.deps.permissions && !(await this._permissionsBeforePrompt())) return;
 
     try {
       if (command === 'compact') {
         await this.deps.api.compactSession(this.sessionId);
+      } else if (archive && this.deps.archive) {
+        await this.deps.archive.archive(this.sessionId, this.cwd);
       } else {
-        await this.deps.api.runCommand(this.sessionId, command, text);
+        await this.deps.api.runCommand(this.sessionId, command, text,
+          archive ? { delivery: 'queue' } : undefined);
       }
       this._client.full = true;
       await this._client.reconcile();
+      if (archive) this.deps.onSessionChanged();
     } catch (error) {
       this.deps.log(`Command /${command} failed: ${error.stack || error.message}`);
       if (this._disposed) return;

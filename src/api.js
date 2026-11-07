@@ -405,6 +405,14 @@ class OpenCodeApi {
     return response && response.output;
   }
 
+  async archiveIntegration(method, input, directory) {
+    const query = new URLSearchParams();
+    if (directory) query.set('location[directory]', directory);
+    const response = await this._request('POST',
+      `/api/rpc/vscode-archive/${encodeURIComponent(method)}?${query}`, { input });
+    return response && response.output;
+  }
+
   async deleteSession(sessionId) {
     await this._request('DELETE', `/api/session/${encodeURIComponent(sessionId)}`);
   }
@@ -440,11 +448,13 @@ class OpenCodeApi {
       }));
   }
 
-  async runCommand(sessionId, name, text) {
+  async runCommand(sessionId, name, text, options = {}) {
+    const body = { name, text: text || '' };
+    if (options.delivery) body.delivery = options.delivery;
     await this._request(
       'POST',
       `/api/session/${encodeURIComponent(sessionId)}/command`,
-      { name, text: text || '' }
+      body
     );
   }
 

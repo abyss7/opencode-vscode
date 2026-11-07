@@ -29,6 +29,20 @@ test('queued input streams in order and reconnect does not duplicate DOM or mess
   await expect(page.locator(`.message[data-message-id="${input.id}"] .delivery-status`)).toHaveText('Completed');
 });
 
+test('/archive remains a queued command while the session is busy', async ({ page, chat }) => {
+  await chat.send(
+    { type: 'slashItems', skills: [], commands: [{ name: 'archive', description: 'Archive this session' }] },
+    { type: 'status', state: 'busy' }
+  );
+  await page.locator('#input').fill('/archive');
+  await page.locator('#input').press('Enter');
+  await page.locator('#input').press('Enter');
+  await expect.poll(async () => chat.received('command')).toEqual([
+    { type: 'command', name: 'archive', text: '' },
+  ]);
+  expect(await chat.received('prompt')).toEqual([]);
+});
+
 test('history reconciliation preserves a scrolled viewport and tool disclosure', async ({ page, chat }) => {
   const messages = Array.from({ length: 40 }, (_, i) => user(`msg_${i}`, `Message ${i}\n${'Long message '.repeat(15)}`));
   await chat.send(transcript(messages), { type: 'historyEnd' });

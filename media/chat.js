@@ -541,8 +541,8 @@
       addInfo('Image attachments cannot be queued while OpenCode is working.');
       return;
     }
-    const command =
-      wasBusy || images.length > 0 || selection ? null : knownCommand(text);
+    const candidate = images.length > 0 || selection ? null : knownCommand(text);
+    const command = !wasBusy || candidate?.name === 'archive' ? candidate : null;
     const id = state.nativeTransport ? `msg_${crypto.randomUUID().replaceAll('-', '')}` : null;
     if (state.nativeTransport && !command) {
       showSubmission({ id, state: 'sending', item: { id, time: { created: Date.now() }, ...(selection ? { selection } : {}), payload: { text,
