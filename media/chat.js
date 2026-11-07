@@ -3768,6 +3768,7 @@
   });
 
   function addCollapseControl(details) {
+    if (details.closest('.result-tree')) return;
     if (!details.open || !details.querySelector(':scope > summary')) return;
     let button = details.querySelector(':scope > .disclosure-collapse');
     if (!button) {
