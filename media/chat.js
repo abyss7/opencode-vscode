@@ -2448,7 +2448,13 @@
       input.value = choice.value;
       if (!multiple) input.name = 'elic-group-' + name;
       if (selected.indexOf(choice.value) !== -1) input.checked = true;
-      optionRow.appendChild(input);
+      if (multiple) {
+        optionRow.appendChild(input);
+      } else {
+        const control = el('span', 'elicitation-radio');
+        control.appendChild(input);
+        optionRow.appendChild(control);
+      }
       const body = el('span', 'elicitation-option-body');
       body.appendChild(el('span', 'elicitation-option-label', choice.label));
       if (choice.description) {

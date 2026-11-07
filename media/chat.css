@@ -1061,13 +1061,26 @@ button.delivery-indicator:focus-visible {
   cursor: pointer;
 }
 
-.elicitation-choice[type='radio'] {
-  background: transparent;
+.elicitation-radio {
+  display: inline-flex;
+  flex: none;
+  margin-top: 3px;
   border-radius: 50%;
 }
 
-.elicitation-choice[type='radio']:focus {
+.elicitation-radio > input {
+  margin: 0;
+  background: transparent;
+  /* Chromium ignores border-radius on native radios. Clip the backing only;
+     draw the focus ring on the round wrapper instead. */
+  clip-path: circle(50%);
+}
+
+.elicitation-radio > input:focus {
   outline: none;
+}
+
+.elicitation-radio:focus-within {
   box-shadow: 0 0 0 2px var(--vscode-focusBorder);
 }
 
