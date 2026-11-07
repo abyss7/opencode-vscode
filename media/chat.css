@@ -1062,8 +1062,26 @@ button.delivery-indicator:focus-visible {
 }
 
 .elicitation-choice[type='radio'] {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: 1px solid currentColor;
   background: transparent;
+  color: var(--vscode-input-foreground);
   border-radius: 50%;
+  box-shadow: none;
+  outline: none;
+}
+
+.elicitation-choice[type='radio']:checked {
+  border-color: var(--vscode-focusBorder);
+  background: radial-gradient(circle, var(--vscode-focusBorder) 0 3px, transparent 3px);
+}
+
+.elicitation-choice[type='radio']:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
 }
 
 .elicitation-option-body {
