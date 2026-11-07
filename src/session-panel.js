@@ -146,6 +146,7 @@ class SessionPanel {
     this.sessionId = options.sessionId || null;
     this.newSessionId = options.newSessionId;
     this.cwd = options.cwd;
+    this._archived = Boolean(options.archived);
     this._initialAgent = !this.sessionId && this.deps.defaultAgent
       ? this.deps.defaultAgent(this.cwd) : null;
     this._permissionState = null;
@@ -324,9 +325,7 @@ class SessionPanel {
     if (this._disposed || !message || typeof message.type !== 'string') return;
     switch (message.type) {
       case 'ready':
-        if (this._sessionTitle) {
-          this._post({ type: 'sessionInfo', title: this._sessionTitle });
-        }
+        this._post({ type: 'sessionInfo', title: this._sessionTitle, archived: this._archived });
         this._resendSubagents();
         // Metadata may have resolved before this webview was listening. The
         // unchanged model selection will not trigger another limits update.
@@ -688,7 +687,14 @@ class SessionPanel {
     if (this._sessionTitle === title && this.panel.title === title) return;
     this._sessionTitle = title;
     this.panel.title = title;
-    this._post({ type: 'sessionInfo', title });
+    this._post({ type: 'sessionInfo', title, archived: this._archived });
+  }
+
+  setArchived(archived) {
+    const value = Boolean(archived);
+    if (this._archived === value) return;
+    this._archived = value;
+    this._post({ type: 'sessionInfo', title: this._sessionTitle, archived: value });
   }
 
   _onTitle(title) {
@@ -698,6 +704,7 @@ class SessionPanel {
   }
 
   async _prompt(text, images, selection, continuation = null, id = undefined, resubmission = null) {
+    if (this._archived) return;
     const value = text.trim();
     const blocks = [];
     if (value) blocks.push({ type: 'text', text: value });
@@ -803,7 +810,7 @@ class SessionPanel {
   async _runCommand(name, text) {
     const command = name.replace(/^\/+/, '').trim();
     const archive = command === 'archive';
-    if (!command || !this.sessionId || !this._client || (this._busy && !archive)) return;
+    if (!command || !this.sessionId || !this._client || this._archived || (this._busy && !archive)) return;
     if (!archive && this.deps.permissions && !(await this._permissionsBeforePrompt())) return;
 
     try {
@@ -817,7 +824,10 @@ class SessionPanel {
       }
       this._client.full = true;
       await this._client.reconcile();
-      if (archive) this.deps.onSessionChanged();
+      if (archive) {
+        await this.deps.onArchivedChanged?.(this.sessionId, true);
+        this.deps.onSessionChanged();
+      }
     } catch (error) {
       this.deps.log(`Command /${command} failed: ${error.stack || error.message}`);
       if (this._disposed) return;

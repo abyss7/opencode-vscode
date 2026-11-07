@@ -68,7 +68,9 @@ class ArchiveService {
     let commandError;
     try {
       await this.ready(cwd);
-      await this.api.runCommand(sessionID, 'archive', '', { delivery: 'queue' });
+      // RPC methods are awaited through completion. The slash-command HTTP
+      // endpoint only starts its callback and can return while the hook runs.
+      await this.api.archiveIntegration('archive', { sessionID }, cwd);
     } catch (error) {
       commandError = error;
     }

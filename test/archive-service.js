@@ -13,14 +13,19 @@ const { setup } = require('../plugins/archive/runtime.cjs');
 
 async function main() {
   let statusAttempts = 0;
+  const apiCalls = [];
   const service = new ArchiveService({
     command: 'opencode',
     log: () => {},
     api: {
-      archiveIntegration: async () => {
+      archiveIntegration: async (method, input, directory) => {
+        if (method === 'archive') {
+          apiCalls.push(['rpc', input, directory]);
+          return {};
+        }
         statusAttempts += 1;
         if (statusAttempts === 1) throw new Error('reloading');
-        return { version: 1 };
+        return { version: 2 };
       },
     },
   });
@@ -32,19 +37,21 @@ async function main() {
   await service.ready('/workspace');
   assert.strictEqual(statusAttempts, 2);
 
-  const apiCalls = [];
-  service.api.runCommand = async (...args) => { apiCalls.push(['command', ...args]); };
   service.api.updateSession = async (...args) => { apiCalls.push(['update', ...args]); };
   await service.archive('ses_service', '/workspace');
   assert.deepStrictEqual(apiCalls, [
-    ['command', 'ses_service', 'archive', '', { delivery: 'queue' }],
+    ['rpc', { sessionID: 'ses_service' }, '/workspace'],
     ['update', 'ses_service', { archived: true }],
   ]);
-  service.api.runCommand = async () => { throw new Error('plugin offline'); };
+  service.api.archiveIntegration = async (method) => {
+    if (method === 'archive') throw new Error('plugin offline');
+    return { version: 2 };
+  };
   await service.archive('ses_fallback', '/workspace');
   assert.deepStrictEqual(apiCalls.at(-1), ['update', 'ses_fallback', { archived: true }]);
 
   let definition;
+  let controlMethods;
   let archived = false;
   let hookCalls = 0;
   let releaseHook;
@@ -58,7 +65,7 @@ async function main() {
       hookCalls += 1;
       events.push(['hook', input]);
       await new Promise((resolve) => { releaseHook = resolve; });
-    } }), { register: async () => ({ dispose() {} }) }),
+    } }), { register: async (_, methods) => { controlMethods = methods; return { dispose() {} }; } }),
     session: {
       get: async () => ({ id: 'ses_test', time: {}, location: { directory: '/workspace' } }),
       list: async () => ({ data: archived ? [{ id: 'ses_test' }] : [], cursor: {} }),
@@ -68,7 +75,8 @@ async function main() {
   };
   await setup(ctx, {}, {}, () => {});
   assert.strictEqual(definition.name, 'archive');
-  const first = definition.execute({ sessionID: 'ses_test', delivery: 'queue' });
+  assert.strictEqual(typeof controlMethods.archive, 'function');
+  const first = controlMethods.archive({ sessionID: 'ses_test' });
   const second = definition.execute({ sessionID: 'ses_test', delivery: 'queue' });
   await new Promise((resolve) => setImmediate(resolve));
   assert.strictEqual(hookCalls, 1, 'duplicate archive commands must share one operation');

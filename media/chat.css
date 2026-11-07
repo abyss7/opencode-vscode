@@ -1419,6 +1419,10 @@ button.delivery-indicator:focus-visible {
   background: var(--vscode-editor-background);
 }
 
+.composer[hidden] {
+  display: none;
+}
+
 .slash-menu {
   position: absolute;
   bottom: calc(100% - 4px);

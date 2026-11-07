@@ -157,6 +157,13 @@ function fixture() {
   race.panel.deps.log = () => assert.fail('local turn was polled');
   await race.panel._refreshServerStatus();
 
+  const archived = fixture();
+  archived.panel._archived = true;
+  archived.panel.deps.api.runCommand = () => assert.fail('archived tabs cannot run commands');
+  archived.panel._client.prompt = () => assert.fail('archived tabs cannot send prompts');
+  await archived.panel._runCommand('review', '');
+  await archived.panel._prompt('message', [], null);
+
   const disposed = fixture();
   disposed.panel.deps.api.getSession = () => new Promise((done) => { resolve = done; });
   const pending = disposed.panel._refreshServerStatus();

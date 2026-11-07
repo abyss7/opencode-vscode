@@ -6,6 +6,7 @@
   const messagesEl = document.getElementById('messages');
   const emptyEl = document.getElementById('empty');
   const inputEl = document.getElementById('input');
+  const composerEl = document.getElementById('composer');
   const sendBtn = document.getElementById('send');
   const stopBtn = document.getElementById('stop');
   const statusEl = document.getElementById('status');
@@ -51,6 +52,7 @@
     artifactSeq: 0,
     connected: false,
     busy: false,
+    archived: false,
     statusKind: 'connecting',
     statusText: 'Connecting…',
     sessionId: null,
@@ -239,6 +241,7 @@
   }
 
   function focusComposer(preserveScroll = false) {
+    if (state.archived) return;
     if (!restoredViewport && (!preserveScroll || state.autoScroll)) jumpToBottom();
     try {
       inputEl.focus();
@@ -275,6 +278,22 @@
     document.title = title;
   }
 
+  function setArchived(archived) {
+    state.archived = Boolean(archived);
+    composerEl.hidden = state.archived;
+    if (state.archived) {
+      state.images = [];
+      state.selection = null;
+      state.selectionImages = [];
+      closeSlashMenu();
+      renderAttachments();
+      const selection = document.getElementById('selection-context');
+      selection.replaceChildren();
+      selection.hidden = true;
+    }
+    updateComposer();
+  }
+
   function setSession(message) {
     if (state.sessionId && state.sessionId !== message.sessionId) {
       for (const review of state.smartReviews.values()) review.card.remove();
@@ -293,7 +312,7 @@
   }
 
   function updateComposer() {
-    const canType = state.connected;
+    const canType = state.connected && !state.archived;
     const hasImages = state.images.length + state.selectionImages.length > 0;
     inputEl.disabled = !canType;
     inputEl.placeholder = !canType
@@ -343,6 +362,7 @@
   }
 
   function selectContext(context, images = []) {
+    if (state.archived && context) return;
     state.selection = context;
     state.selectionImages = images;
     const chip = document.getElementById('selection-context');
@@ -532,6 +552,7 @@
   }
 
   function sendPrompt() {
+    if (state.archived) return;
     const text = inputEl.value.trim();
     const images = [...state.images, ...state.selectionImages];
     const selection = state.selection;
@@ -3297,6 +3318,7 @@
         break;
       case 'sessionInfo':
         setTitle(message.title);
+        if (typeof message.archived === 'boolean') setArchived(message.archived);
         break;
       case 'focus':
         focusComposer(message.preserveScroll === true);

@@ -20,6 +20,16 @@ const Archive = Rpc.define({
       },
       errors: {},
     },
+    archive: {
+      input: {
+        type: 'object',
+        properties: { sessionID: { type: 'string' } },
+        required: ['sessionID'],
+        additionalProperties: false,
+      },
+      output: { type: 'object', additionalProperties: false },
+      errors: {},
+    },
   },
   events: {},
 })

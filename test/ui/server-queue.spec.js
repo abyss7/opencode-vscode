@@ -43,6 +43,16 @@ test('/archive remains a queued command while the session is busy', async ({ pag
   expect(await chat.received('prompt')).toEqual([]);
 });
 
+test('archived sessions hide the composer until they are restored', async ({ page, chat }) => {
+  await chat.send({ type: 'sessionInfo', title: 'Archived session', archived: true });
+  await expect(page.locator('#composer')).toBeHidden();
+  await expect(page.locator('#input')).toBeDisabled();
+  expect(await chat.received('prompt')).toEqual([]);
+  await chat.send({ type: 'sessionInfo', title: 'Restored session', archived: false });
+  await expect(page.locator('#composer')).toBeVisible();
+  await expect(page.locator('#input')).toBeEnabled();
+});
+
 test('history reconciliation preserves a scrolled viewport and tool disclosure', async ({ page, chat }) => {
   const messages = Array.from({ length: 40 }, (_, i) => user(`msg_${i}`, `Message ${i}\n${'Long message '.repeat(15)}`));
   await chat.send(transcript(messages), { type: 'historyEnd' });

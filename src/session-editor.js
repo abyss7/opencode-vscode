@@ -30,12 +30,12 @@ class SessionEditors {
     return this.state.update(STATE_KEY, { ...this.records });
   }
 
-  async open(sessionId, cwd, title) {
+  async open(sessionId, cwd, title, options = {}) {
     const id = sessionId || `ses_${randomUUID().replaceAll('-', '')}`;
     if (!title && sessionId) title = (await this.api.getSession(id))?.title;
     title = title || this.records[id]?.title || 'New Session';
     this.records[id] = { ...this.records[id], cwd,
-      title,
+      title, ...(typeof options.archived === 'boolean' ? { archived: options.archived } : {}),
       ...(!sessionId ? { pending: true } : {}) };
     this.titles.set(id, title);
     await this.save();
@@ -57,6 +57,12 @@ class SessionEditors {
     if (!this.records[id]?.pending) return;
     const { pending, ...record } = this.records[id];
     this.records[id] = record;
+    await this.save();
+  }
+
+  async setArchived(id, archived) {
+    if (!this.records[id]) return;
+    this.records[id] = { ...this.records[id], archived: Boolean(archived) };
     await this.save();
   }
 
@@ -92,7 +98,7 @@ class SessionEditors {
       return;
     }
     this.liveEditors.set(document.id, { uri: document.uri, panel });
-    const { cwd, pending } = this.records[document.id];
+    const { cwd, pending, archived } = this.records[document.id];
     // VS Code also persists the webview title when restoring an editor.
     const title = this.titles.get(document.id) || this.records[document.id].title ||
       (panel.title !== `${document.id}.opencode-session` ? panel.title : undefined);
@@ -105,6 +111,7 @@ class SessionEditors {
     this.createPanel({ panel, cwd, title,
       sessionId: pending ? null : document.id,
       newSessionId: pending ? document.id : undefined,
+      archived: Boolean(archived),
     });
   }
 }

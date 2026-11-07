@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = 1;
+const VERSION = 2;
 
 function isArchived(session) {
   return Boolean(session && (session.archived || session.time?.archived));
@@ -46,20 +46,26 @@ async function setup(ctx, hookContract, controlContract, report = console.error)
     if (!(await archived(sessionID))) await ctx.session.update({ sessionID, archived: true });
   };
 
+  const requestArchive = (sessionID) => {
+    if (pending.has(sessionID)) return pending.get(sessionID);
+    const operation = run(sessionID).finally(() => pending.delete(sessionID));
+    pending.set(sessionID, operation);
+    return operation;
+  };
+
   const command = await ctx.command.transform((editor) => {
     editor.add({
       name: 'archive',
       description: 'Run the optional before-archive hook, then archive this session',
-      execute: async ({ sessionID }) => {
-        if (pending.has(sessionID)) return pending.get(sessionID);
-        const operation = run(sessionID).finally(() => pending.delete(sessionID));
-        pending.set(sessionID, operation);
-        return operation;
-      },
+      execute: ({ sessionID }) => requestArchive(sessionID),
     });
   });
   const control = await ctx.rpc.register(controlContract, {
     status: async () => ({ version: VERSION }),
+    archive: async ({ sessionID }) => {
+      await requestArchive(sessionID);
+      return {};
+    },
   });
 
   return () => {

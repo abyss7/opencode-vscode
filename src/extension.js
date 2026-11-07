@@ -108,7 +108,10 @@ function activate(context) {
       const item = pending.pop();
       if (!item.id || seen.has(item.id)) continue;
       seen.add(item.id);
-      if (item.kind !== 'folder') panels.get(item.id)?.applyTitle(item.title);
+      if (item.kind !== 'folder') {
+        panels.get(item.id)?.applyTitle(item.title);
+        panels.get(item.id)?.setArchived(provider.isArchived(item.id));
+      }
       pending.push(...provider.getChildren(item));
     }
   }));
@@ -160,6 +163,7 @@ function activate(context) {
     onSessionChanged() {
       scheduleRefresh();
     },
+    onArchivedChanged: setArchivedState,
   };
 
   const editors = new SessionEditors({ vscode, context, api,
@@ -199,7 +203,12 @@ function activate(context) {
       return;
     }
 
-    return editors.open(sessionId, cwd, session.title);
+    return editors.open(sessionId, cwd, session.title, { archived: provider.isArchived(sessionId) });
+  }
+
+  async function setArchivedState(sessionId, archived) {
+    panels.get(sessionId)?.setArchived(archived);
+    await editors.setArchived(sessionId, archived);
   }
 
   async function newSession() {
@@ -354,6 +363,7 @@ function activate(context) {
     try {
       const cwd = session.location?.directory || getCwd();
       await archive.archive(session.id, cwd);
+      await setArchivedState(session.id, true);
     } catch (error) {
       log(`Failed to archive session ${session.id}: ${error.stack || error.message}`);
       vscode.window.showErrorMessage(`Failed to archive session: ${error.message}`);
@@ -368,6 +378,7 @@ function activate(context) {
     if (!session) return;
     try {
       await api.updateSession(session.id, { archived: false });
+      await setArchivedState(session.id, false);
     } catch (error) {
       log(`Failed to restore session ${session.id}: ${error.stack || error.message}`);
       vscode.window.showErrorMessage(`Failed to restore session: ${error.message}`);

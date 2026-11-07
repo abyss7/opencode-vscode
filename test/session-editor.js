@@ -127,16 +127,19 @@ function fixture(store = new Map()) {
   await assert.rejects(restored.editors.openCustomDocument({ ...uri, path: '/ses_deleted.opencode-session' }), /not found/);
 
   const named = fixture();
-  await named.editors.open('ses_named', '/work', 'Название / путь \\ # ?');
+  await named.editors.open('ses_named', '/work', 'Название / путь \\ # ?', { archived: true });
   const namedUri = named.opens[0].uri;
   assert.equal(namedUri.path, '/ses_named.opencode-session/Название   путь   # ?');
   assert.equal(named.panels[0].sessionId, 'ses_named');
+  assert.equal(named.panels[0].archived, true);
+  await named.editors.setArchived('ses_named', false);
   named.panels[0].panel.title = 'Changed title';
   named.panels[0].panel.dispose();
   const namedRestart = fixture(named.store);
   const namedDoc = await namedRestart.editors.openCustomDocument(namedUri);
   await namedRestart.editors.resolveCustomEditor(namedDoc, panel, { isCancellationRequested: false });
   assert.equal(namedRestart.panels[0].title, 'Changed title', 'persist titles across extension restarts');
+  assert.equal(namedRestart.panels[0].archived, false, 'persist restored state across extension restarts');
   await namedRestart.editors.open('ses_named', '/work', 'Latest name');
   assert.equal(namedRestart.opens[0].uri.path, '/ses_named.opencode-session/Latest name');
   await namedRestart.editors.open('ses_external', '/work');
