@@ -135,6 +135,24 @@ function activate(context) {
     }, 300);
   }
 
+  const emptySessionCleanup = new WeakSet();
+  async function deleteEmptyClosedSession(panel) {
+    const id = panel.sessionId;
+    if (!id || !panel.deleteIfEmptyOnClose || panels.has(id) || emptySessionCleanup.has(panel)) return;
+    emptySessionCleanup.add(panel);
+    try {
+      const session = await api.getSession(id);
+      if (!session || session._activity !== 'idle') return;
+      const messages = await api.listMessages(id, { limit: 1 });
+      if (messages.length || panels.has(id) || !panel.deleteIfEmptyOnClose) return;
+      await api.deleteSession(id);
+      log(`Deleted empty session after closing its tab: ${id}`);
+      scheduleRefresh();
+    } catch (error) {
+      log(`Cannot delete empty closed session ${id}: ${error.stack || error.message}`);
+    }
+  }
+
   const deps = {
     extensionUri: context.extensionUri,
     api,
@@ -152,6 +170,8 @@ function activate(context) {
       }
       scheduleRefresh();
       await editors.sessionCreated(sessionId);
+      // Creation can finish after the user has already closed the new tab.
+      await deleteEmptyClosedSession(panel);
     },
     onSessionDisposed(panel) {
       allPanels.delete(panel);
@@ -159,6 +179,7 @@ function activate(context) {
       if (id && panels.get(id) === panel) {
         panels.delete(id);
       }
+      void deleteEmptyClosedSession(panel);
     },
     onSessionChanged() {
       scheduleRefresh();

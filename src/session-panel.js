@@ -210,6 +210,10 @@ class SessionPanel {
     return this._disposed;
   }
 
+  get deleteIfEmptyOnClose() {
+    return Boolean(this._disposed && this.newSessionId && !this._preserveSession && !this._promptSubmitted);
+  }
+
   reveal() {
     if (this._disposed) return;
     this.panel.reveal();
@@ -704,7 +708,7 @@ class SessionPanel {
   }
 
   async _prompt(text, images, selection, continuation = null, id = undefined, resubmission = null) {
-    if (this._archived) return;
+    if (this._archived || this._disposed) return;
     const value = text.trim();
     const blocks = [];
     if (value) blocks.push({ type: 'text', text: value });
@@ -726,10 +730,13 @@ class SessionPanel {
       if (resubmission && id) this._post({ type: 'submission', id, state: 'failed' });
       return;
     }
+    // Protect admission in flight: the server may not have a message yet.
+    this._promptSubmitted = true;
     if (this.deps.permissions && !(await this._permissionsBeforePrompt())) {
       if (id) this._post({ type: 'submission', id, state: 'failed', error: 'Permission settings could not be applied.' });
       return;
     }
+    if (this._disposed) return;
 
     if (continuation && this._busy) return;
     try {
@@ -1772,6 +1779,8 @@ class SessionPanel {
   }
 
   dispose() {
+    // Explicit deletion and extension shutdown manage their own lifecycle.
+    this._preserveSession = true;
     if (!this._cleanedUp) {
       try {
         this.panel.dispose();

@@ -378,6 +378,46 @@ const context = {
   );
   assert.strictEqual(errors.length, 0, 'unexpected error: ' + errors.join('; '));
 
+  // New empty sessions disappear when their actual editor tab closes.
+  await commands.get('opencode.newSession')();
+  const empty = panels.at(-1);
+  empty.send({ type: 'ready' });
+  const emptySession = await waitFor(
+    () => empty.messages.find((message) => message.type === 'session'), 30000, 'empty session creation');
+  await waitFor(() => empty.messages.find((message) => message.type === 'historyEnd'), 30000, 'empty ready');
+  empty.dispose();
+  await waitFor(() => output.some((line) => line.includes(
+    `Deleted empty session after closing its tab: ${emptySession.sessionId}`)), 10000, 'empty deletion');
+  await commands.get('opencode.refreshSessions')();
+  assert.ok(!findSession(emptySession.sessionId), 'closed empty session remains in the sidebar');
+
+  // Hold creation's response until after disposal to exercise the late callback.
+  const { SessionClient } = require('../src/session-client');
+  const newSession = SessionClient.prototype.newSession;
+  let created;
+  let release;
+  const barrier = new Promise((resolve) => { release = resolve; });
+  SessionClient.prototype.newSession = async function (...args) {
+    created = await newSession.apply(this, args);
+    await barrier;
+    return created;
+  };
+  try {
+    await commands.get('opencode.newSession')();
+    const early = panels.at(-1);
+    early.send({ type: 'ready' });
+    await waitFor(() => created, 30000, 'creation in flight');
+    early.dispose();
+    release();
+    await waitFor(() => output.some((line) => line.includes(
+      `Deleted empty session after closing its tab: ${created.sessionId}`)), 10000, 'late empty deletion');
+    await commands.get('opencode.refreshSessions')();
+    assert.ok(!findSession(created.sessionId), 'late-created empty session remains in the sidebar');
+  } finally {
+    release();
+    SessionClient.prototype.newSession = newSession;
+  }
+
   console.log('EXTENSION OK');
 })().catch((error) => {
   console.error(error.stack || error);
