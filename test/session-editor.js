@@ -18,11 +18,6 @@ function fixture(store = new Map()) {
         data.registration = { type, provider, options };
         return { dispose() {} };
       },
-      registerWebviewPanelSerializer(type, serializer) {
-        assert.equal(type, 'opencode.session');
-        data.serializer = serializer;
-        return { dispose() {} };
-      },
     },
     commands: { async executeCommand(command, uri, type, options) {
       data.opens.push({ command, uri, type, options });
@@ -40,7 +35,7 @@ function fixture(store = new Map()) {
     if (id === 'ses_deleted') throw new Error('Session not found');
     return { id, title: 'Recovered title', location: { directory: '/server/directory' } };
   } };
-  const editors = new SessionEditors({ vscode, context, api, getCwd: () => '/fallback',
+  const editors = new SessionEditors({ vscode, context, api,
     createPanel(options) { data.panels.push(options); },
   });
   return { ...data, editors, vscode, api, data };
@@ -121,27 +116,6 @@ function fixture(store = new Map()) {
   await assert.rejects(restored.editors.openCustomDocument({ ...uri, scheme: 'file' }), /Invalid/);
   await assert.rejects(restored.editors.openCustomDocument({ ...uri, path: '/bad.opencode-session' }), /Invalid/);
   await assert.rejects(restored.editors.openCustomDocument({ ...uri, path: '/ses_deleted.opencode-session' }), /not found/);
-
-  // Compatibility serializer transfers saved webview state and placement, then
-  // disposes the old panel only once its custom editor has opened successfully.
-  const migration = fixture();
-  let disposed = false;
-  const legacy = { title: 'Previous tab', active: false, viewColumn: 3,
-    dispose() { disposed = true; } };
-  const state = { sessionId: 'ses_legacy', cwd: '/old', viewport: { top: 100 },
-    artifacts: { reading: true }, submissions: [{ id: 'msg_pending', text: 'Продолжить' }] };
-  await migration.data.serializer.deserializeWebviewPanel(legacy, state);
-  assert.ok(disposed);
-  assert.deepEqual(migration.panels[0].initialState, state);
-  assert.equal(migration.panels[0].sessionId, 'ses_legacy');
-  assert.equal(migration.panels[0].title, 'Previous tab');
-  assert.deepEqual(migration.opens[0].options, { viewColumn: 3, preserveFocus: true, preview: false });
-  assert.equal(migration.editors.initialStates.size, 0);
-
-  disposed = false;
-  migration.vscode.commands.executeCommand = async () => { throw new Error('Cannot open editor'); };
-  await assert.rejects(migration.data.serializer.deserializeWebviewPanel(legacy, state), /Cannot open/);
-  assert.equal(disposed, false, 'a failed migration must not close the old tab');
 
   console.log('SESSION EDITOR OK');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -22,8 +22,7 @@
   "main": "./src/extension.js",
   "activationEvents": [
     "onStartupFinished",
-    "onView:opencode.sessions",
-    "onWebviewPanel:opencode.session"
+    "onView:opencode.sessions"
   ],
   "contributes": {
     "customEditors": [

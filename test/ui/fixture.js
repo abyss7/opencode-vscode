@@ -51,8 +51,7 @@ function themeCss(theme) {
 
 const test = base.extend({
   resourceOrigin: [origin, { option: true }],
-  initialState: [null, { option: true }],
-  chat: async ({ page, resourceOrigin, initialState }, use, testInfo) => {
+  chat: async ({ page, resourceOrigin }, use, testInfo) => {
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     page.on('console', (message) => {
@@ -86,8 +85,6 @@ const test = base.extend({
       if (url.pathname === '/') {
         const providerIcons = await fs.readFile(path.join(root, 'media/provider-icons.svg'), 'utf8');
         const html = (await fs.readFile(path.join(root, 'media/chat.html'), 'utf8'))
-          .replace('<script id="chat-script"', () => '<script id="chat-script"' +
-            (initialState ? ` data-initial-state="${encodeURIComponent(JSON.stringify(initialState))}"` : ''))
           .replaceAll('{{cspSource}}', `${origin} ${resourceOrigin}`)
           .replaceAll('{{nonce}}', 'test-nonce')
           .replaceAll('{{styleUri}}', `${resourceOrigin}/media/chat.css`)

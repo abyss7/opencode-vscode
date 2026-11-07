@@ -159,7 +159,7 @@ function activate(context) {
     },
   };
 
-  const editors = new SessionEditors({ vscode, context, api, getCwd,
+  const editors = new SessionEditors({ vscode, context, api,
     createPanel({ panel, title, ...options }) {
       panel.webview.options = {
         enableScripts: true,

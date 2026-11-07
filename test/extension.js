@@ -53,7 +53,6 @@ const panels = [];
 const commands = new Map();
 const output = [];
 const errors = [];
-let serializer = null;
 let editorProvider = null;
 let treeProvider = null;
 let sidebarView = null;
@@ -154,10 +153,6 @@ const vscode = {
       assert.strictEqual(options.supportsMultipleEditorsPerDocument, false);
       editorProvider = provider;
       return { dispose() {} };
-    },
-    registerWebviewPanelSerializer: (type, value) => {
-      serializer = value;
-      return { dispose: () => {} };
     },
     showWarningMessage: async () => 'Delete',
     showInputBox: async () =>

@@ -11,34 +11,16 @@ const STATE_KEY = 'opencode.sessionEditors';
 // creation. Reopening a tab must never create a second session (or resurrect a
 // deleted one).
 class SessionEditors {
-  constructor({ vscode, context, api, getCwd, createPanel }) {
+  constructor({ vscode, context, api, createPanel }) {
     this.vscode = vscode;
     this.state = context.workspaceState;
     this.api = api;
-    this.getCwd = getCwd;
     this.createPanel = createPanel;
     this.records = { ...this.state.get(STATE_KEY, {}) };
     this.titles = new Map();
-    this.initialStates = new Map();
     context.subscriptions.push(vscode.window.registerCustomEditorProvider(VIEW_TYPE, this, {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: false,
-    }));
-    // Upgrade tabs saved by pre-custom-editor versions of the extension.
-    context.subscriptions.push(vscode.window.registerWebviewPanelSerializer('opencode.session', {
-      deserializeWebviewPanel: async (panel, state) => {
-        const cwd = state?.cwd || this.getCwd();
-        if (!state?.sessionId || !cwd) { panel.dispose(); return; }
-        this.initialStates.set(state.sessionId, state);
-        try {
-          await this.open(state.sessionId, cwd, panel.title, {
-            viewColumn: panel.viewColumn, preserveFocus: !panel.active,
-          });
-          panel.dispose();
-        } finally {
-          this.initialStates.delete(state.sessionId);
-        }
-      },
     }));
   }
 
@@ -46,7 +28,7 @@ class SessionEditors {
     return this.state.update(STATE_KEY, { ...this.records });
   }
 
-  async open(sessionId, cwd, title, options = {}) {
+  async open(sessionId, cwd, title) {
     const id = sessionId || `ses_${randomUUID().replaceAll('-', '')}`;
     this.records[id] = { ...this.records[id], cwd,
       ...(!sessionId ? { pending: true } : {}) };
@@ -54,7 +36,7 @@ class SessionEditors {
     await this.save();
     const uri = this.vscode.Uri.from({ scheme: SCHEME, path: `/${id}.opencode-session` });
     await this.vscode.commands.executeCommand('vscode.openWith', uri, VIEW_TYPE, {
-      viewColumn: this.vscode.ViewColumn.Active, ...options, preview: false,
+      viewColumn: this.vscode.ViewColumn.Active, preview: false,
     });
   }
 
@@ -92,7 +74,6 @@ class SessionEditors {
     this.createPanel({ panel, cwd, title,
       sessionId: pending ? null : document.id,
       newSessionId: pending ? document.id : undefined,
-      initialState: this.initialStates.get(document.id),
     });
   }
 }

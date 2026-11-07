@@ -32,7 +32,7 @@ const HTML_PATH = path.join(__dirname, '..', 'media', 'chat.html');
 const SUBAGENT_LIVE_TTL_MS = 15000;
 const SUBAGENT_LIVE_BUSY_MS = 4000;
 
-function buildHtml(webview, extensionUri, initialState) {
+function buildHtml(webview, extensionUri) {
   const nonce = crypto.randomBytes(16).toString('base64');
   const styleUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'media', 'chat.css')
@@ -43,8 +43,6 @@ function buildHtml(webview, extensionUri, initialState) {
 
   return fs
     .readFileSync(HTML_PATH, 'utf8')
-    .replace('<script id="chat-script"', () => '<script id="chat-script"' +
-      (initialState ? ` data-initial-state="${encodeURIComponent(JSON.stringify(initialState))}"` : ''))
     .replace(/\{\{cspSource\}\}/g, webview.cspSource)
     .replace(/\{\{nonce\}\}/g, nonce)
     .replace('{{providerIcons}}', () => fs.readFileSync(
@@ -183,7 +181,7 @@ class SessionPanel {
     this._missingSessionIdLogged = false;
     this._disposables = [];
 
-    this.panel.webview.html = buildHtml(this.panel.webview, this.deps.extensionUri, options.initialState);
+    this.panel.webview.html = buildHtml(this.panel.webview, this.deps.extensionUri);
     this._iconKind = null;
     this._setIcon('idle');
     if (this.sessionId) {
