@@ -2805,9 +2805,93 @@
     configBarEl.appendChild(label);
   }
 
+  function appendEffortSlider(option) {
+    if (option.options.length < 2) return;
+    // Default is a mode, not the strongest level. Keep it at the start and
+    // preserve the server's ordering of explicit (including custom) variants.
+    const choices = [...option.options.filter((item) => item.value === 'default'),
+      ...option.options.filter((item) => item.value !== 'default')];
+    const label = el('label', 'config effort-control');
+    label.appendChild(el('span', null, option.name || 'Effort'));
+    const track = el('span', 'effort-track');
+    const ticks = el('span', 'effort-ticks');
+    ticks.setAttribute('aria-hidden', 'true');
+    for (const item of choices) ticks.appendChild(el('span', item.value === 'default' ? 'effort-default-tick' : ''));
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = '0';
+    input.max = String(choices.length - 1);
+    input.step = '1';
+    input.value = String(Math.max(0, choices.findIndex((item) => item.value === option.currentValue)));
+    input.dataset.configId = option.id;
+    input.setAttribute('aria-label', option.name || 'Effort');
+    const tooltip = el('span', 'effort-tooltip');
+    tooltip.setAttribute('role', 'tooltip');
+    tooltip.hidden = true;
+    let dragging = false;
+    let pending = false;
+    const initial = input.value;
+    const selected = () => choices[Number(input.value)];
+    const update = () => input.setAttribute('aria-valuetext', selected().name || selected().value);
+    const show = (index = Number(input.value)) => {
+      const item = choices[index];
+      tooltip.textContent = item.value === 'default' ? 'Default — model setting' : item.name || item.value;
+      tooltip.hidden = false;
+      const rect = input.getBoundingClientRect();
+      const width = tooltip.getBoundingClientRect().width;
+      const center = rect.left + 6 + (rect.width - 12) * index / (choices.length - 1);
+      tooltip.style.left = `${Math.max(4, Math.min(window.innerWidth - width - 4, center - width / 2))}px`;
+      tooltip.style.top = `${Math.max(4, rect.top - tooltip.offsetHeight - 6)}px`;
+    };
+    const hide = () => { tooltip.hidden = true; };
+    input.addEventListener('pointerdown', (event) => {
+      if (pending) { event.preventDefault(); return; }
+      if (event.button !== 0) return;
+      dragging = true;
+      input.setPointerCapture(event.pointerId);
+      show();
+    });
+    input.addEventListener('pointermove', (event) => {
+      if (dragging) { show(); return; }
+      const rect = input.getBoundingClientRect();
+      const index = Math.round((event.clientX - rect.left - 6) / (rect.width - 12) * (choices.length - 1));
+      show(Math.max(0, Math.min(choices.length - 1, index)));
+    });
+    input.addEventListener('pointerup', () => {
+      dragging = false;
+      if (!input.matches(':hover')) hide();
+    });
+    input.addEventListener('pointercancel', () => {
+      dragging = false;
+      input.value = initial;
+      update();
+      hide();
+    });
+    input.addEventListener('pointerleave', () => { if (!dragging) hide(); });
+    input.addEventListener('focus', () => show());
+    input.addEventListener('blur', hide);
+    input.addEventListener('keydown', (event) => {
+      if (pending && event.key !== 'Tab') event.preventDefault();
+    });
+    input.addEventListener('input', () => { update(); show(); });
+    input.addEventListener('change', () => {
+      if (pending || input.value === initial) return;
+      pending = true;
+      // Keep focus while saving so the refreshed control can restore it.
+      input.setAttribute('aria-disabled', 'true');
+      vscode.postMessage({ type: 'setConfigOption', configId: option.id, value: selected().value });
+    });
+    update();
+    track.append(ticks, input, tooltip);
+    label.appendChild(track);
+    configBarEl.appendChild(label);
+  }
+
   function setConfigOptions(options) {
     state.configOptions = options;
     const restoreModelFocus = modelPicker?.containsFocus();
+    const restoreEffortFocus = configBarEl.contains(document.activeElement)
+      && document.activeElement.matches('input[type="range"]') ? document.activeElement.dataset.configId : null;
     modelPicker?.dispose();
     modelPicker = null;
     configBarEl.replaceChildren();
@@ -2824,6 +2908,10 @@
           type: 'setConfigOption', configId: option.id, value,
         }));
         configBarEl.appendChild(modelPicker.element);
+        continue;
+      }
+      if (option.id === 'effort' || option.category === 'thought_level') {
+        appendEffortSlider(option);
         continue;
       }
       const label = el('label', 'config');
@@ -2852,6 +2940,10 @@
     appendPermissionProfiles();
     configBarEl.hidden = configBarEl.children.length === 0;
     if (restoreModelFocus) modelPicker?.focus();
+    if (restoreEffortFocus) {
+      [...configBarEl.querySelectorAll('input[type="range"]')]
+        .find((input) => input.dataset.configId === restoreEffortFocus)?.focus();
+    }
   }
 
   function isSkippedReplayUser(update) {

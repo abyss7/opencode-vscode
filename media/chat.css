@@ -1545,6 +1545,58 @@ button.delivery-indicator:focus-visible {
   cursor: pointer;
 }
 
+.effort-track { position: relative; display: inline-flex; align-items: center; width: 132px; height: 24px; }
+.effort-track input {
+  appearance: none;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+  z-index: 1;
+}
+.effort-track input::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--oc-secondary);
+  border-radius: 1px;
+}
+.effort-track input::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -5px;
+  border: 2px solid var(--vscode-focusBorder);
+  border-radius: 50%;
+  background: var(--vscode-editor-background);
+}
+.effort-track input:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; border-radius: 4px; }
+.effort-track input[aria-disabled='true'] { opacity: 0.6; cursor: wait; }
+.effort-ticks {
+  position: absolute;
+  inset: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.effort-ticks > span { width: 2px; height: 6px; background: var(--oc-secondary); }
+.effort-ticks > .effort-default-tick { height: 10px; background: transparent; border: 1px solid var(--oc-secondary); }
+.effort-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(240px, calc(100vw - 8px));
+  padding: 4px 7px;
+  border: 1px solid var(--vscode-widget-border, var(--oc-border));
+  border-radius: 4px;
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 2px 8px #0003;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.effort-tooltip[hidden] { display: none; }
+
 .model-picker { min-width: 0; max-width: 100%; }
 .model-picker-button {
   display: flex;

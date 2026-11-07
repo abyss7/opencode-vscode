@@ -78,9 +78,9 @@ try {
   await restored.refreshConfig();
   assert.deepEqual(restored.configOptions, client.configOptions, 'selection survives reopening');
   await client.setConfigOption('model', 'p/plain');
-  assert.deepEqual(option('effort').options, [{ value: 'default', name: 'Default' }]);
+  assert.equal(option('effort'), undefined, 'models without variants have no Effort control, as in ACP');
   const count = writes.length;
-  for (const [id, value] of [['effort', 'high'], ['model', 'p/preferred#high'], ['mode', 'build']]) {
+  for (const [id, value] of [['effort', 'high'], ['effort', 'default'], ['model', 'p/preferred#high'], ['mode', 'build']]) {
     await assert.rejects(client.setConfigOption(id, value), /Unknown/);
   }
   assert.equal(writes.length, count, 'invalid selections never reach the server');

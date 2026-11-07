@@ -3,7 +3,7 @@
 const { test, expect } = require('./fixture');
 const { SessionClient } = require('../../src/session-client');
 
-test('server default and separate Effort selector survive changes and reopening', async ({ page, chat }) => {
+test('server default and Effort slider survive changes and reopening', async ({ page, chat }) => {
   let session = {};
   const models = [
     { providerID: 'openai', id: 'first', name: 'First', type: 'chat', variants: [] },
@@ -29,7 +29,7 @@ test('server default and separate Effort selector survive changes and reopening'
   };
   await refresh();
   const model = page.getByRole('combobox', { name: 'Model', exact: true });
-  const effort = page.getByRole('combobox', { name: 'Effort', exact: true });
+  const effort = page.getByRole('slider', { name: 'Effort', exact: true });
   await expect(model.locator('.model-name')).toHaveText('Preferred');
   await expect(model).toHaveAttribute('title', 'openai: Preferred');
   await expect(model.locator('svg.model-provider-icon')).toHaveAttribute('data-provider', 'openai');
@@ -40,19 +40,20 @@ test('server default and separate Effort selector survive changes and reopening'
   await expect(list.getByRole('option', { name: 'opencode: Preferred', exact: true }).locator('svg.model-provider-icon'))
     .toHaveAttribute('data-provider', 'opencode');
   await model.press('Escape');
-  await expect(effort).toHaveValue('default');
-  await expect(effort.locator('option')).toHaveText(['Low', 'High', 'Default']);
-  await effort.selectOption('high');
+  await expect(effort).toHaveAttribute('aria-valuetext', 'Default');
+  await expect(page.locator('.effort-ticks > span')).toHaveCount(3);
+  await effort.press('End');
   await expect(effort).toBeDisabled();
   await apply();
   await expect(effort).toBeEnabled();
-  await expect(effort).toHaveValue('high');
+  await expect(effort).toHaveAttribute('aria-valuetext', 'High');
+  await expect(effort).toBeFocused();
   expect(session.model).toEqual({ providerID: 'openai', id: 'preferred', variant: 'high' });
   await page.reload();
   await refresh();
   await expect(model).toHaveAttribute('title', 'openai: Preferred');
-  await expect(effort).toHaveValue('high');
-  await effort.selectOption('default');
+  await expect(effort).toHaveAttribute('aria-valuetext', 'High');
+  await effort.press('Home');
   await apply();
   expect(session.model).toEqual({ providerID: 'openai', id: 'preferred' });
   await model.click();
@@ -65,12 +66,14 @@ test('server default and separate Effort selector survive changes and reopening'
   await expect(model.locator('.model-name')).toHaveText('Preferred');
   await expect(model.locator('svg.model-provider-icon')).toHaveAttribute('data-provider', 'opencode');
   expect(session.model).toEqual({ providerID: 'opencode', id: 'preferred' });
-  await expect(effort.locator('option')).toHaveText(['Default']);
+  await expect(effort).toHaveCount(0);
 });
 
 const catalog = (options, currentValue = options[0]?.value) => ({ type: 'config', configOptions: [
   { id: 'model', category: 'model', name: 'Model', type: 'select', currentValue, options },
-  { id: 'effort', name: 'Effort', type: 'select', currentValue: 'default', options: [{ value: 'default', name: 'Default' }] },
+  { id: 'effort', name: 'Effort', type: 'select', currentValue: 'default', options: [
+    { value: 'low', name: 'Low' }, { value: 'high', name: 'High' }, { value: 'default', name: 'Default' },
+  ] },
 ] });
 
 test('model picker supports keyboard selection, typeahead, dismissal and failed-save recovery', async ({ page, chat }) => {
@@ -110,7 +113,7 @@ test('model picker supports keyboard selection, typeahead, dismissal and failed-
   await button.press(' ');
   await button.press('Tab');
   await expect(list).toBeHidden();
-  await expect(page.getByRole('combobox', { name: 'Effort', exact: true })).toBeFocused();
+  await expect(page.getByRole('slider', { name: 'Effort', exact: true })).toBeFocused();
 });
 
 test('long catalogs stay in the viewport and unknown providers have safe fallback badges', async ({ page, chat }) => {

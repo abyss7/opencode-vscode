@@ -520,7 +520,7 @@ class SessionClient extends EventEmitter {
         options: modes.map((a) => ({ value: a.id, name: a.name })) },
       { id: 'model', category: 'model', type: 'select', name: 'Model',
         currentValue, options },
-      ...(model ? [{ id: 'effort', category: 'thought_level', type: 'select', name: 'Effort',
+      ...(variants.length ? [{ id: 'effort', category: 'thought_level', type: 'select', name: 'Effort',
         description: 'Available effort levels for this model', currentValue: variant || 'default',
         options: [...variants, { value: 'default', name: 'Default' }] }] : []),
     ];

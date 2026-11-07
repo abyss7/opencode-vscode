@@ -36,7 +36,7 @@ const log = (message) => console.log('[log]', message);
     compare();
     const model = (await api.getSession(shared.sessionId)).model;
     assert.equal(`${model.providerID}/${model.id}`, option(shared, 'model').currentValue);
-    assert.equal(model.variant || 'default', option(shared, 'effort').currentValue);
+    assert.equal(model.variant || 'default', option(shared, 'effort')?.currentValue || 'default');
   };
   try {
     await client.start();
@@ -57,9 +57,13 @@ const log = (message) => console.log('[log]', message);
       await select('effort', effort.value);
     }
     const model = option(shared, 'model');
-    const target = model.options.find((item) => item.value !== model.currentValue) || model.options[0];
+    // Exercise the absent-Effort case explicitly: catalog ordering can change.
+    const target = model.options.find((item) => !shared.models.get(item.value)?.variants?.length)
+      || model.options.find((item) => item.value !== model.currentValue) || model.options[0];
     assert.ok(target, 'the model list is not empty');
     await select('model', target.value);
+    const adjustable = model.options.find((item) => shared.models.get(item.value)?.variants?.length);
+    if (adjustable) await select('model', adjustable.value);
     const reopened = new SessionClient({ api, cwd, log });
     reopened.sessionId = shared.sessionId;
     await reopened.refreshConfig();
