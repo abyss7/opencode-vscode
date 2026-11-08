@@ -3832,7 +3832,13 @@
         details.open = false;
         summary.focus({ preventScroll: true });
         if (top < messagesEl.getBoundingClientRect().top) {
-          summary.scrollIntoView({ block: 'center', behavior: 'instant' });
+          // Keep the composer fixed: scrollIntoView also scrolls ancestor containers.
+          const bounds = summary.getBoundingClientRect();
+          messagesEl.scrollTo({
+            top: messagesEl.scrollTop + bounds.top - messagesEl.getBoundingClientRect().top -
+              (messagesEl.clientHeight - bounds.height) / 2,
+            behavior: 'instant',
+          });
         }
       });
     }
