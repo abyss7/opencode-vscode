@@ -10,31 +10,34 @@ function fixture(store = new Map()) {
     get: (key, fallback) => structuredClone(store.get(key) ?? fallback),
     update: async (key, value) => { store.set(key, structuredClone(value)); },
   } };
+  const windowApi = {
+    tabGroups: { all: [], onDidChangeTabs(listener) {
+      data.onTabsChanged = listener;
+      return { dispose() {} };
+    }, onDidChangeTabGroups(listener) {
+      data.onGroupsChanged = listener;
+      return { dispose() {} };
+    }, async close(tab) {
+      data.closes.push(tab);
+      const group = this.all.find((item) => item.tabs.includes(tab));
+      if (group) group.tabs = group.tabs.filter((item) => item !== tab);
+      if (this.activeTabGroup?.activeTab === tab) this.activeTabGroup.activeTab = null;
+      return true;
+    } },
+    async showWarningMessage(...args) {
+      data.warnings.push(args);
+      data.onWarning?.();
+      return data.choice;
+    },
+    registerCustomEditorProvider(type, provider, options) {
+      data.registration = { type, provider, options };
+      return { dispose() {} };
+    },
+  };
   const vscode = {
     Uri: { from: (value) => ({ authority: '', query: '', fragment: '', ...value }) },
     ViewColumn: { Active: -1 },
-    window: {
-      tabGroups: { all: [], onDidChangeTabs(listener) {
-        data.onTabsChanged = listener;
-        return { dispose() {} };
-      }, onDidChangeTabGroups(listener) {
-        data.onGroupsChanged = listener;
-        return { dispose() {} };
-      }, async close(tab) {
-        data.closes.push(tab);
-        if (this.activeTabGroup?.activeTab === tab) this.activeTabGroup.activeTab = null;
-        return true;
-      } },
-      async showWarningMessage(...args) {
-        data.warnings.push(args);
-        data.onWarning?.();
-        return data.choice;
-      },
-      registerCustomEditorProvider(type, provider, options) {
-        data.registration = { type, provider, options };
-        return { dispose() {} };
-      },
-    },
+    window: windowApi,
     commands: { async executeCommand(command, uri, type, options) {
        data.opens.push({ command, uri, type, options });
        if (data.skipResolveOnce) { data.skipResolveOnce = false; return; }
@@ -45,6 +48,12 @@ function fixture(store = new Map()) {
         dispose() { listeners.forEach((listener) => listener()); document.dispose(); },
       };
       await data.registration.provider.resolveCustomEditor(document, panel, { isCancellationRequested: false });
+      if (data.trackTabs) {
+        const group = windowApi.tabGroups.all.find((item) => item.viewColumn === options?.viewColumn);
+        if (group && !group.tabs.some((entry) => entry.input?.uri?.path === uri.path)) {
+          group.tabs.push({ input: { viewType: type, uri } });
+        }
+      }
     } },
   };
   const api = { async getSession(id) {
@@ -268,6 +277,7 @@ function fixture(store = new Map()) {
   labelsRestart.vscode.window.tabGroups.all = [
     { viewColumn: 3, activeTab: keptTab, tabs: [staleTab, keptTab] },
   ];
+  labelsRestart.data.trackTabs = true;
   await labelsRestart.editors.refreshTabTitles();
   assert.equal(labelsRestart.panels.length, 1, 'the refreshed tab is opened');
   assert.equal(labelsRestart.opens[0].uri.path,
@@ -278,6 +288,16 @@ function fixture(store = new Map()) {
   assert.equal(labelsRestart.editors.records.ses_stale.title, 'Recovered title',
     'the fetched title is remembered for the next restart');
   assert.equal(labelsRestart.lookups.length, 1, 'only tabs with a placeholder title ask the server');
+
+  const lostOpen = fixture(labels.store);
+  const lostTab = { input: { viewType: 'opencode.sessionEditor', uri: staleUri } };
+  lostOpen.vscode.window.tabGroups.all = [
+    { viewColumn: 3, activeTab: keptTab, tabs: [lostTab, keptTab] },
+  ];
+  lostOpen.data.skipResolveOnce = true;
+  await lostOpen.editors.refreshTabTitles();
+  assert.deepEqual(lostOpen.closes, [],
+    'keep the old tab when the replacement did not open');
 
   const alreadyLive = fixture();
   await alreadyLive.editors.open('ses_open', '/work', 'New Session');

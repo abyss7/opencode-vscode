@@ -171,6 +171,11 @@ class SessionEditors {
           this.vscode.Uri.from({ scheme: SCHEME, path }), VIEW_TYPE, {
             viewColumn: group.viewColumn, preview: false, background: true,
           });
+        // Never drop the old tab unless the replacement really opened.
+        const opened = (this.vscode.window.tabGroups?.all || []).some((item) =>
+          item.viewColumn === group.viewColumn && item.tabs.some((entry) =>
+            entry.input?.viewType === VIEW_TYPE && entry.input.uri.path === path));
+        if (!opened) continue;
         await this.vscode.window.tabGroups.close(tab);
         this.log(`Refreshed the title of session tab ${id}`);
       }
