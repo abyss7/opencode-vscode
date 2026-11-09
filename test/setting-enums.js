@@ -236,45 +236,51 @@ const fakeVscode = (values) => ({
   },
 });
 
-refreshSettingEnums({
-  vscode: fakeVscode({}),
-  api: {
-    isRunning: async () => false,
-    listModels: async () => MODELS,
-    listAgents: async () => AGENTS,
-  },
-  cwd: '/tmp',
-  file: startupFile,
-  log: () => {},
-})
-  .then((result) => {
-    assert.deepStrictEqual(
-      result,
-      { changed: false, model: false, agent: false },
-      'a stopped service must not rewrite the lists'
-    );
-    assert.strictEqual(settings(startupFile)['opencode.model'].enum, undefined);
+const fakeApi = (models, agents) => ({
+  // The refresh must not need a separate service probe: the catalogue request
+  // starts the service itself, so a fresh install fills the lists.
+  listModels: async () => models,
+  listAgents: async () => agents,
+});
 
-    return refreshSettingEnums({
-      vscode: fakeVscode({ model: 'old/custom#max' }),
-      api: {
-        isRunning: async () => true,
-        listModels: async () => MODELS,
-        listAgents: async () => AGENTS,
-      },
-      cwd: '/tmp',
-      file: startupFile,
-      log: () => {},
-    });
-  })
-  .then((result) => {
-    assert.deepStrictEqual(result, { changed: true, model: true, agent: true });
-    const written = settings(startupFile);
-    assert.ok(written['opencode.model'].enum.includes('old/custom#max'));
-    assert.deepStrictEqual(written['opencode.default_agent'].enum, ['build', 'plan']);
-    console.log('SETTING ENUMS OK');
-  })
-  .catch((error) => {
-    console.error(error);
+(async () => {
+  const started = await refreshSettingEnums({
+    vscode: fakeVscode({ model: 'old/custom#max' }),
+    api: fakeApi(MODELS, AGENTS),
+    cwd: '/tmp',
+    file: startupFile,
+    log: () => {},
+  });
+  assert.deepStrictEqual(started, { changed: true, model: true, agent: true });
+  const written = settings(startupFile);
+  assert.ok(written['opencode.model'].enum.includes('old/custom#max'));
+  assert.deepStrictEqual(written['opencode.default_agent'].enum, ['build', 'plan']);
+
+  // An unchanged catalogue does not rewrite the file.
+  const before = fs.statSync(startupFile).mtimeMs;
+  const again = await refreshSettingEnums({
+    vscode: fakeVscode({ model: 'old/custom#max' }),
+    api: fakeApi(MODELS, AGENTS),
+    cwd: '/tmp',
+    file: startupFile,
+    log: () => {},
+  });
+  assert.deepStrictEqual(again, { changed: false, model: false, agent: false });
+  assert.strictEqual(fs.statSync(startupFile).mtimeMs, before);
+
+  // A failed (empty) catalogue keeps the previous dropdown.
+  const empty = await refreshSettingEnums({
+    vscode: fakeVscode({}),
+    api: fakeApi([], []),
+    cwd: '/tmp',
+    file: startupFile,
+    log: () => {},
+  });
+  assert.deepStrictEqual(empty, { changed: false, model: false, agent: false });
+  assert.ok(settings(startupFile)['opencode.model'].enum.includes('acme/chat-large'));
+
+  console.log('SETTING ENUMS OK');
+})().catch((error) => {
+  console.error(error);
     process.exit(1);
   });

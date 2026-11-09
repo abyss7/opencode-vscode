@@ -619,7 +619,8 @@ function activate(context) {
 
   // The Settings dropdowns come from `contributes.configuration`, which is read
   // once per extension host, so the model and agent lists are refreshed here and
-  // picked up on the next reload.
+  // picked up on the next reload. The refresh starts the service if needed and
+  // offers the reload as soon as the lists actually changed.
   const extensionRoot = context.extensionUri && context.extensionUri.fsPath;
   if (extensionRoot) {
     refreshSettingEnums({
@@ -628,9 +629,21 @@ function activate(context) {
       cwd: getCwd() || undefined,
       file: path.join(extensionRoot, 'package.json'),
       log,
-    }).catch((error) => {
-      log(`Setting enum refresh failed: ${error.stack || error.message}`);
-    });
+    })
+      .then((result) => {
+        if (!result.changed) return;
+        const notice = vscode.window.showInformationMessage(
+          'OpenCode model and agent lists were updated. Reload the window to refresh the Settings dropdowns.',
+          'Reload Window'
+        );
+        if (!notice || typeof notice.then !== 'function') return;
+        return notice.then((picked) => {
+          if (picked) vscode.commands.executeCommand('workbench.action.reloadWindow');
+        });
+      })
+      .catch((error) => {
+        log(`Setting enum refresh failed: ${error.stack || error.message}`);
+      });
   }
 
   context.subscriptions.push({

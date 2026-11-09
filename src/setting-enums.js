@@ -6,7 +6,9 @@
  * VS Code only renders an `enum` as a dropdown, and `contributes.configuration`
  * is read once per extension host, so the model and agent lists cannot come
  * from the running service directly. Instead the lists are written into the
- * extension's own `package.json` at startup; a reload picks them up.
+ * extension's own `package.json` at startup; a reload picks them up. The
+ * service is started for this when it is not running yet, so a fresh install
+ * gets the lists even before a session is opened.
  *
  * The values stay plain OpenCode strings (`provider/model#variant`, agent id),
  * which keeps `opencode.json(c)` readable and the settings sync unchanged.
@@ -211,17 +213,14 @@ function updateEnums(options) {
 
 /**
  * Startup refresh: asks the local service for the catalogue and updates the
- * `enum`s. The service is never started for this alone, so a window opened
- * without a running service simply keeps the previous list.
+ * `enum`s. The request starts the service when it is not running, so a fresh
+ * install fills the lists on the first start; the reload notification is shown
+ * by the caller.
  */
 async function refreshSettingEnums(options) {
   const { vscode, api, cwd, file, log = () => {} } = options;
   if (!file) return { changed: false, model: false, agent: false };
   if (!api || typeof api.listModels !== 'function') {
-    return { changed: false, model: false, agent: false };
-  }
-  if (typeof api.isRunning === 'function' && !(await api.isRunning())) {
-    log('Setting enums: OpenCode service is not running; keeping the current lists');
     return { changed: false, model: false, agent: false };
   }
 

@@ -196,10 +196,10 @@ Both settings are dropdowns in the native Settings editor:
 
 The lists cannot be queried by the Settings editor on demand: `contributes.configuration`, and
 therefore `enum`, is read once when the extension host starts. The extension fills both lists at
-startup (`src/setting-enums.js`) from the running service and writes them into its own
-`package.json`. After adding a model, an agent or a provider, run **Developer: Reload Window**
-to refresh the dropdowns — each setting's description says the same. A window opened while the
-service is not running keeps the previous lists.
+startup (`src/setting-enums.js`) from the local OpenCode service, starting it when it is not
+running, and writes them into its own `package.json`. When a list changes, a notification offers
+**Reload Window** to pick it up. After adding a model, an agent or a provider, accept that reload
+(or run **Developer: Reload Window** yourself) to refresh the dropdowns.
 
 Values stay compact strings, so the settings sync writes them into `opencode.json(c)` unchanged.
 If a file already stores the structured `{ providerID, model, variant }` form, the sync converts
