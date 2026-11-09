@@ -10,6 +10,7 @@ const visuals = require('./visuals');
 const toolResults = require('./tool-results');
 const artifacts = require('./artifacts');
 const reading = require('./reading');
+const { scrollToElement } = require('./scroll');
 const { visiblePrompt } = require('../client-context');
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false })
@@ -140,5 +141,5 @@ function render(source, options = {}) {
 module.exports = {
   render, highlight, hydrate: visuals.hydrate, visiblePrompt,
   renderToolResult: toolResults.render, createArtifacts: artifacts.create,
-  outline: reading.outline,
+  outline: reading.outline, scrollToElement,
 };

@@ -4,6 +4,7 @@ const { parseArtifact } = require('../artifact-contract');
 const { chart, colors } = require('./charts');
 const tools = require('./tool-results');
 const selection = require('./selection');
+const { scrollToElement } = require('./scroll');
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -36,7 +37,7 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, onAsk, pref
     const entry = current();
     if (entry) post({ type: 'exportArtifact', name: `${entry.value.id}-v${entry.value.version}.json`, content: entry.source });
   });
-  const close = button('Close artifacts', () => { opened = false; sync(); toggle.focus(); });
+  const close = button('Close artifacts', () => { opened = false; sync(); toggle.focus({ preventScroll: true }); });
   toolbar.append(picker, versions, source, exportButton, close);
   const links = node('div', 'artifact-links');
   const content = node('div', 'artifact-content');
@@ -73,7 +74,10 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, onAsk, pref
     const value = entry.value;
     source.textContent = sourceMode ? 'Preview' : 'Source';
     source.setAttribute('aria-pressed', String(sourceMode));
-    links.append(button('Go to message', () => { entry.reference.scrollIntoView({ block: 'center' }); entry.reference.querySelector('button')?.focus(); }));
+    links.append(button('Go to message', () => {
+      scrollToElement(entry.reference.closest('.messages'), entry.reference);
+      entry.reference.querySelector('button')?.focus({ preventScroll: true });
+    }));
     if (value.source?.path) links.append(button('Open source file', () => post({ type: 'openFile', path: value.source.path, line: Number(value.source.line) || 1 })));
     if (sourceMode) content.append(node('pre', 'artifact-source', entry.source));
     else if (value.kind === 'markdown' || value.kind === 'mermaid') {

@@ -1,5 +1,7 @@
 'use strict';
 
+const { scrollToElement } = require('./scroll');
+
 let sequence = 0;
 function outline(root) {
   const headings = [...root.querySelectorAll('h1, h2, h3')];
@@ -18,7 +20,10 @@ function outline(root) {
     button.type = 'button';
     button.textContent = heading.textContent;
     button.dataset.level = heading.tagName.slice(1);
-    button.addEventListener('click', () => { heading.scrollIntoView({ block: 'start' }); heading.focus({ preventScroll: true }); });
+    button.addEventListener('click', () => {
+      scrollToElement(heading.closest('.messages, .artifact-content'), heading, { block: 'start' });
+      heading.focus({ preventScroll: true });
+    });
     list.append(button);
   }
   nav.append(list);

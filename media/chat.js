@@ -122,8 +122,9 @@
     const plan = state.planEl?.details;
     if (!plan) return;
     for (let parent = plan; parent; parent = parent.parentElement) if (parent.tagName === 'DETAILS') parent.open = true;
-    plan.scrollIntoView({ block: 'center' });
-    plan.querySelector('summary').focus();
+    const summary = plan.querySelector('summary');
+    OpenCodeRichText.scrollToElement(messagesEl, summary);
+    summary.focus({ preventScroll: true });
   });
   activityJump.addEventListener('click', () => {
     const request = currentAttention();
@@ -136,8 +137,9 @@
       if (parent.tagName === 'DETAILS') parent.open = true;
     }
     state.autoScroll = false;
-    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    if (request) target.querySelector('input, textarea, select, button:not(.disclosure-collapse)')?.focus({ preventScroll: true });
+    const focusTarget = request ? target.querySelector('input, textarea, select, button:not(.disclosure-collapse)') : null;
+    OpenCodeRichText.scrollToElement(questionsEl.contains(target) ? questionsEl : messagesEl, focusTarget || target, { behavior: 'smooth' });
+    focusTarget?.focus({ preventScroll: true });
   });
 
   function el(tag, className, text) {
@@ -3832,13 +3834,7 @@
         details.open = false;
         summary.focus({ preventScroll: true });
         if (top < messagesEl.getBoundingClientRect().top) {
-          // Keep the composer fixed: scrollIntoView also scrolls ancestor containers.
-          const bounds = summary.getBoundingClientRect();
-          messagesEl.scrollTo({
-            top: messagesEl.scrollTop + bounds.top - messagesEl.getBoundingClientRect().top -
-              (messagesEl.clientHeight - bounds.height) / 2,
-            behavior: 'instant',
-          });
+          OpenCodeRichText.scrollToElement(messagesEl, summary, { behavior: 'instant' });
         }
       });
     }
