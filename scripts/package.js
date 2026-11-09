@@ -3,12 +3,8 @@
 /**
  * Builds the release VSIX from a staging copy of the extension.
  *
- * VS Code renders the model dropdown from `contributes.configuration` in
- * `package.json`, and the extension rewrites that list at startup from the
- * local OpenCode catalogue. A checkout in which the extension has run therefore
- * carries the author's providers and models, which must not end up in a
- * release. The staging copy has the runtime list removed, and every user gets
- * their own catalogue on the first start.
+ * The staging copy keeps the packaged file set identical to what `<root>` and
+ * `.vscodeignore` describe, without the checkout's build artifacts.
  *
  * Usage: node scripts/package.js
  */
@@ -20,8 +16,6 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const IGNORE_FILE = path.join(ROOT, '.vscodeignore');
-const RUNTIME_ENUMS = ['opencode.model'];
-const RUNTIME_KEYS = ['enum', 'enumDescriptions', 'markdownEnumDescriptions'];
 
 function readExclusions() {
   return fs
@@ -58,33 +52,11 @@ function copyTree(source, target, patterns) {
   }
 }
 
-function configurationProperties(pkg) {
-  const configuration = pkg.contributes && pkg.contributes.configuration;
-  if (!configuration) return [];
-  const sections = Array.isArray(configuration) ? configuration : [configuration];
-  return sections
-    .map((section) => section && section.properties)
-    .filter((properties) => properties && typeof properties === 'object');
-}
-
-function stripRuntimeEnums(file) {
-  const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
-  for (const properties of configurationProperties(pkg)) {
-    for (const id of RUNTIME_ENUMS) {
-      const property = properties[id];
-      if (!property) continue;
-      for (const key of RUNTIME_KEYS) delete property[key];
-    }
-  }
-  fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
-}
-
 function main() {
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-vsix-'));
   try {
     copyTree(ROOT, staging, readExclusions());
     const packageFile = path.join(staging, 'package.json');
-    stripRuntimeEnums(packageFile);
     const { version } = JSON.parse(fs.readFileSync(packageFile, 'utf8'));
     const output = path.join(ROOT, `opencode-sessions-${version}.vsix`);
     fs.rmSync(output, { force: true });

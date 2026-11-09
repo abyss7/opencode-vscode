@@ -3,7 +3,7 @@
 const path = require('node:path');
 const { JsoncStore, getPath, deepEqual } = require('./jsonc');
 const configPaths = require('./opencode-config');
-const { modelRefString } = require('./setting-enums');
+const { modelRefString } = require('./model-ref');
 const generated = require('./generated/opencode-settings.json');
 
 const SETTINGS = generated.settings;

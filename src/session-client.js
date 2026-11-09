@@ -6,7 +6,7 @@ const { ServerEvents } = require('./server-events');
 const { sessionActivity } = require('./session-activity');
 const { nativeDiffs } = require('./native-diffs');
 const { parseModelRef } = require('./usage');
-const { modelRefString } = require('./setting-enums');
+const { modelRefString } = require('./model-ref');
 
 const messageID = () => `msg_${randomUUID().replaceAll('-', '')}`;
 const unwrap = (value) => value?.data ?? value;

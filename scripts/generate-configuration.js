@@ -109,12 +109,11 @@ const LABELS = {
 const DESCRIPTIONS = {
   model:
     'Model used for new sessions unless the session or agent selects another one. ' +
-    'The list is filled from the installed models when the extension starts; ' +
-    'after adding or enabling a model, run **Developer: Reload Window** to refresh it.',
+    'Use the link below to pick a model and its effort from the installed catalogue; ' +
+    'the setting stores `provider/model` or `provider/model#variant`.',
   default_agent:
     'Primary agent used for new sessions unless the session selects another one. ' +
-    'The list is filled from the installed agents when the extension starts; ' +
-    'after adding an agent, run **Developer: Reload Window** to refresh it.',
+    'Enter an agent id from the installed agents.',
   permissions: 'Ordered tool permission rules applied to agent tool use.',
   policies: 'Ordered policies controlling access to providers, tools, and integrations.',
   agents: 'Named built-in agent overrides and custom agent definitions.',
@@ -302,6 +301,11 @@ function enumValues(node) {
   return node.enum.filter((value) => typeof value !== 'object' && value !== null);
 }
 
+/** Command links shown in the description so the value can be picked live. */
+const ACTIONS = {
+  model: '[Select Default Model…](command:opencode.selectDefaultModel)',
+};
+
 function describe(pathParts, node, complex) {
   const key = pathParts.join('.');
   const label = LABELS[key] || humanize(pathParts[pathParts.length - 1]);
@@ -310,6 +314,7 @@ function describe(pathParts, node, complex) {
     (isPlainObject(node) && typeof node.description === 'string' ? node.description : '');
   const lines = [`**${label}**`];
   if (description) lines.push(description);
+  if (ACTIONS[key]) lines.push(ACTIONS[key]);
   lines.push(`OpenCode key: \`${key}\``);
 
   if (complex) {
@@ -479,9 +484,9 @@ function flatten(pathParts, node, out, counter) {
 
   // `model` is stored either as `provider/model#variant` or as the structured
   // `{ providerID, model, variant }` object that OpenCode itself writes. The
-  // setting keeps the compact string form only, so the Settings editor can show
-  // the dropdown filled at startup (`src/setting-enums.js`); the sync converts
-  // a structured value from `opencode.json(c)` before mirroring it.
+  // setting keeps the compact string form; the picker command linked from its
+  // description fills it from the live catalogue, and the sync converts a
+  // structured value from `opencode.json(c)` before mirroring it.
   if (pathParts.length === 1 && pathParts[0] === 'model' && !isScalarNode(node)) {
     const modelNode = {
       type: 'string',
@@ -606,44 +611,10 @@ function generate() {
   const extensionProperties = extensionPropertiesFrom(pkg);
 
   const configuration = buildConfiguration(settings, extensionProperties);
-  const previousConfiguration = pkg.contributes && pkg.contributes.configuration;
-  if (previousConfiguration) preserveRuntimeEnums(previousConfiguration, configuration);
   return {
     configuration,
     settings: settings.map(({ metadata }) => metadata),
   };
-}
-
-/** Properties of the `opencode` category, whether it is an object or an array. */
-function configurationProperties(configuration) {
-  const categories = Array.isArray(configuration) ? configuration : [configuration];
-  let fallback = null;
-  for (const category of categories) {
-    if (!category || !category.properties) continue;
-    if (category.properties['opencode.model'] || category.properties['opencode.default_agent']) {
-      return category.properties;
-    }
-    if (!fallback) fallback = category.properties;
-  }
-  return fallback || {};
-}
-
-/**
- * The model and agent dropdowns are filled at runtime from the running
- * service, so a regeneration must not discard the lists written since.
- */
-const RUNTIME_ENUM_IDS = ['opencode.model', 'opencode.default_agent'];
-const RUNTIME_ENUM_KEYS = ['enum', 'enumDescriptions', 'markdownEnumDescriptions'];
-
-function preserveRuntimeEnums(before, after) {
-  const previous = configurationProperties(before);
-  const next = configurationProperties(after);
-  for (const id of RUNTIME_ENUM_IDS) {
-    if (!previous[id] || !next[id]) continue;
-    for (const key of RUNTIME_ENUM_KEYS) {
-      if (previous[id][key] !== undefined) next[id][key] = previous[id][key];
-    }
-  }
 }
 
 function write() {

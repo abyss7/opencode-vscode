@@ -10,7 +10,7 @@ const { SessionPanel } = require('./session-panel');
 const { SessionEditors } = require('./session-editor');
 const { SessionContinuation } = require('./session-continuation');
 const { OpenCodeSync } = require('./opencode-sync');
-const { refreshSettingEnums } = require('./setting-enums');
+const { selectDefaultModel } = require('./model-defaults');
 const { resolveCommand } = require('./util');
 const { PermissionService } = require('./permission-service');
 const { ArchiveService } = require('./archive-service');
@@ -318,6 +318,14 @@ function activate(context) {
     }
   }
 
+  async function chooseDefaultModel() {
+    try {
+      await selectDefaultModel({ vscode, api, cwd: getCwd() || undefined, log });
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to select model: ${error.message}`);
+    }
+  }
+
   async function setDefaultAgent(id) {
     const cwd = getCwd();
     if (!cwd) throw new Error('Open a workspace folder first.');
@@ -552,6 +560,7 @@ function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand('opencode.newSession', newSession),
     vscode.commands.registerCommand('opencode.selectDefaultAgent', selectDefaultAgent),
+    vscode.commands.registerCommand('opencode.selectDefaultModel', chooseDefaultModel),
     vscode.commands.registerCommand('opencode.refreshSessions', refreshSessions),
     vscode.commands.registerCommand('opencode.openSession', withSidebarContext(openSession)),
     vscode.commands.registerCommand('opencode.deleteSession', withSidebarContext(deleteSession)),
@@ -616,35 +625,6 @@ function activate(context) {
 
   updateViewDescription();
   if (sidebar.visible) refreshSessions();
-
-  // The Settings dropdowns come from `contributes.configuration`, which is read
-  // once per extension host, so the model and agent lists are refreshed here and
-  // picked up on the next reload. The refresh starts the service if needed and
-  // offers the reload as soon as the lists actually changed.
-  const extensionRoot = context.extensionUri && context.extensionUri.fsPath;
-  if (extensionRoot) {
-    refreshSettingEnums({
-      vscode,
-      api,
-      cwd: getCwd() || undefined,
-      file: path.join(extensionRoot, 'package.json'),
-      log,
-    })
-      .then((result) => {
-        if (!result.changed) return;
-        const notice = vscode.window.showInformationMessage(
-          'OpenCode model and agent lists were updated. Reload the window to refresh the Settings dropdowns.',
-          'Reload Window'
-        );
-        if (!notice || typeof notice.then !== 'function') return;
-        return notice.then((picked) => {
-          if (picked) vscode.commands.executeCommand('workbench.action.reloadWindow');
-        });
-      })
-      .catch((error) => {
-        log(`Setting enum refresh failed: ${error.stack || error.message}`);
-      });
-  }
 
   context.subscriptions.push({
     dispose() {

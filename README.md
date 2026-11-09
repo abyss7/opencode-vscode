@@ -187,23 +187,22 @@ Settings editor, not of the extension.
 
 ### Choosing the default model and agent
 
-Both settings are dropdowns in the native Settings editor:
+`opencode.model` and `opencode.default_agent` stay compact string settings, so the settings sync
+writes them into `opencode.json(c)` unchanged.
 
-- `opencode.model` lists every installed model as `provider/model`, followed by one entry per
-  declared variant (`provider/model#variant`, for example `acme/chat-large#high`). The
-  description under each entry shows the model name, context size and price.
-- `opencode.default_agent` lists the visible primary agents from `GET /api/agent`.
+- The model setting links **Select Default Model…** in its description; the same command is
+  available as **OpenCode: Select Default Model**. It reads the live catalogue
+  (`GET /api/model`), groups models by provider, searches by model or provider, and then asks
+  for the effort (variant). The value is stored as `provider/model` or
+  `provider/model#variant`.
+- `opencode.default_agent` takes an agent id from `GET /api/agent`. The sidebar's
+  **Agent for new sessions** list and **OpenCode: Select Agent for New Sessions** store it in
+  `opencodeSessions.defaultAgent`, which takes precedence over the OpenCode key.
 
-The lists cannot be queried by the Settings editor on demand: `contributes.configuration`, and
-therefore `enum`, is read once when the extension host starts. The extension fills both lists at
-startup (`src/setting-enums.js`) from the local OpenCode service, starting it when it is not
-running, and writes them into its own `package.json`. When a list changes, a notification offers
-**Reload Window** to pick it up. After adding a model, an agent or a provider, accept that reload
-(or run **Developer: Reload Window** yourself) to refresh the dropdowns.
-
-Values stay compact strings, so the settings sync writes them into `opencode.json(c)` unchanged.
-If a file already stores the structured `{ providerID, model, variant }` form, the sync converts
-it to `provider/model#variant` before mirroring it into the Settings editor.
+The picker reads the catalogue on every invocation, so adding a provider or a model needs no
+window reload. If `opencode.json(c)` already stores the structured
+`{ providerID, model, variant }` form, the sync converts it to `provider/model#variant` before
+mirroring it into the Settings editor.
 
 `opencode.json` and `opencode.jsonc` files are associated with the bundled OpenCode schema, so
 the JSON editor provides validation and autocomplete for structured fields too.
@@ -329,7 +328,8 @@ src/session-folders.js    folder names and session assignments in global state
 src/file-links.js         parsing of `path:line` references from chat
 src/opencode-config.js    config directory discovery and file selection
 src/opencode-sync.js      VS Code settings <-> opencode.json(c) synchronization
-src/setting-enums.js      model/agent dropdown lists written into package.json at startup
+src/model-defaults.js      default model and effort picker for new sessions
+src/model-ref.js          compact provider/model#variant references
 src/jsonc.js              JSONC-preserving reads and writes
 src/schema/               bundled OpenCode configuration schema
 src/generated/            generated setting metadata

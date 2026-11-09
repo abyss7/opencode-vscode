@@ -77,21 +77,6 @@ class OpenCodeApi {
     return match[0].replace(/\/+$/, '');
   }
 
-  /**
-   * True when the local service is already running. Unlike `_resolveServer`
-   * this never starts it, so startup work can probe for free.
-   */
-  async isRunning() {
-    try {
-      const url = await this._readStatus();
-      this._server = { url, password: readServicePassword() };
-      this._serverAt = Date.now();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   async _resolveServer(force = false) {
     if (!force && this._server && Date.now() - this._serverAt < SERVICE_TTL_MS) {
       return this._server;

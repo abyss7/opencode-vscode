@@ -167,53 +167,25 @@ const opencode = Array.isArray(configuration)
   : configuration;
 const model = opencode.properties['opencode.model'];
 assert.ok(!model.$ref, 'model uses $ref');
-assert.strictEqual(model.type, 'string', 'model renders as a dropdown, not a free-form object');
+assert.strictEqual(model.type, 'string', 'model stays a compact string setting');
 assert.strictEqual(model.properties, undefined, 'model has no structured form');
-// The list is written into package.json at startup from the local catalogue, so a
-// clean checkout has none: validate the shape only when a run has filled it in.
-if (model.enum !== undefined) {
-  assert.ok(model.enum.length > 0, 'model exposes the installed models as an enum');
-  assert.ok(
-    model.enum.every((value) => /^[^/#]+\/[^#]+(?:#[^#]+)?$/.test(value)),
-    'model enum values are compact provider/model#variant references'
-  );
-  assert.deepStrictEqual(
-    model.enum,
-    [...new Set(model.enum)],
-    'model enum values are unique'
-  );
-  assert.strictEqual(
-    model.enumDescriptions.length,
-    model.enum.length,
-    'every model enum value has a description'
-  );
-}
+assert.strictEqual(model.enum, undefined, 'model must not carry a runtime enum');
+assert.strictEqual(model.enumDescriptions, undefined, 'model must not carry enum descriptions');
 assert.ok(
-  model.markdownDescription.includes('Reload Window'),
-  'model explains how to refresh the list'
+  model.markdownDescription.includes('command:opencode.selectDefaultModel'),
+  'model links the live picker command'
 );
 assert.ok(
-  !model.markdownDescription.includes('Select Default Model'),
-  'the picker command is gone from the model description'
+  !model.markdownDescription.includes('Reload Window'),
+  'model does not ask for a window reload'
 );
 
 const agent = opencode.properties['opencode.default_agent'];
+assert.strictEqual(agent.type, 'string', 'default_agent stays a compact string setting');
+assert.strictEqual(agent.enum, undefined, 'default_agent must not carry a runtime enum');
 assert.ok(
-  Array.isArray(agent.enum) && agent.enum.length > 0,
-  'default_agent exposes the installed agents as an enum'
-);
-assert.strictEqual(
-  agent.enumDescriptions.length,
-  agent.enum.length,
-  'every agent enum value has a description'
-);
-assert.ok(
-  agent.markdownDescription.includes('Reload Window'),
-  'default_agent explains how to refresh the list'
-);
-assert.ok(
-  !agent.markdownDescription.includes('Select Default Agent'),
-  'the picker command is gone from the default_agent description'
+  !agent.markdownDescription.includes('Reload Window'),
+  'default_agent does not ask for a window reload'
 );
 assert.strictEqual(opencode.properties['opencode.permissions'].scope, 'resource');
 
