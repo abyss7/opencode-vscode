@@ -1,7 +1,7 @@
 'use strict';
 
 const { test, expect } = require('./fixture');
-const { expectInside } = require('./root-scroll');
+const { expectInside, watchRootScroll } = require('./root-scroll');
 
 const gap = (page) => page.locator('#messages').evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight);
 
@@ -21,17 +21,22 @@ test('sending reveals the new message while an earlier answer is being read', as
   await readFromTop(page);
   const input = page.locator('#input');
   await input.fill('Follow-up question');
+  // Revealing the sent turn must stay inside the transcript: the document and
+  // the composer keep their position, exactly like every other navigation.
+  const stable = await watchRootScroll(page, '#composer', { forceOverflow: false });
   await input.press('Enter');
 
   expect(await chat.received('prompt')).toEqual([{ type: 'prompt', text: 'Follow-up question', images: [] }]);
   const sent = page.locator('.message.user').last();
   await expect(sent).toContainText('Follow-up question');
+  await stable();
   await expectInside(sent, page.locator('#messages'));
   await expect.poll(() => gap(page)).toBeLessThan(2);
 
   // The sent turn started a response, so its rendered answer stays visible too.
   await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Streaming answer.\n\n'.repeat(40) } });
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await stable();
   await expectInside(page.locator('.message.assistant').last(), page.locator('#messages'));
   await expect.poll(() => gap(page)).toBeLessThan(2);
 });
