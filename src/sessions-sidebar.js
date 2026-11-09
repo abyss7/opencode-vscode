@@ -42,6 +42,10 @@ class SessionsSidebar {
   }
 
   async act(message) {
+    if (message.action === 'retryConnection') return this.refresh();
+    if (message.action === 'downloadOpenCode') {
+      return this.vscode.env.openExternal(this.vscode.Uri.parse('https://opencode.ai/download'));
+    }
     if (message.action === 'newSession' || message.action === 'showLog') return this.actions[message.action]();
     const element = this.resolveContext(message);
     if (!element) return;
@@ -99,7 +103,9 @@ class SessionsSidebar {
     try {
       await this.provider.refresh();
       if (!view || this.view !== view || sequence !== this.sequence) return;
-      await view.webview.postMessage({ type: 'sessions', items: this.tree() });
+      const items = this.tree();
+      await view.webview.postMessage({ type: 'sessions', items });
+      if (items.some((item) => item.kind === 'error')) return;
       const selected = this.defaultAgent(cwd);
       const agents = cwd ? await this.api.listAgents(cwd) : [];
       if (this.view !== view || sequence !== this.sequence) return;
@@ -111,7 +117,7 @@ class SessionsSidebar {
     } catch (error) {
       this.log(`Failed to refresh session defaults: ${error.message}`);
       if (view && this.view === view && sequence === this.sequence) {
-        await view.webview.postMessage({ type: 'sessionDefaults', agents: [], error: error.message });
+        await view.webview.postMessage({ type: 'connectionError', error: error.message });
       }
     }
   }

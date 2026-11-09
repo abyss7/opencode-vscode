@@ -8,6 +8,16 @@
   <link rel="stylesheet" href="{{styleUri}}">
 </head>
 <body>
+  <section id="connection-error" aria-labelledby="connection-title" hidden>
+    <div class="connection-card">
+      <svg class="connection-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 3v4m8-4v4M6 7h12v4a6 6 0 0 1-12 0V7Zm6 10v4"/></svg>
+      <h2 id="connection-title">OpenCode is unavailable</h2>
+      <p id="connection-description" role="status"></p>
+      <a id="download-opencode" href="https://opencode.ai/download">Download OpenCode ↗</a>
+      <button id="retry-connection" type="button">Retry connection</button>
+      <details><summary>Technical details</summary><p id="connection-details"></p></details>
+    </div>
+  </section>
   <main id="sessions-scroll" aria-label="Sessions">
     <ul id="sessions-tree" role="tree" aria-label="OpenCode sessions"></ul>
     <div id="sessions-empty" hidden>No sessions yet. <button id="new-session">New Session</button></div>

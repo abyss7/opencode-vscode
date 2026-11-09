@@ -1,4 +1,17 @@
 :root { color-scheme: light dark; }
+[hidden] { display: none !important; }
+#connection-error { flex: 1; min-height: 0; overflow: auto; padding: 24px 16px; }
+.connection-card { max-width: 320px; margin: 24px auto; text-align: center; overflow-wrap: anywhere; }
+.connection-icon { width: 36px; height: 36px; color: var(--vscode-descriptionForeground); }
+.connection-card h2 { font-size: 16px; font-weight: 600; margin: 16px 0 8px; }
+.connection-card p { line-height: 1.5; color: var(--vscode-descriptionForeground); }
+#download-opencode { display: block; margin: 20px 0 16px; color: var(--vscode-textLink-foreground); }
+#retry-connection { max-width: 100%; padding: 7px 14px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 3px; font: inherit; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; }
+#retry-connection:hover { background: var(--vscode-button-hoverBackground); }
+.connection-card :focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 3px; }
+.connection-card details { margin-top: 24px; text-align: left; font-size: 12px; }
+.connection-card summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
+#connection-details { white-space: pre-wrap; }
 html { height: 100%; }
 body {
   height: 100%;

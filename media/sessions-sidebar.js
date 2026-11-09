@@ -220,6 +220,22 @@
   });
   scroll.addEventListener('scroll', persist);
   document.getElementById('new-session').addEventListener('click', () => send('newSession'));
+  document.getElementById('download-opencode').addEventListener('click', (event) => {
+    event.preventDefault();
+    send('downloadOpenCode');
+  });
+  document.getElementById('retry-connection').addEventListener('click', () => send('retryConnection'));
+  function connectionError(message) {
+    const unavailable = Boolean(message);
+    document.getElementById('connection-error').hidden = !unavailable;
+    scroll.hidden = unavailable;
+    document.querySelector('.defaults-footer').hidden = unavailable;
+    document.getElementById('connection-title').textContent = /ENOENT|command not found/i.test(message || '')
+      ? 'OpenCode was not found' : 'OpenCode is unavailable';
+    document.getElementById('connection-description').textContent =
+      'Install OpenCode on the machine where this workspace is running, or check your connection and try again. For Remote SSH, install it on the remote server.';
+    document.getElementById('connection-details').textContent = message || '';
+  }
   select.addEventListener('change', () => {
     select.disabled = true;
     vscode.postMessage({ type: 'selectAgent', agent: select.value });
@@ -227,9 +243,15 @@
   window.addEventListener('message', ({ data }) => {
     if (data.type === 'sessions') {
       items = data.items || [];
+      connectionError(items.find((item) => item.kind === 'error')?.name);
+      items = items.filter((item) => item.kind !== 'error');
       const initial = !tree.children.length;
       render();
       if (initial) scroll.scrollTop = saved.scrollTop || 0;
+      return;
+    }
+    if (data.type === 'connectionError') {
+      connectionError(data.error);
       return;
     }
     if (data.type !== 'sessionDefaults') return;
