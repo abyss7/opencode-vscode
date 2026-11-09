@@ -254,5 +254,59 @@ function fixture(store = new Map()) {
   assert.equal(activated.panels[0].sessionId, 'ses_orphan', 'selecting a restored tab reconnects it');
   assert.equal(activated.closes.length, 0);
 
+  // A restored background tab keeps the basename of the resource it was opened
+  // with. Serving the latest title replaces only the tab label, not the session.
+  const labels = fixture();
+  await labels.editors.open('ses_stale', '/work', 'New Session');
+  const staleUri = labels.opens[0].uri;
+  const labelsRestart = fixture(labels.store);
+  const staleTab = { input: { viewType: 'opencode.sessionEditor', uri: staleUri } };
+  const keptTab = { input: { viewType: 'opencode.sessionEditor', uri: {
+    scheme: 'opencode-session', authority: '', query: '', fragment: '',
+    path: '/ses_kept.opencode-session/Kept title',
+  } } };
+  labelsRestart.vscode.window.tabGroups.all = [
+    { viewColumn: 3, activeTab: keptTab, tabs: [staleTab, keptTab] },
+  ];
+  await labelsRestart.editors.refreshTabTitles();
+  assert.equal(labelsRestart.panels.length, 1, 'the refreshed tab is opened');
+  assert.equal(labelsRestart.opens[0].uri.path,
+    '/ses_stale.opencode-session/Recovered title', 'the tab label uses the current title');
+  assert.equal(labelsRestart.opens[0].options.background, true,
+    'a background tab must not replace the visible editor');
+  assert.deepEqual(labelsRestart.closes, [staleTab], 'only the stale tab is closed');
+  assert.equal(labelsRestart.editors.records.ses_stale.title, 'Recovered title',
+    'the fetched title is remembered for the next restart');
+  assert.equal(labelsRestart.lookups.length, 1, 'only tabs with a placeholder title ask the server');
+
+  const alreadyLive = fixture();
+  await alreadyLive.editors.open('ses_open', '/work', 'New Session');
+  const liveTab = { input: { viewType: 'opencode.sessionEditor', uri: alreadyLive.opens[0].uri } };
+  alreadyLive.vscode.window.tabGroups.all = [
+    { viewColumn: 1, activeTab: keptTab, tabs: [liveTab, keptTab] },
+  ];
+  await alreadyLive.editors.refreshTabTitles();
+  assert.equal(alreadyLive.opens.length, 1, 'a resolved tab already shows the live panel title');
+
+  const pendingTitle = fixture();
+  await pendingTitle.editors.open(null, '/work');
+  const pendingTab = { input: { viewType: 'opencode.sessionEditor', uri: pendingTitle.opens[0].uri } };
+  pendingTitle.vscode.window.tabGroups.all = [
+    { viewColumn: 1, activeTab: keptTab, tabs: [pendingTab, keptTab] },
+  ];
+  await pendingTitle.editors.refreshTabTitles();
+  assert.equal(pendingTitle.opens.length, 1, 'a tab waiting for its first session keeps its label');
+  assert.deepEqual(pendingTitle.lookups, [], 'a pending tab never asks the server for a title');
+
+  const titled = fixture();
+  await titled.editors.open('ses_titled', '/work', 'First name');
+  await titled.editors.setTitle('ses_titled', 'Second name');
+  const titledRestart = fixture(titled.store);
+  assert.equal(titledRestart.editors.records.ses_titled.title, 'Second name',
+    'titles that arrive after opening survive a restart');
+  await titled.editors.setTitle('ses_unknown', 'Ignored');
+  assert.equal(titled.editors.records.ses_unknown, undefined,
+    'do not invent records for closed sessions');
+
   console.log('SESSION EDITOR OK');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

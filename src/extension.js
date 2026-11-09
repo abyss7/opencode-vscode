@@ -186,6 +186,10 @@ function activate(context) {
     onSessionChanged() {
       scheduleRefresh();
     },
+    onSessionTitle(id, title) {
+      return editors.setTitle(id, title).catch((error) =>
+        log(`Cannot store session title ${id}: ${error.message}`));
+    },
   };
 
   const editors = new SessionEditors({ vscode, context, api, log,
@@ -204,6 +208,15 @@ function activate(context) {
       return sessionPanel;
     },
   });
+
+  // A restored background editor keeps its opening title snapshot until a
+  // panel exists. Refresh the snapshots once VS Code has restored the editors.
+  const tabTitleTimer = setTimeout(() => {
+    editors.refreshTabTitles().catch((error) =>
+      log(`Cannot refresh session tab titles: ${error.message}`));
+  }, 1000);
+  tabTitleTimer.unref?.();
+  context.subscriptions.push({ dispose: () => clearTimeout(tabTitleTimer) });
 
   function openSession(sessionOrItem, cwdHint) {
     const session =

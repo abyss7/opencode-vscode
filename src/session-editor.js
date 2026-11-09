@@ -7,10 +7,12 @@ const SCHEME = 'opencode-session';
 const STATE_KEY = 'opencode.sessionEditors';
 
 // The basename is a readable title even while VS Code leaves an editor unresolved.
-// Session identity lives in the parent directory; the title is an opening snapshot.
-// Pending IDs are reserved before opening a new tab and acknowledged after server
-// creation. Reopening a tab must never create a second session (or resurrect a
-// deleted one).
+// Session identity lives in the parent directory; the title is a snapshot that
+// VS Code only refreshes from a live panel. Restored background editors never
+// create a panel, so their stale basenames are replaced after startup (see
+// refreshTabTitles). Pending IDs are reserved before opening a new tab and
+// acknowledged after server creation. Reopening a tab must never create a second
+// session (or resurrect a deleted one).
 class SessionEditors {
   constructor({ vscode, context, api, createPanel, log = () => {} }) {
     this.vscode = vscode;
@@ -120,6 +122,78 @@ class SessionEditors {
     return this.state.update(STATE_KEY, { ...this.records });
   }
 
+  /**
+   * Resource path for a session tab. VS Code labels an unresolved custom editor
+   * by the basename of this path, so it mirrors the current title.
+   */
+  titlePath(id, title) {
+    const basename = String(title || '').replace(/[\/\\\x00-\x1f\x7f]/g, ' ').trim();
+    return `/${id}.opencode-session/${basename && !/^\.{1,2}$/.test(basename) ? basename : 'Session'}`;
+  }
+
+  /**
+   * Remember a title that arrived from the server. The tab resource keeps its
+   * opening snapshot; the record always holds the latest name for restore.
+   */
+  async setTitle(id, title) {
+    if (!id || !title || !this.records[id]) return;
+    if (this.records[id].title === title) return;
+    this.records[id] = { ...this.records[id], title };
+    this.titles.set(id, title);
+    await this.save();
+  }
+
+  /**
+   * A restored background editor never resolves, so VS Code only knows its
+   * opening title snapshot. Replace such a tab with an equivalent inactive one
+   * whose path carries the latest title; the visible tab of each group is left
+   * to recoverActiveTab, which creates a real panel.
+   */
+  async refreshTabTitles() {
+    if (this.disposed) return;
+    for (const group of this.vscode.window.tabGroups?.all || []) {
+      const active = group.activeTab;
+      for (const tab of group.tabs) {
+        if (this.disposed) return;
+        if (tab === active || tab.input?.viewType !== VIEW_TYPE) continue;
+        const id = this.sessionId(tab.input.uri);
+        if (!id || this.liveEditors.has(id) || this.records[id]?.pending) continue;
+        const title = await this.sessionTitle(id, true);
+        if (!title) continue;
+        const path = this.titlePath(id, title);
+        if (tab.input.uri.path === path) continue;
+        // The user may have selected the tab while the title was being read.
+        const current = (this.vscode.window.tabGroups?.all || [])
+          .find((item) => item.viewColumn === group.viewColumn);
+        if (!current || current.activeTab === tab || this.liveEditors.has(id) ||
+            !current.tabs.includes(tab)) continue;
+        await this.vscode.commands.executeCommand('vscode.openWith',
+          this.vscode.Uri.from({ scheme: SCHEME, path }), VIEW_TYPE, {
+            viewColumn: group.viewColumn, preview: false, background: true,
+          });
+        await this.vscode.window.tabGroups.close(tab);
+        this.log(`Refreshed the title of session tab ${id}`);
+      }
+    }
+  }
+
+  async sessionTitle(id, fresh = false) {
+    if (!fresh) {
+      const known = this.records[id]?.title;
+      if (known && known !== 'New Session') return known;
+    }
+    try {
+      const session = await this.api.getSession(id);
+      if (session?.title) {
+        await this.setTitle(id, session.title);
+        return session.title;
+      }
+    } catch (error) {
+      this.log(`Cannot read the title of session ${id}: ${error.message}`);
+    }
+    return this.records[id]?.title;
+  }
+
   async open(sessionId, cwd, title, options = {}) {
     const id = sessionId || `ses_${randomUUID().replaceAll('-', '')}`;
     if (!title && sessionId) title = (await this.api.getSession(id))?.title;
@@ -134,9 +208,8 @@ class SessionEditors {
     const tab = (this.vscode.window.tabGroups?.all || []).flatMap((group) =>
       group.tabs.map((tab) => ({ tab, column: group.viewColumn })))
       .find(({ tab }) => tab.input?.viewType === VIEW_TYPE && this.sessionId(tab.input.uri) === id);
-    const basename = title.replace(/[\/\\\x00-\x1f\x7f]/g, ' ').trim();
     const uri = tab?.tab.input.uri || this.vscode.Uri.from({
-      scheme: SCHEME, path: `/${id}.opencode-session/${basename && !/^\.{1,2}$/.test(basename) ? basename : 'Session'}`,
+      scheme: SCHEME, path: this.titlePath(id, title),
     });
     await this.vscode.commands.executeCommand('vscode.openWith', uri, VIEW_TYPE, {
       viewColumn: tab?.column ?? this.vscode.ViewColumn.Active, preview: false,

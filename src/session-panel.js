@@ -707,6 +707,7 @@ class SessionPanel {
     this._sessionTitle = title;
     this.panel.title = title;
     this._post({ type: 'sessionInfo', title, archived: this._archived });
+    this.deps.onSessionTitle?.(this.sessionId || this.newSessionId, title);
   }
 
   setArchived(archived) {
