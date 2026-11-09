@@ -55,6 +55,8 @@ editor tab connected to the shared OpenCode server.
   scroll on their own. Long tool output, diffs, tables and diagrams expand in place instead
   of nesting extra scrollers, and the latest question stays reachable as a compact strip
   above the conversation while its full text remains in the transcript.
+- Sending a message reveals it even when you were reading earlier output, and the
+  response stays in view.
 - The tab icon is orange while the session works and green when an answer is waiting; it returns
   to the default icon as soon as you open the tab.
 - Token estimates are shown for every intermediate operation and for the whole turn.

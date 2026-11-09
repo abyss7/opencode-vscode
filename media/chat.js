@@ -571,6 +571,9 @@
       showSubmission({ id, state: 'sending', item: { id, time: { created: Date.now() }, ...(selection ? { selection } : {}), payload: { text,
         files: images.map((image) => ({ uri: image.dataUrl || `data:${image.mimeType};base64,${image.data}` })) } } });
     } else addUserMessage(text, null, images, Date.now());
+    // Sending is deliberate navigation: reveal the new turn even when the
+    // reader was inspecting earlier output, and follow its response.
+    jumpToBottom();
     if (command) {
       state.commandEchoIndex = state.userMessageCount - 1;
       state.commandEchoText = text;
