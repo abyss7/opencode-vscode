@@ -1,6 +1,6 @@
 'use strict';
 
-const { scrollToElement } = require('./scroll');
+const { scrollToElement, focusWithoutScroll } = require('./scroll');
 
 let sequence = 0;
 function outline(root) {
@@ -21,8 +21,8 @@ function outline(root) {
     button.textContent = heading.textContent;
     button.dataset.level = heading.tagName.slice(1);
     button.addEventListener('click', () => {
-      scrollToElement(heading.closest('.messages, .artifact-content'), heading, { block: 'start' });
-      heading.focus({ preventScroll: true });
+      scrollToElement(heading.closest('.messages, #artifacts'), heading, { block: 'start' });
+      focusWithoutScroll(heading);
     });
     list.append(button);
   }

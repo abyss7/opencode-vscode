@@ -25,6 +25,10 @@ for (const { history, rootOverflow } of [
       // scrollbar but still lets scrollIntoView scroll this ancestor. With no root
       // scroll range, even the broken handler cannot move the composer.
       await page.evaluate(() => {
+        window.__testRootOverflow = true;
+        document.documentElement.style.overflow = 'visible';
+        document.body.style.overflow = 'hidden';
+        document.body.style.position = 'static';
         const overflow = document.createElement('div');
         overflow.setAttribute('aria-hidden', 'true');
         overflow.style.height = '300px';

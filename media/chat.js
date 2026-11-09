@@ -95,7 +95,6 @@
     activityPurpose: '',
     attentionRequests: new Map(),
     subagentsRunning: 0,
-    autoScroll: true,
     acpCommands: [],
     restCommands: [],
     skills: [],
@@ -118,13 +117,22 @@
     fileCheckPending: new Set(),
   };
 
+  const transcript = OpenCodeRichText.createTranscriptViewport(messagesEl, () => {
+    saveViewport();
+    updateStickyVisibility();
+  });
+  const composerControls = document.getElementById('composer-controls');
+  const focusLocal = OpenCodeRichText.focusWithoutScroll;
+  let stickyPrompt = null;
+  let stickyTarget = null;
+
   planProgress?.addEventListener('click', () => {
     const plan = state.planEl?.details;
     if (!plan) return;
     for (let parent = plan; parent; parent = parent.parentElement) if (parent.tagName === 'DETAILS') parent.open = true;
     const summary = plan.querySelector('summary');
     OpenCodeRichText.scrollToElement(messagesEl, summary);
-    summary.focus({ preventScroll: true });
+    focusLocal(summary);
   });
   activityJump.addEventListener('click', () => {
     const request = currentAttention();
@@ -136,10 +144,10 @@
     for (let parent = target.parentElement; parent && parent !== messagesEl; parent = parent.parentElement) {
       if (parent.tagName === 'DETAILS') parent.open = true;
     }
-    state.autoScroll = false;
+    transcript.pause();
     const focusTarget = request ? target.querySelector('input, textarea, select, button:not(.disclosure-collapse)') : null;
     OpenCodeRichText.scrollToElement(questionsEl.contains(target) ? questionsEl : messagesEl, focusTarget || target, { behavior: 'smooth' });
-    focusTarget?.focus({ preventScroll: true });
+    focusLocal(focusTarget);
   });
 
   function el(tag, className, text) {
@@ -201,29 +209,18 @@
   }
 
   function scrollToBottom() {
-    if (state.autoScroll) {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
+    if (transcript.following) transcript.update();
   }
 
   let restoredViewport = vscode.getState?.()?.viewport || null;
   let restoredSubmissions = vscode.getState?.()?.submissions || [];
   let viewportTimer;
   function captureViewport() {
-    const top = messagesEl.getBoundingClientRect().top;
-    const anchor = [...messagesEl.children].find((node) => node.dataset.anchorId &&
-      node.getBoundingClientRect().bottom > top);
-    return { bottom: state.autoScroll, top: messagesEl.scrollTop,
-      anchor: anchor?.dataset.anchorId, offset: anchor ? anchor.getBoundingClientRect().top - top : 0 };
+    return transcript.capture();
   }
 
   function restoreViewport(viewport) {
-    if (!viewport) return;
-    state.autoScroll = viewport.bottom;
-    if (viewport.bottom) { scrollToBottom(); return; }
-    const anchor = [...messagesEl.children].find((node) => node.dataset.anchorId === viewport.anchor);
-    messagesEl.scrollTop = anchor ? messagesEl.scrollTop + anchor.getBoundingClientRect().top -
-      messagesEl.getBoundingClientRect().top - viewport.offset : viewport.top;
+    transcript.restore(viewport);
   }
 
   function saveViewport() {
@@ -233,27 +230,18 @@
   }
 
   function jumpToBottom() {
-    state.autoScroll = true;
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-    const settle = () => {
-      if (state.autoScroll) messagesEl.scrollTop = messagesEl.scrollHeight;
-    };
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => requestAnimationFrame(settle));
-    } else {
-      setTimeout(settle, 50);
-    }
+    transcript.bottom();
   }
 
   function focusComposer(preserveScroll = false) {
     if (state.archived) return;
     if (!questionsEl.hidden) {
-      questionsEl.querySelector('.elicitation:not([hidden]) button.allow, .elicitation:not([hidden]) input')?.focus();
+      focusLocal(questionsEl.querySelector('.elicitation:not([hidden]) button.allow, .elicitation:not([hidden]) input'), questionsEl);
       return;
     }
-    if (!restoredViewport && (!preserveScroll || state.autoScroll)) jumpToBottom();
+    if (!restoredViewport && (!preserveScroll || transcript.following)) jumpToBottom();
     try {
-      inputEl.focus();
+      focusLocal(inputEl, composerControls);
     } catch {
       // The webview may not allow focusing a disabled element yet.
     }
@@ -397,7 +385,7 @@
       }
     }
     updateComposer();
-    inputEl.focus();
+    focusLocal(inputEl, composerControls);
   }
 
   function addImageFiles(files) {
@@ -545,7 +533,7 @@
     closeSlashMenu();
     resizeInput();
     updateComposer();
-    inputEl.focus();
+    focusLocal(inputEl, composerControls);
     const position = inputEl.value.length;
     try {
       inputEl.setSelectionRange(position, position);
@@ -621,7 +609,7 @@
         })),
       });
     }
-    inputEl.focus();
+    focusLocal(inputEl, composerControls);
   }
 
   function stopPrompt() {
@@ -1112,6 +1100,41 @@
   }, 1000);
   messageTimeClock.unref?.();
 
+  function updateStickyVisibility() {
+    if (!stickyPrompt || !stickyTarget || !messagesEl.contains(stickyTarget)) return;
+    const above = stickyTarget.getBoundingClientRect().bottom <= messagesEl.getBoundingClientRect().top;
+    stickyPrompt.classList.toggle('visible', above);
+    stickyPrompt.querySelector('button').tabIndex = above ? 0 : -1;
+  }
+
+  function updateStickyPrompt() {
+    const target = [...messagesEl.children].reverse().find(node => node.matches('.message.user'));
+    if (target === stickyTarget && messagesEl.contains(stickyPrompt)) {
+      const button = stickyPrompt.querySelector('button');
+      const text = target.querySelector('.body')?.textContent || 'Latest prompt';
+      if (button.textContent !== text) button.textContent = text;
+      if (target.nextSibling !== stickyPrompt) messagesEl.insertBefore(stickyPrompt, target.nextSibling);
+      updateStickyVisibility();
+      return;
+    }
+    stickyPrompt?.remove();
+    stickyTarget = target;
+    if (!target) { stickyPrompt = null; return; }
+    stickyPrompt = el('div', 'sticky-prompt');
+    const button = el('button', '', target.querySelector('.body')?.textContent || 'Latest prompt');
+    button.type = 'button';
+    button.title = 'Go to latest prompt';
+    button.setAttribute('aria-label', 'Go to latest prompt');
+    button.addEventListener('click', () => {
+      OpenCodeRichText.scrollToElement(messagesEl, target, { block: 'start', behavior: 'smooth' });
+      target.tabIndex = -1;
+      focusLocal(target);
+    });
+    stickyPrompt.appendChild(button);
+    messagesEl.insertBefore(stickyPrompt, target.nextSibling);
+    updateStickyVisibility();
+  }
+
   function addUserMessage(text, messageId, images, timestamp) {
     finalizeThought();
     finalizeAssistant();
@@ -1124,6 +1147,7 @@
       const visible = OpenCodeRichText.visiblePrompt(state.lastUser.text);
       state.lastUser.body.textContent = visible;
       state.lastUser.body.hidden = !visible;
+      if (stickyPrompt) stickyPrompt.querySelector('button').textContent = visible || 'Latest prompt';
       addUserImages(state.lastUser.wrap, images, messageId);
       scrollToBottom();
       return;
@@ -1142,6 +1166,7 @@
     messagesEl.appendChild(wrap);
     state.userMessageCount += 1;
     state.lastUser = { messageId: messageId || null, wrap, body, text };
+    updateStickyPrompt();
     scrollToBottom();
   }
 
@@ -2316,7 +2341,7 @@
     questionsEl.appendChild(card);
     syncQuestions();
     requestAttention(card, 'question', 'Waiting for your answer', prefixLine(message.message || 'Question'));
-    if (!card.hidden) card.querySelector('input, button.allow')?.focus();
+    if (!card.hidden) focusLocal(card.querySelector('input, button.allow'), questionsEl);
   }
 
   function buildElicitationField(name, prop, required, controls, limits) {
@@ -2993,8 +3018,8 @@
     configBarEl.hidden = configBarEl.children.length === 0;
     if (restoreModelFocus) modelPicker?.focus();
     if (restoreEffortFocus) {
-      [...configBarEl.querySelectorAll('input[type="range"]')]
-        .find((input) => input.dataset.configId === restoreEffortFocus)?.focus();
+      focusLocal([...configBarEl.querySelectorAll('input[type="range"]')]
+        .find((input) => input.dataset.configId === restoreEffortFocus), composerControls);
     }
   }
 
@@ -3200,13 +3225,16 @@
       const next = users.find((user) => user.time > created(entry));
       messagesEl.insertBefore(entry.wrap, next?.wrap || null);
     }
+    updateStickyPrompt();
   }
 
   function renderTranscript(snapshot) {
     state.nativeTransport = true;
     const viewport = restoredViewport || captureViewport();
     // Suppress intermediate appends moving the viewport during a batch.
-    state.autoScroll = false;
+    // A stream update must not cancel an in-flight deliberate navigation.
+    const navigating = transcript.navigating;
+    if (!navigating) transcript.pause();
     for (const message of snapshot.messages || []) {
       const signature = JSON.stringify(message);
       if (state.nativeMessages.get(message.id) === signature) continue;
@@ -3276,7 +3304,7 @@
     }
     if (snapshot.partial) {
       placeSubmissions();
-      restoreViewport(viewport);
+      if (!navigating) restoreViewport(viewport);
       return;
     }
     for (const [id, status] of snapshot.states || []) {
@@ -3291,7 +3319,7 @@
     }
     // Delivery replaces the local card with the actual server-ordered message.
     placeSubmissions();
-    restoreViewport(viewport);
+    if (!navigating) restoreViewport(viewport);
     saveSubmissions();
     saveViewport();
   }
@@ -3443,7 +3471,7 @@
           restoredViewport = null;
           restoreViewport(viewport);
           requestAnimationFrame(() => restoreViewport(viewport));
-        } else if (state.autoScroll) jumpToBottom();
+        } else if (transcript.following) jumpToBottom();
         break;
       case 'turnEnd': {
         const fresh = !state.turnEnded;
@@ -3815,11 +3843,7 @@
     });
   }
 
-  messagesEl.addEventListener('scroll', () => {
-    const distance = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
-    state.autoScroll = distance < 120;
-    saveViewport();
-  });
+  messagesEl.addEventListener('scroll', updateStickyVisibility, { passive: true });
 
   function addCollapseControl(details) {
     if (details.closest('.result-tree')) return;
@@ -3832,7 +3856,7 @@
         const summary = details.querySelector(':scope > summary');
         const top = summary.getBoundingClientRect().top;
         details.open = false;
-        summary.focus({ preventScroll: true });
+        focusLocal(summary);
         if (top < messagesEl.getBoundingClientRect().top) {
           OpenCodeRichText.scrollToElement(messagesEl, summary, { behavior: 'instant' });
         }
@@ -3893,7 +3917,7 @@
     const active = document.activeElement;
     if (active && active !== document.body && active !== document.documentElement) return;
     try {
-      inputEl.focus();
+      focusLocal(inputEl, composerControls);
     } catch {
       // Ignore focus errors in older webviews.
     }

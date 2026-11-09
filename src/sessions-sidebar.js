@@ -80,6 +80,7 @@ class SessionsSidebar {
       .replaceAll('{{cspSource}}', view.webview.cspSource)
       .replaceAll('{{nonce}}', crypto.randomBytes(16).toString('hex'))
       .replaceAll('{{styleUri}}', resource('sessions-sidebar.css'))
+      .replaceAll('{{scrollUri}}', resource('scroll.js'))
       .replaceAll('{{scriptUri}}', resource('sessions-sidebar.js'));
     view.onDidDispose(() => { if (this.view === view) this.view = null; });
     view.onDidChangeVisibility(() => { if (view.visible) this.refresh(); });

@@ -12,12 +12,13 @@
 .connection-card details { margin-top: 24px; text-align: left; font-size: 12px; }
 .connection-card summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
 #connection-details { white-space: pre-wrap; }
-html { height: 100%; }
+html { height: 100%; overflow: clip; }
 body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  position: relative;
+  overflow: clip;
   padding: 0;
   margin: 0;
   color: var(--vscode-foreground);
@@ -30,7 +31,8 @@ body {
   padding: 10px 12px;
   border-top: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border, transparent));
 }
-#sessions-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 0; }
+#sessions-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 0; }
+.defaults-footer { max-height: 45%; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; }
 #sessions-tree, .tree-group { list-style: none; margin: 0; padding: 0; }
 #sessions-tree { min-width: min-content; }
 .tree-group { padding-left: 12px; }

@@ -110,7 +110,7 @@
       active = Math.max(0, Math.min(rows.length - 1, index));
       rows.forEach((row, i) => row.classList.toggle('active', i === active));
       button.setAttribute('aria-activedescendant', rows[active].id);
-      if (scroll) rows[active].scrollIntoView({ block: 'nearest' });
+      if (scroll) OpenCodeRichText.scrollToElement(list, rows[active], { block: 'nearest' });
     }
 
     function place() {
@@ -146,7 +146,7 @@
       if (button.getAttribute('aria-disabled') === 'true') return;
       const item = entries[index];
       close();
-      button.focus();
+      OpenCodeRichText.focusWithoutScroll(button, root.closest('#composer-controls'));
       if (!item?.value || item.value === option.currentValue) return;
       // Keep focus while awaiting the host; the replacement picker restores it.
       button.setAttribute('aria-disabled', 'true');
@@ -192,7 +192,7 @@
     listen(button, 'blur', close);
     listen(window, 'blur', close);
     listen(window, 'resize', () => { if (!list.hidden) place(); });
-    return { element: root, focus: () => button.focus(), containsFocus: () => root.contains(document.activeElement),
+    return { element: root, focus: () => OpenCodeRichText.focusWithoutScroll(button, root.closest('#composer-controls')), containsFocus: () => root.contains(document.activeElement),
       dispose: () => { controller.abort(); root.remove(); } };
   }
 

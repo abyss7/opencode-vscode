@@ -10,6 +10,7 @@ test('session keyboard navigation and refresh keep the defaults footer fixed', a
     .replaceAll('{{cspSource}}', 'https://opencode.test')
     .replaceAll('{{nonce}}', 'test-nonce')
     .replaceAll('{{styleUri}}', 'https://opencode.test/media/sessions-sidebar.css')
+    .replaceAll('{{scrollUri}}', 'https://opencode.test/media/scroll.js')
     .replaceAll('{{scriptUri}}', 'https://opencode.test/media/sessions-sidebar.js')
     .replace('<title>', '<link rel="stylesheet" href="/theme.css"><title>');
   await page.route('https://opencode.test/', route => route.fulfill({ contentType: 'text/html', body: html }));

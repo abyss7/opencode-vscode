@@ -142,8 +142,8 @@
       node.tabIndex = node === element ? 0 : -1;
       node.setAttribute('aria-selected', String(node === element));
     }
-    element.focus({ preventScroll: true });
-    element.querySelector('.tree-row').scrollIntoView({ block: 'nearest' });
+    OpenCodeScroll.focusWithoutScroll(element);
+    OpenCodeScroll.scrollToElement(scroll, element.querySelector('.tree-row'), { block: 'nearest' });
     persist();
   }
   function toggle(node) { expansion[key(node)] = !expanded(node); render(); persist(); }

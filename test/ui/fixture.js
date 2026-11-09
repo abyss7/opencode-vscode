@@ -61,6 +61,22 @@ const test = base.extend({
     await page.clock.setFixedTime(new Date('2026-01-01T12:00:00Z'));
     await page.addInitScript(() => {
       window.hostMessages = [];
+      window.layoutViolations = [];
+      // Continuous shell contract, including transient native focus/caret moves.
+      function checkShell() {
+        const root = document.scrollingElement;
+        const app = document.querySelector('#app');
+        const ready = app ? getComputedStyle(app).display !== 'none' : document.querySelector('#sessions-scroll');
+        if (root && ready && !window.__testRootOverflow) {
+          const geometry = [scrollX, scrollY, document.body.scrollLeft, document.body.scrollTop,
+            root.scrollWidth - innerWidth, root.scrollHeight - innerHeight];
+          if (geometry.some(value => Math.abs(value) > 1) && window.layoutViolations.length < 5) {
+            window.layoutViolations.push(geometry);
+          }
+        }
+        requestAnimationFrame(checkShell);
+      }
+      requestAnimationFrame(checkShell);
       let state = JSON.parse(sessionStorage.getItem('vscode-state') || 'null');
       window.acquireVsCodeApi = () => ({
         postMessage(message) {
@@ -131,7 +147,16 @@ const test = base.extend({
       received: (type) => page.evaluate((kind) => window.hostMessages.filter((item) => item.type === kind), type),
       snapshot,
     });
-    if (!page.isClosed()) await snapshot('final');
+    if (!page.isClosed()) {
+      await snapshot('final');
+      expect(await page.evaluate(() => window.layoutViolations), 'The document is never a scroll region').toEqual([]);
+      expect(await page.evaluate(() => {
+        const allowed = '#messages, #input, #questions, #composer-controls, #artifacts, .model-picker-list, .slash-menu, .subagents-list, #sessions-scroll, #connection-error, .defaults-footer';
+        return [...document.querySelectorAll('body *')].filter(node => node.clientHeight > 0 &&
+          node.scrollHeight > node.clientHeight + 2 && /auto|scroll/.test(getComputedStyle(node).overflowY) &&
+          !node.matches(allowed)).map(node => node.id || node.className || node.tagName);
+      }), 'Only designated regions may scroll vertically').toEqual([]);
+    }
     expect(errors, 'Browser, resource and CSP errors').toEqual([]);
   },
 });

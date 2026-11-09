@@ -130,6 +130,28 @@ class Element {
     this.focused = true;
   }
 
+  getBoundingClientRect() { return { top: 0, bottom: 100, height: 100 }; }
+  getContext() { return null; }
+
+  contains(node) { return node === this || this.children.some(child => child.contains(node)); }
+
+  remove() {
+    if (this.parent) this.parent.children = this.parent.children.filter(node => node !== this);
+    this.parent = null;
+  }
+
+  insertBefore(node, before) {
+    node.remove();
+    const index = this.children.indexOf(before);
+    if (index < 0) return this.appendChild(node);
+    node.parent = this;
+    this.children.splice(index, 0, node);
+    return node;
+  }
+
+  get parentElement() { return this.parent; }
+  get nextSibling() { return this.parent?.children[this.parent.children.indexOf(this) + 1] || null; }
+
   get lastElementChild() {
     return this.children[this.children.length - 1] || null;
   }
@@ -171,6 +193,7 @@ for (const id of [
   'empty',
   'input',
   'composer',
+  'composer-controls',
   'questions',
   'send',
   'stop',
@@ -202,6 +225,7 @@ global.acquireVsCodeApi = () => ({
   setState: () => {},
 });
 global.document = {
+  body: new Element('body'),
   compatMode: 'CSS1Compat',
   title: '',
   getElementById: (id) => ids[id],
@@ -215,6 +239,12 @@ global.window = {
 };
 global.Element = Element;
 global.window.MutationObserver = class { observe() {} };
+global.MutationObserver = global.window.MutationObserver;
+global.ResizeObserver = class { observe() {} unobserve() {} };
+// This is a synchronous command/DOM harness; geometry and observer delivery
+// are exercised by the browser scroll architecture tests.
+global.requestAnimationFrame = () => 1;
+global.getComputedStyle = () => ({ getPropertyValue: () => '', fontFamily: 'monospace' });
 global.OpenCodeRichText = require('../media/rich-text.js');
 
 require('../media/chat.js');

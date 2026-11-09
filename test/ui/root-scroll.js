@@ -2,8 +2,14 @@
 
 const { expect } = require('./fixture');
 
-async function watchRootScroll(page, footer = '#composer') {
-  await page.evaluate(() => {
+async function watchRootScroll(page, footer = '#composer', { forceOverflow = true } = {}) {
+  if (forceOverflow) await page.evaluate(() => {
+    window.__testRootOverflow = true;
+    // Deliberately bypass root containment to test each navigation handler on
+    // its own. Production containment has separate keyboard/layout tests.
+    document.documentElement.style.overflow = 'visible';
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'static';
     // Native root scroll range, without changing the app layout or scroll APIs.
     const tail = document.createElement('div');
     tail.setAttribute('aria-hidden', 'true');
@@ -13,21 +19,32 @@ async function watchRootScroll(page, footer = '#composer') {
     tail.style.width = '1px';
     document.body.append(tail);
   });
-  expect(await page.evaluate(() => document.scrollingElement.scrollHeight - innerHeight)).toBe(300);
+  if (forceOverflow) expect(await page.evaluate(() => document.scrollingElement.scrollHeight - innerHeight)).toBe(300);
   const initial = await page.locator(footer).boundingBox();
+  await page.evaluate(() => {
+    // Start before the action: sampling only afterwards misses transient jumps.
+    const watch = window.__rootScrollWatch = { maximum: 0 };
+    function sample() {
+      watch.maximum = Math.max(watch.maximum, Math.abs(scrollY), Math.abs(scrollX),
+        Math.abs(document.body.scrollTop), Math.abs(document.body.scrollLeft));
+      requestAnimationFrame(sample);
+    }
+    sample();
+  });
   return async () => {
     const maximum = await page.evaluate(() => new Promise((resolve) => {
       let last = '';
       let stable = 0;
-      let maximum = 0;
       function sample() {
-        maximum = Math.max(maximum, Math.abs(scrollY), Math.abs(scrollX));
+        const watch = window.__rootScrollWatch;
+        watch.maximum = Math.max(watch.maximum, Math.abs(scrollY), Math.abs(scrollX),
+          Math.abs(document.body.scrollTop), Math.abs(document.body.scrollLeft));
         const positions = [scrollX, scrollY, ...Array.from(document.querySelectorAll(
-          '#messages, #questions, .model-picker-list, #sessions-scroll'
+          '#input, #messages, #questions, .model-picker-list, #sessions-scroll'
         ), node => node.scrollTop)].join(',');
         stable = positions === last ? stable + 1 : 0;
         last = positions;
-        if (stable >= 4) resolve(maximum);
+        if (stable >= 4) resolve(watch.maximum);
         else requestAnimationFrame(sample);
       }
       requestAnimationFrame(sample);

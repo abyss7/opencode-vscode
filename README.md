@@ -51,6 +51,10 @@ editor tab connected to the shared OpenCode server.
 - Answers are rendered as a whole for document-wide references. Long answers have a keyboard-accessible
   outline. Prose stays within a readable measure while diagrams and tables use available width.
 - Opening or revealing a session tab scrolls to the newest message and focuses the composer.
+- The whole chat fits its window: only the conversation, artifact panel and active editors
+  scroll on their own. Long tool output, diffs, tables and diagrams expand in place instead
+  of nesting extra scrollers, and the latest question stays reachable as a compact strip
+  above the conversation while its full text remains in the transcript.
 - The tab icon is orange while the session works and green when an answer is waiting; it returns
   to the default icon as soon as you open the tab.
 - Token estimates are shown for every intermediate operation and for the whole turn.
