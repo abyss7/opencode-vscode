@@ -3,7 +3,7 @@
   "displayName": "OpenCode",
   "description": "OpenCode sessions in the VS Code sidebar, each session in its own ACP chat tab.",
   "publisher": "abyss7",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "license": "MIT",
   "repository": {
     "type": "git",
