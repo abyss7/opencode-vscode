@@ -212,6 +212,10 @@ class SessionPanel {
     return this._disposed;
   }
 
+  get awaitingWebview() {
+    return !this._disposed && !this._started && !this._client;
+  }
+
   get deleteIfEmptyOnClose() {
     return Boolean(this._disposed && this.newSessionId && !this._preserveSession && !this._promptSubmitted);
   }

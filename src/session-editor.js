@@ -12,18 +12,108 @@ const STATE_KEY = 'opencode.sessionEditors';
 // creation. Reopening a tab must never create a second session (or resurrect a
 // deleted one).
 class SessionEditors {
-  constructor({ vscode, context, api, createPanel }) {
+  constructor({ vscode, context, api, createPanel, log = () => {} }) {
     this.vscode = vscode;
     this.state = context.workspaceState;
     this.api = api;
     this.createPanel = createPanel;
+    this.log = log;
     this.records = { ...this.state.get(STATE_KEY, {}) };
     this.titles = new Map();
     this.liveEditors = new Map();
+    this.orphanAttempt = null;
+    this.orphanNotified = null;
+    this.orphanTimer = null;
+    this.disposed = false;
     context.subscriptions.push(vscode.window.registerCustomEditorProvider(VIEW_TYPE, this, {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: false,
     }));
+    const tabs = vscode.window.tabGroups;
+    if (tabs?.onDidChangeTabs) context.subscriptions.push(tabs.onDidChangeTabs(() => this.scheduleOrphanCheck()));
+    if (tabs?.onDidChangeTabGroups) context.subscriptions.push(tabs.onDidChangeTabGroups(() => this.scheduleOrphanCheck()));
+    context.subscriptions.push({ dispose: () => {
+      this.disposed = true;
+      clearTimeout(this.orphanTimer);
+    } });
+    this.scheduleOrphanCheck();
+  }
+
+  scheduleOrphanCheck() {
+    if (this.disposed || !this.vscode.window.tabGroups?.activeTabGroup) return;
+    clearTimeout(this.orphanTimer);
+    // VS Code can report an active restored tab before resolving its custom editor.
+    const tab = this.vscode.window.tabGroups.activeTabGroup.activeTab;
+    const id = tab?.input?.viewType === VIEW_TYPE && this.sessionId(tab.input.uri);
+    const awaitingWebview = id && this.liveEditors.get(id)?.sessionPanel?.awaitingWebview;
+    this.orphanTimer = setTimeout(() => {
+      this.orphanTimer = null;
+      this.recoverActiveTab().catch((error) => this.log(`Cannot reconnect session tab: ${error.message}`));
+    }, awaitingWebview ? 5000 : 1500);
+    this.orphanTimer.unref?.();
+  }
+
+  isOrphaned(id) {
+    const entry = this.liveEditors.get(id);
+    return !entry || entry.sessionPanel?.awaitingWebview === true;
+  }
+
+  async recoverActiveTab() {
+    const groups = this.vscode.window.tabGroups;
+    const group = groups?.activeTabGroup;
+    const tab = group?.activeTab;
+    const id = tab?.input?.viewType === VIEW_TYPE && this.sessionId(tab.input.uri);
+    if (!id || !this.isOrphaned(id)) {
+      this.orphanNotified = null;
+      return;
+    }
+    if (this.orphanAttempt || this.orphanNotified === id) return;
+    const uri = tab.input.uri;
+    this.orphanAttempt = id;
+    const activeTab = () => groups.activeTabGroup?.activeTab;
+    const stillActive = () => {
+      const current = activeTab();
+      return !this.disposed && current?.input?.viewType === VIEW_TYPE &&
+        current.input.uri?.scheme === uri.scheme && current.input.uri?.path === uri.path &&
+        this.isOrphaned(id);
+    };
+    try {
+      this.log(`Session tab ${id} has no connected editor; trying to restore it`);
+      // Reusing the exact resource may cause VS Code to resolve an old tab
+      // without disposing its webview (and its unsent draft).
+      await this.vscode.commands.executeCommand('vscode.openWith', uri, VIEW_TYPE, {
+        viewColumn: group.viewColumn, preview: false,
+      });
+      if (!stillActive()) {
+        if (!this.isOrphaned(id)) this.log(`Session tab ${id} restored without closing`);
+        return;
+      }
+      const entry = this.liveEditors.get(id);
+      const delay = entry?.sessionPanel?.awaitingWebview
+        ? Math.max(0, 5000 - (Date.now() - entry.resolvedAt)) : 500;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (!stillActive()) return;
+
+      this.orphanNotified = id;
+      const reconnect = 'Reconnect tab';
+      const choice = await this.vscode.window.showWarningMessage(
+        'This OpenCode tab is no longer connected. Reconnecting closes its old view; any unsent draft in that view may be lost.',
+        { modal: true }, reconnect
+      );
+      if (choice !== reconnect || !stillActive()) return;
+      const column = groups.activeTabGroup.viewColumn;
+      if (!await groups.close(activeTab())) return;
+      await this.vscode.commands.executeCommand('vscode.openWith', uri, VIEW_TYPE, {
+        viewColumn: column, preview: false,
+      });
+      this.log(`Session tab ${id} reopened after confirmation`);
+    } finally {
+      this.orphanAttempt = null;
+      const current = groups?.activeTabGroup?.activeTab;
+      if (current?.input?.viewType === VIEW_TYPE && this.sessionId(current.input.uri) !== id) {
+        this.scheduleOrphanCheck();
+      }
+    }
   }
 
   save() {
@@ -107,7 +197,9 @@ class SessionEditors {
       panel.dispose();
       return;
     }
-    this.liveEditors.set(document.id, { uri: document.uri, panel });
+    const entry = { uri: document.uri, panel, resolvedAt: Date.now() };
+    this.liveEditors.set(document.id, entry);
+    if (this.orphanNotified === document.id) this.orphanNotified = null;
     const { cwd, pending, archived, archiveFinalizing } = this.records[document.id];
     // VS Code also persists the webview title when restoring an editor.
     const title = this.titles.get(document.id) || this.records[document.id].title ||
@@ -118,12 +210,13 @@ class SessionEditors {
       this.records[document.id] = { ...this.records[document.id], title: panel.title };
       void this.save();
     });
-    this.createPanel({ panel, cwd, title,
+    entry.sessionPanel = this.createPanel({ panel, cwd, title,
       sessionId: pending ? null : document.id,
       newSessionId: pending ? document.id : undefined,
       archived: Boolean(archived),
       archiveFinalizing: Boolean(archiveFinalizing),
     });
+    this.scheduleOrphanCheck();
   }
 }
 

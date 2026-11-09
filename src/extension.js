@@ -188,7 +188,7 @@ function activate(context) {
     },
   };
 
-  const editors = new SessionEditors({ vscode, context, api,
+  const editors = new SessionEditors({ vscode, context, api, log,
     createPanel({ panel, title, ...options }) {
       panel.webview.options = {
         enableScripts: true,
@@ -201,6 +201,7 @@ function activate(context) {
       if (options.sessionId && options.archived) {
         void reconcileArchiveFinalization(options.sessionId, options.cwd);
       }
+      return sessionPanel;
     },
   });
 
@@ -584,7 +585,10 @@ function activate(context) {
       }
     }),
     vscode.window.onDidChangeWindowState((state) => {
-      if (state.focused) scheduleRefresh();
+      if (state.focused) {
+        scheduleRefresh();
+        editors.scheduleOrphanCheck();
+      }
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (
