@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = 3;
+const VERSION = 4;
 
 function isArchived(session) {
   return Boolean(session && (session.archived || session.time?.archived));
@@ -38,16 +38,37 @@ async function setup(ctx, hookContract, controlContract, report = console.error)
 
   const run = async (record) => {
     let result = { ...record, state: 'succeeded' };
+    let hookCompleted = false;
     try {
       await ctx.rpc(hookContract).afterArchive({
         sessionID: record.sessionID,
         archivedAt: record.archivedAt,
         delivery: 'queue',
       });
+      hookCompleted = true;
     } catch (error) {
       if (!missingHook(error)) {
         result = { ...record, state: 'failed', error: error?.message || String(error) };
         report('The after-archive hook failed; the session remains archived.', error);
+      }
+    }
+
+    if (hookCompleted && result.state === 'succeeded' && await archiveStamp(record.sessionID) === record.archivedAt) {
+      try {
+        const response = await ctx.command.list();
+        const commands = Array.isArray(response) ? response : response?.data || [];
+        if (commands.some((command) => command.name === 'cleanup')) {
+          await ctx.session.command({
+            sessionID: record.sessionID,
+            name: 'cleanup',
+            text: '',
+            delivery: 'queue',
+          });
+          await ctx.session.wait({ sessionID: record.sessionID });
+        }
+      } catch (error) {
+        result = { ...record, state: 'failed', error: error?.message || String(error) };
+        report('The after-archive cleanup failed; the session remains archived.', error);
       }
     }
 

@@ -29,11 +29,11 @@ async function main() {
         }
         if (input.sessionID) {
           apiCalls.push(['status', input, directory]);
-          return { version: 3, finalization };
+          return { version: 4, finalization };
         }
         statusAttempts += 1;
         if (statusAttempts === 1) throw new Error('reloading');
-        return { version: 3 };
+        return { version: 4 };
       },
     },
   });
@@ -74,22 +74,28 @@ async function main() {
   let controlMethods;
   let archivedAt = 456;
   let hookCalls = 0;
+  let cleanupAvailable = true;
   const events = [];
   const storage = new Map();
   const ctx = {
-    command: { transform: async (edit) => {
-      edit({ add: (value) => { definition = value; } });
-      return { dispose() {} };
-    } },
+    command: {
+      list: async () => cleanupAvailable ? [{ name: 'cleanup' }] : [],
+      transform: async (edit) => {
+        edit({ add: (value) => { definition = value; } });
+        return { dispose() {} };
+      },
+    },
     rpc: Object.assign(() => ({ afterArchive: async (input) => {
       hookCalls += 1;
       events.push(['hook', input]);
       await new Promise((resolve) => { releaseHook = resolve; });
     } }), { register: async (_, methods) => { controlMethods = methods; return { dispose() {} }; } }),
     session: {
+      command: async (input) => { events.push(['cleanup', input]); },
       get: async () => ({ id: 'ses_test', time: {}, location: { directory: '/workspace' } }),
       list: async () => ({ data: archivedAt ? [{ id: 'ses_test', time: { archived: archivedAt } }] : [], cursor: {} }),
       update: async (input) => { events.push(['update', input]); archivedAt = 456; },
+      wait: async (input) => { events.push(['wait', input]); },
     },
     storage: {
       get: async (key) => structuredClone(storage.get(key)),
@@ -110,7 +116,10 @@ async function main() {
   while ((await controlMethods.status({ sessionID: 'ses_test' })).finalization.state === 'pending') {
     await new Promise((resolve) => setImmediate(resolve));
   }
-  assert.deepStrictEqual(events.map(([name]) => name), ['hook']);
+  assert.deepStrictEqual(events.map(([name]) => name), ['hook', 'cleanup', 'wait']);
+  assert.deepStrictEqual(events[1][1], {
+    sessionID: 'ses_test', name: 'cleanup', text: '', delivery: 'queue',
+  });
   await definition.execute({ sessionID: 'ses_test', delivery: 'queue' });
   assert.strictEqual(hookCalls, 1, 'the same archive timestamp must not run the hook again');
 
@@ -124,6 +133,18 @@ async function main() {
   } while (failed.state === 'pending');
   assert.strictEqual(failed.state, 'failed', 'hook failure is recorded without restoring the session');
   assert.strictEqual(hookCalls, 1);
+
+  archivedAt = 900;
+  cleanupAvailable = false;
+  ctx.rpc = Object.assign(() => ({ afterArchive: async (input) => { events.push(['hook-without-cleanup', input]); } }), ctx.rpc);
+  await controlMethods.afterArchive({ sessionID: 'ses_test' });
+  let withoutCleanup;
+  do {
+    await new Promise((resolve) => setImmediate(resolve));
+    withoutCleanup = (await controlMethods.status({ sessionID: 'ses_test' })).finalization;
+  } while (withoutCleanup.state === 'pending');
+  assert.strictEqual(withoutCleanup.state, 'succeeded', 'a missing cleanup command preserves the old behavior');
+  assert.strictEqual(events.filter(([name]) => name === 'cleanup').length, 1);
   console.log('ARCHIVE SERVICE OK');
 }
 

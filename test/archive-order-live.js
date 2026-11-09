@@ -13,6 +13,7 @@ const config = path.join(base, 'config');
 const cwd = path.join(base, 'workspace');
 const entered = path.join(base, 'entered.json');
 const release = path.join(base, 'release');
+const cleaned = path.join(base, 'cleaned.json');
 fs.mkdirSync(cwd);
 process.env.OPENCODE_CONFIG_DIR = config;
 const { ArchiveService } = require('../src/archive-service');
@@ -34,7 +35,7 @@ import { ArchiveHook } from '../vscode-archive/hook.js'
 import fs from 'node:fs/promises'
 let calls = 0
 export default Plugin.define({ id: 'barrier-hook', async setup(ctx) {
-  const registration = await ctx.rpc.register(ArchiveHook, { async afterArchive(input) {
+  const hook = await ctx.rpc.register(ArchiveHook, { async afterArchive(input) {
     calls += 1
     const page = await ctx.session.list({ directory: ctx.location.directory, archived: true, limit: 200 })
     const sessions = Array.isArray(page) ? page : page.data || []
@@ -45,7 +46,11 @@ export default Plugin.define({ id: 'barrier-hook', async setup(ctx) {
     }
     return {}
   } })
-  return () => registration.dispose()
+  const cleanup = await ctx.command.transform((editor) => editor.add({
+    name: 'cleanup',
+    execute: async ({ sessionID }) => fs.writeFile(${JSON.stringify(cleaned)}, JSON.stringify({ sessionID, calls })),
+  }))
+  return async () => { await cleanup.dispose(); await hook.dispose() }
 } })
 `);
 
@@ -98,7 +103,7 @@ export default Plugin.define({ id: 'barrier-hook', async setup(ctx) {
 
     for (let attempt = 0; attempt < 40; attempt += 1) {
       try {
-        if ((await rpc('status', {})).output.version === 3) break;
+        if ((await rpc('status', {})).output.version === 4) break;
       } catch {}
       if (attempt === 39) throw new Error('Archive RPC did not become available.');
       await sleep(100);
@@ -123,6 +128,7 @@ export default Plugin.define({ id: 'barrier-hook', async setup(ctx) {
     await sleep(50);
     assert.equal(JSON.parse(fs.readFileSync(entered, 'utf8')).calls, 1,
       'the same archive generation ran its hook twice');
+    assert.equal(fs.existsSync(cleaned), false, 'cleanup ran before the hook completed');
     fs.writeFileSync(release, 'ok');
     let state;
     for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -131,6 +137,7 @@ export default Plugin.define({ id: 'barrier-hook', async setup(ctx) {
       await sleep(20);
     }
     assert.equal(state.state, 'succeeded');
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(cleaned, 'utf8')), { sessionID, calls: 1 });
     console.log('ARCHIVE ORDER LIVE OK');
   } finally {
     if (sessionID && request) {

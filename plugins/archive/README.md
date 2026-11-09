@@ -2,7 +2,10 @@
 
 This managed OpenCode plugin registers `/archive`. The session is archived
 first, then the optional `vscode-archive-hook.afterArchive` RPC hook runs as a
-tracked background finalization. Hook failure never restores the session.
+tracked background finalization. After a successful hook, an available
+`/cleanup` command runs and the finalization waits for it. Cleanup is skipped
+when the hook is absent, fails, or the session was restored or re-archived.
+Hook or cleanup failure never restores the session.
 
 A sibling global plugin can implement the hook, for example:
 
