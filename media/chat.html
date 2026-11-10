@@ -66,7 +66,7 @@
       <div id="questions" class="questions" aria-live="polite" hidden></div>
       <div id="slash-menu" class="slash-menu" role="listbox" aria-label="Commands and skills" hidden></div>
       <div id="composer-controls">
-      <div id="config-bar" class="config-bar" hidden></div>
+      <div id="agent-label" class="agent-label" hidden></div>
       <div class="input-row">
         <div class="input-stack">
           <div id="attachments" class="attachments" hidden></div>
@@ -77,7 +77,10 @@
             <span id="usage-subscription" class="usage-item" hidden>ChatGPT plan · <a id="usage-link" href="https://chatgpt.com/settings/usage" title="View ChatGPT plan and app usage limits">usage ↗</a></span>
             <span id="usage-reset" class="usage-item"></span>
           </div>
-          <textarea id="input" rows="1" placeholder="Ask OpenCode…" disabled></textarea>
+          <div class="prompt-box">
+            <textarea id="input" rows="1" placeholder="Ask OpenCode…" disabled></textarea>
+            <div id="config-bar" class="config-bar" hidden></div>
+          </div>
         </div>
         <button id="send" class="btn primary icon-btn" type="button" title="Send" aria-label="Send" disabled>
           <svg viewBox="0 0 16 16" aria-hidden="true">

@@ -1,7 +1,13 @@
 # Permission profiles (local prototype)
 
-The composer has **Profile** and **Without a rule** selectors, plus **Rules…** to
-open the project's remembered decisions. The agent is fixed
+The composer shows two compact menus: **Model · Effort** and **Profile · Without a rule**.
+The permissions menu contains the **Profile** and **Without a rule** selectors,
+plus **Rules…** to open the project's remembered decisions. Current values remain
+visible with the menus closed; broad-access profiles or Permit have a warning accent.
+Effort lives inside the model menu and uses that model's available levels.
+Menus support keyboard navigation, Escape and outside-click dismissal, and wrap
+onto separate rows in narrow panels. The current agent is a quiet label above
+the input, fixed
 when the session is initialized. The **Agent for new sessions** card is pinned to
 the bottom of the **Sessions** view itself. The list above it scrolls independently;
 moving Sessions to another sidebar also moves the selector. There is no second

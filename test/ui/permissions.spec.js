@@ -119,8 +119,11 @@ test('agent is fixed, profile and fallback are independent selectors', async ({ 
     ] },
     { id: 'model', name: 'Model', type: 'select', currentValue: 'model-a', options: [{ value: 'model-a', name: 'Model A' }] },
   ] }, policy());
-  await expect(page.locator('#config-bar')).toContainText('Agent: Build');
+  await expect(page.locator('#agent-label')).toHaveText('Agent: Build');
+  await expect(page.locator('#config-bar')).not.toContainText('Agent: Build');
   await expect(page.locator('#config-bar input[type=checkbox]')).toHaveCount(0);
+  await expect(page.getByLabel('Profile', { exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Permissions', exact: true }).click();
   await expect(page.getByLabel('Profile', { exact: true })).toHaveValue('workspace');
   await page.getByLabel('Without a rule', { exact: true }).selectOption('forbid');
   expect(await chat.received('setPermissionProfile')).toEqual([{ type: 'setPermissionProfile', newActions: 'forbid' }]);
@@ -135,6 +138,7 @@ test('agent is fixed, profile and fallback are independent selectors', async ({ 
 
 test('profile choices restore from server and inherited policies are locked', async ({ page, chat }) => {
   await chat.send(policy({ selected: 'all', newActions: 'permit', fallbackLocked: true }));
+  await page.getByRole('button', { name: 'Permissions', exact: true }).click();
   await expect(page.getByLabel('Without a rule', { exact: true })).toBeDisabled();
   await chat.send(policy({ newActions: 'forbid' }));
   await expect(page.getByLabel('Without a rule', { exact: true })).toHaveValue('forbid');
@@ -147,6 +151,7 @@ test('profile choices restore from server and inherited policies are locked', as
 
 test('Smart selector and reviewer decisions stay distinct from manual approvals', async ({ page, chat }) => {
   await chat.send(policy());
+  await page.getByRole('button', { name: 'Permissions', exact: true }).click();
   await page.getByLabel('Without a rule', { exact: true }).selectOption('smart');
   expect(await chat.received('setPermissionProfile')).toEqual([{ type: 'setPermissionProfile', newActions: 'smart' }]);
   await chat.send(policy({ newActions: 'smart' }));
@@ -169,6 +174,7 @@ test('Smart selector and reviewer decisions stay distinct from manual approvals'
 
 test('Host is selectable and project rules open directly', async ({ page, chat }) => {
   await chat.send(policy());
+  await page.getByRole('button', { name: 'Permissions', exact: true }).click();
   await page.getByLabel('Profile', { exact: true }).selectOption('host');
   expect(await chat.received('setPermissionProfile')).toEqual([{ type: 'setPermissionProfile', profile: 'host' }]);
   await chat.send(policy({ selected: 'host', newActions: 'permit', fallbackLocked: true }));

@@ -23,7 +23,9 @@
   const usageResetEl = document.getElementById('usage-reset');
   const attachmentsEl = document.getElementById('attachments');
   const configBarEl = document.getElementById('config-bar');
+  const agentLabelEl = document.getElementById('agent-label');
   let modelPicker = null;
+  let permissionPicker = null;
   const slashMenuEl = document.getElementById('slash-menu');
   const subagentsEl = document.getElementById('subagents');
   const subagentsSummaryEl = document.getElementById('subagents-summary');
@@ -2837,11 +2839,32 @@
   function appendPermissionProfiles() {
     const current = state.permissionProfile;
     if (!current) return;
+    permissionPicker = OpenCodeModelPicker.createMenu({ label: 'Permissions', className: 'permission-picker' });
+    const { panel, button } = permissionPicker;
+    const fallbackChoices = [
+      { id: 'forbid', label: 'Forbid' }, { id: 'ask', label: 'Ask' },
+      { id: 'smart', label: 'Smart' }, { id: 'permit', label: 'Permit' },
+    ];
+    const profileName = current.profiles.find((item) => item.id === current.selected)?.label || current.selected;
+    const fallbackName = fallbackChoices.find((item) => item.id === current.newActions)?.label || current.newActions;
+    const warning = ['host', 'all'].includes(current.selected) || current.newActions === 'permit';
+    button.classList.toggle('permission-warning', warning);
+    if (warning) {
+      const icon = el('span', 'permission-warning-icon', '⚠');
+      icon.setAttribute('aria-hidden', 'true');
+      button.appendChild(icon);
+    }
+    button.append(el('span', 'model-name', profileName), el('span', 'settings-separator', '·'),
+      el('span', 'permission-fallback', fallbackName), OpenCodeModelPicker.chevron());
+    button.title = `Permissions: ${profileName} · ${fallbackName}${current.inherited ? ' · Inherited from parent' : ''}`;
+    button.setAttribute('aria-description', button.title);
+    panel.appendChild(el('div', 'session-settings-heading', 'Permissions'));
     const makeSelect = (caption, choices, value, field, disabled) => {
-      const label = el('label', 'config');
+      const label = el('label', 'config permission-field');
       label.appendChild(el('span', null, caption));
       const select = document.createElement('select');
       select.setAttribute('aria-label', caption);
+      select.dataset.permissionField = field;
       for (const item of choices) {
         const option = document.createElement('option');
         option.value = item.id;
@@ -2851,41 +2874,47 @@
       }
       select.disabled = disabled || current.inherited;
       select.addEventListener('change', () => {
+        permissionPicker.pendingField = field;
+        permissionPicker.pendingFocus = permissionPicker.containsFocus();
         for (const control of configBarEl.querySelectorAll('.permission-control')) control.disabled = true;
         vscode.postMessage({ type: 'setPermissionProfile', [field]: select.value });
       });
       select.className = 'permission-control';
       label.appendChild(select);
-      configBarEl.appendChild(label);
+      panel.appendChild(label);
       return select;
     };
     const profile = makeSelect('Profile', current.profiles, current.selected, 'profile', false);
     profile.title = `Layers: ${(current.layers || []).join(' → ')}. Explicit denies remain in force.` +
       (current.selected === 'host' ? ' Host currently has the same access as All; it does not isolate the network.' : '');
-    const fallback = makeSelect('Without a rule', [
-      { id: 'forbid', label: 'Forbid' }, { id: 'ask', label: 'Ask' },
-      { id: 'smart', label: 'Smart' }, { id: 'permit', label: 'Permit' },
-    ], current.newActions, 'newActions', current.fallbackLocked);
+    const fallback = makeSelect('Without a rule', fallbackChoices, current.newActions, 'newActions', current.fallbackLocked);
     fallback.title = current.fallbackLocked
       ? 'This profile already has a rule for every action.'
       : 'Only actions not matched by any profile rule. Saved for this session and profile.';
+    panel.appendChild(el('div', 'session-settings-note permission-note', current.fallbackLocked
+      ? 'This profile already has a rule for every action.'
+      : 'Only actions not covered by a rule. Explicit rules take precedence.'));
     const rules = el('button', 'permission-rules-link', 'Rules…');
     rules.title = current.rulesFile || 'Open project permission rules';
     rules.setAttribute('aria-label', 'Open permission rules');
-    rules.addEventListener('click', () => vscode.postMessage({ type: 'openPermissionRules' }));
-    configBarEl.appendChild(rules);
-    if (current.inherited) configBarEl.appendChild(el('span', 'config', 'Inherited from parent'));
+    rules.addEventListener('click', () => {
+      permissionPicker.close();
+      permissionPicker.focus();
+      vscode.postMessage({ type: 'openPermissionRules' });
+    });
+    panel.appendChild(rules);
+    if (current.inherited) panel.appendChild(el('div', 'session-settings-note permission-note', 'Inherited from parent'));
+    configBarEl.appendChild(permissionPicker.element);
   }
 
   function appendFixedAgent(option) {
-    const label = el('span', 'config');
-    label.title = 'Agent fixed at session creation. Choose the agent for new sessions in the sidebar.';
+    agentLabelEl.title = 'Agent fixed at session creation. Choose the agent for new sessions in the sidebar.';
     const selected = (option.options || []).find((item) => item.value === option.currentValue);
-    label.appendChild(el('span', null, `Agent: ${selected?.name || option.currentValue || '—'}`));
-    configBarEl.appendChild(label);
+    agentLabelEl.textContent = `Agent: ${selected?.name || option.currentValue || '—'}`;
+    agentLabelEl.hidden = false;
   }
 
-  function appendEffortSlider(option) {
+  function appendEffortSlider(option, target = configBarEl) {
     if (option.options.length < 2) return;
     // Default is a mode, not the strongest level. Keep it at the start and
     // preserve the server's ordering of explicit (including custom) variants.
@@ -2893,6 +2922,8 @@
       ...option.options.filter((item) => item.value !== 'default')];
     const label = el('label', 'config effort-control');
     label.appendChild(el('span', null, option.name || 'Effort'));
+    const valueLabel = target !== configBarEl ? el('span', 'effort-value') : null;
+    if (valueLabel) label.appendChild(valueLabel);
     const track = el('span', 'effort-track');
     const ticks = el('span', 'effort-ticks');
     ticks.setAttribute('aria-hidden', 'true');
@@ -2912,7 +2943,11 @@
     let pending = false;
     const initial = input.value;
     const selected = () => choices[Number(input.value)];
-    const update = () => input.setAttribute('aria-valuetext', selected().name || selected().value);
+    const update = () => {
+      const name = selected().name || selected().value;
+      input.setAttribute('aria-valuetext', name);
+      if (valueLabel) valueLabel.textContent = name;
+    };
     const show = (index = Number(input.value)) => {
       const item = choices[index];
       tooltip.textContent = item.value === 'default' ? 'Default — model setting' : item.name || item.value;
@@ -2964,7 +2999,8 @@
     update();
     track.append(ticks, input, tooltip);
     label.appendChild(track);
-    configBarEl.appendChild(label);
+    target.appendChild(label);
+    return label;
   }
 
   function setConfigOptions(options) {
@@ -2972,10 +3008,23 @@
     const restoreModelFocus = modelPicker?.containsFocus();
     const restoreEffortFocus = configBarEl.contains(document.activeElement)
       && document.activeElement.matches('input[type="range"]') ? document.activeElement.dataset.configId : null;
+    const permissionWasOpen = permissionPicker && !permissionPicker.panel.hidden;
+    const permissionField = permissionPicker?.pendingField
+      || (permissionPicker?.containsFocus() ? document.activeElement.dataset.permissionField : null);
+    const restorePermissionFocus = permissionPicker?.containsFocus() || permissionPicker?.pendingFocus;
+    const modelSearch = modelPicker?.containsFocus() && document.activeElement.matches('.model-picker-search')
+      ? document.activeElement.value : null;
     modelPicker?.dispose();
     modelPicker = null;
+    permissionPicker?.dispose();
+    permissionPicker = null;
     configBarEl.replaceChildren();
+    agentLabelEl.hidden = true;
     const list = Array.isArray(options) ? options : [];
+    const modelOption = list.find((option) => option?.type === 'select' && Array.isArray(option.options)
+      && (option.category === 'model' || option.id === 'model'));
+    const effortOption = list.find((option) => option?.type === 'select' && Array.isArray(option.options)
+      && (option.id === 'effort' || option.category === 'thought_level'));
     for (const option of list) {
       if (!option) continue;
       if (isAgentOption(option)) {
@@ -2984,14 +3033,17 @@
       }
       if (option.type !== 'select' || !Array.isArray(option.options)) continue;
       if (option.category === 'model' || option.id === 'model') {
+        const effortContainer = document.createElement('div');
+        const effort = effortOption ? appendEffortSlider(effortOption, effortContainer) : null;
+        const selectedEffort = effortOption?.options.find((item) => item.value === effortOption.currentValue);
         modelPicker = OpenCodeModelPicker.create(option, (value) => vscode.postMessage({
           type: 'setConfigOption', configId: option.id, value,
-        }));
+        }), { effort, effortLabel: selectedEffort?.name || selectedEffort?.value });
         configBarEl.appendChild(modelPicker.element);
         continue;
       }
       if (option.id === 'effort' || option.category === 'thought_level') {
-        appendEffortSlider(option);
+        if (!modelOption) appendEffortSlider(option);
         continue;
       }
       const label = el('label', 'config');
@@ -3021,8 +3073,24 @@
     configBarEl.hidden = configBarEl.children.length === 0;
     if (restoreModelFocus) modelPicker?.focus();
     if (restoreEffortFocus) {
+      modelPicker?.open();
       focusLocal([...configBarEl.querySelectorAll('input[type="range"]')]
         .find((input) => input.dataset.configId === restoreEffortFocus), composerControls);
+    }
+    if (modelSearch !== null && modelPicker) {
+      modelPicker.open();
+      const search = modelPicker.panel.querySelector('.model-picker-search');
+      search.value = modelSearch;
+      search.dispatchEvent(new Event('input'));
+      focusLocal(search, composerControls);
+    }
+    if (permissionWasOpen && permissionPicker) {
+      permissionPicker.open();
+      if (restorePermissionFocus) {
+        const field = [...permissionPicker.panel.querySelectorAll('select')]
+          .find((select) => select.dataset.permissionField === permissionField && !select.disabled);
+        focusLocal(field || permissionPicker.button, composerControls);
+      }
     }
   }
 

@@ -40,6 +40,8 @@ test('server default and Effort slider survive changes and reopening', async ({ 
   await expect(list.getByRole('option', { name: 'opencode: Preferred', exact: true }).locator('svg.model-provider-icon'))
     .toHaveAttribute('data-provider', 'opencode');
   await model.press('Escape');
+  await expect(effort).toBeHidden();
+  await model.click();
   await expect(effort).toHaveAttribute('aria-valuetext', 'Default');
   await expect(page.locator('.effort-ticks > span')).toHaveCount(3);
   await effort.press('End');
@@ -52,10 +54,12 @@ test('server default and Effort slider survive changes and reopening', async ({ 
   await page.reload();
   await refresh();
   await expect(model).toHaveAttribute('title', 'openai: Preferred');
+  await model.click();
   await expect(effort).toHaveAttribute('aria-valuetext', 'High');
   await effort.press('Home');
   await apply();
   expect(session.model).toEqual({ providerID: 'openai', id: 'preferred' });
+  await model.press('Escape');
   await model.click();
   await list.getByRole('option', { name: 'opencode: Preferred', exact: true }).click();
   await expect(model).toBeDisabled();
@@ -107,13 +111,18 @@ test('model picker supports keyboard selection, typeahead, dismissal and failed-
   await expect(button).toBeEnabled();
   await expect(button).toHaveAttribute('title', 'openai: Alpha');
   await button.click();
-  await page.getByRole('textbox', { name: 'Ask OpenCode…' }).click();
+  // The dropup can cover the input on narrow panels; click outside its bounds.
+  await page.mouse.click(2, 2);
   await expect(list).toBeHidden();
   await button.focus();
   await button.press(' ');
   await button.press('Tab');
-  await expect(list).toBeHidden();
+  await expect(list).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Search models' })).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(page.getByRole('slider', { name: 'Effort', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(list).toBeHidden();
 });
 
 test('long catalogs stay in the viewport and unknown providers have safe fallback badges', async ({ page, chat }) => {
