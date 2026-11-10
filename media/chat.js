@@ -2857,8 +2857,8 @@
     panel.appendChild(el('div', 'session-settings-heading', 'Permissions'));
     if (warning) panel.appendChild(el('div', 'session-settings-note permission-note permission-access-warning',
       ['host', 'all'].includes(current.selected)
-        ? 'Broad access: this profile permits all actions unless explicit rules restrict them.'
-        : 'Permit allows actions without a matching rule. Explicit restrictions still apply.'));
+        ? '⚠ Broad access: this profile permits all actions unless explicit rules restrict them.'
+        : '⚠ Permit allows actions without a matching rule. Explicit restrictions still apply.'));
     const makeSelect = (caption, choices, value, field, disabled) => {
       const label = el('label', 'config permission-field');
       label.appendChild(el('span', null, caption));
@@ -2869,6 +2869,8 @@
         const option = document.createElement('option');
         option.value = item.id;
         option.textContent = item.label;
+        if ((field === 'profile' && ['host', 'all'].includes(item.id) || field === 'newActions' && item.id === 'permit')
+          && !item.label.includes('⚠')) option.textContent += ' ⚠';
         option.selected = item.id === value;
         select.appendChild(option);
       }

@@ -94,6 +94,9 @@ test('permission summary stays neutral with broad-access warning inside the menu
   await button.press('ArrowDown');
   await expect(warning).toBeVisible();
   await expect(warning).toContainText('Broad access');
+  await expect(warning).toContainText('⚠');
+  await expect(page.getByLabel('Profile', { exact: true }).locator('option[value="host"]')).toHaveText('Host ⚠');
+  await expect(page.getByLabel('Without a rule', { exact: true }).locator('option[value="permit"]')).toHaveText('Permit ⚠');
   await expect(page.getByRole('button', { name: 'Open permission rules' })).toBeFocused();
   await expect(page.getByLabel('Profile', { exact: true })).toBeDisabled();
   await expect(page.getByLabel('Without a rule', { exact: true })).toBeDisabled();

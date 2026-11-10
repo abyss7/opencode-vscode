@@ -1566,7 +1566,7 @@ button.delivery-indicator:focus-visible {
   padding: 0 8px 8px;
 }
 .config-bar[hidden] { display: none; }
-.agent-label { width: 100%; max-width: 900px; margin: 0 auto 6px; color: var(--oc-secondary); font-size: 11px; }
+.agent-label { grid-column: 1; grid-row: 1; min-width: 0; justify-self: start; overflow-wrap: anywhere; color: var(--oc-secondary); font: 11px var(--vscode-font-family); }
 .prompt-box { min-width: 0; border: 1px solid var(--oc-border); border-radius: 8px; background: var(--vscode-input-background); }
 .prompt-box:has(#input:focus) { border-color: var(--vscode-focusBorder); box-shadow: 0 0 0 2px var(--vscode-focusBorder); }
 .prompt-box #input { display: block; border: 0; background: transparent; }
@@ -1891,11 +1891,10 @@ button.delivery-indicator:focus-visible {
 }
 
 .usage-bar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content) minmax(0, 1fr);
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+  gap: 4px 10px;
   width: 100%;
   margin: 0;
   color: var(--oc-secondary);
@@ -1905,6 +1904,15 @@ button.delivery-indicator:focus-visible {
 
 .usage-item {
   white-space: nowrap;
+}
+.usage-bar > #usage { grid-column: 2; grid-row: 1; min-width: 0; text-align: center; white-space: normal; overflow-wrap: anywhere; }
+.usage-details { grid-column: 3; grid-row: 1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 10px; min-width: 0; text-align: right; }
+.usage-details .usage-item { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+
+@media (max-width: 700px) {
+  .usage-bar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .usage-details { grid-column: 2; }
+  .usage-bar > #usage { grid-column: 1 / -1; grid-row: 2; }
 }
 
 .usage-item a {

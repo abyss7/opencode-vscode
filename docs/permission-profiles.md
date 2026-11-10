@@ -5,10 +5,13 @@ The permissions menu contains the **Profile** and **Without a rule** selectors,
 plus **Rules…** to open the project's remembered decisions. Current values remain
 visible with the menus closed. The permissions button stays neutral; a warning
 inside its menu explains broad-access profiles or Permit when selected.
+Host, All and Permit choices carry a warning icon inside the menu, not on its button.
 Effort lives inside the model menu and uses that model's available levels.
 Menus support keyboard navigation, Escape and outside-click dismissal, and wrap
 onto separate rows in narrow panels. The current agent is a quiet label above
-the input, fixed
+the input, sharing a row with centered context/compaction and right-aligned billing
+details. Image attachments appear above this row. Narrow panels put context on
+a centered second row to avoid overlap. The agent is fixed
 when the session is initialized. The **Agent for new sessions** card is pinned to
 the bottom of the **Sessions** view itself. The list above it scrolls independently;
 moving Sessions to another sidebar also moves the selector. There is no second

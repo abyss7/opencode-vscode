@@ -66,16 +66,18 @@
       <div id="questions" class="questions" aria-live="polite" hidden></div>
       <div id="slash-menu" class="slash-menu" role="listbox" aria-label="Commands and skills" hidden></div>
       <div id="composer-controls">
-      <div id="agent-label" class="agent-label" hidden></div>
       <div class="input-row">
         <div class="input-stack">
           <div id="attachments" class="attachments" hidden></div>
           <div id="selection-context" hidden></div>
           <div class="usage-bar">
+            <span id="agent-label" class="agent-label" hidden></span>
             <span id="usage" class="usage-item"></span>
-            <span id="usage-cost" class="usage-item"></span>
-            <span id="usage-subscription" class="usage-item" hidden>ChatGPT plan · <a id="usage-link" href="https://chatgpt.com/settings/usage" title="View ChatGPT plan and app usage limits">usage ↗</a></span>
-            <span id="usage-reset" class="usage-item"></span>
+            <div class="usage-details">
+              <span id="usage-cost" class="usage-item"></span>
+              <span id="usage-subscription" class="usage-item" hidden>ChatGPT plan · <a id="usage-link" href="https://chatgpt.com/settings/usage" title="View ChatGPT plan and app usage limits">usage ↗</a></span>
+              <span id="usage-reset" class="usage-item"></span>
+            </div>
           </div>
           <div class="prompt-box">
             <textarea id="input" rows="1" placeholder="Ask OpenCode…" disabled></textarea>
