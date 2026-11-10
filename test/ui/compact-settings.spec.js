@@ -14,6 +14,7 @@ const config = (effort = 'high') => ({ type: 'config', configOptions: [
 ] });
 const policy = (changes = {}) => ({ type: 'permissionProfile', selected: 'workspace', newActions: 'smart', profiles: [
   { id: 'workspace', label: 'Workspace' }, { id: 'all', label: 'All ⚠' },
+  { id: 'host', label: 'Host' },
 ], ...changes });
 
 async function insideViewport(page, locator) {
@@ -82,12 +83,17 @@ test('search filters models, handles no matches and keyboard selection without c
   await expect(page.getByRole('dialog', { name: 'Model settings' })).toBeHidden();
 });
 
-test('permission summary warns for broad access, retains locked details and opens rules', async ({ page, chat }) => {
+test('permission summary stays neutral with broad-access warning inside the menu', async ({ page, chat }) => {
   await chat.send(config(), policy({ selected: 'all', newActions: 'permit', fallbackLocked: true, inherited: true }));
   const button = page.getByRole('button', { name: 'Permissions', exact: true });
-  await expect(button).toHaveClass(/permission-warning/);
-  await expect(button).toContainText('All ⚠·Permit');
+  await expect(button).not.toHaveClass(/permission-warning/);
+  await expect(button).toHaveText('All·Permit');
+  await expect(button).not.toContainText('⚠');
+  const warning = page.locator('.permission-access-warning');
+  await expect(warning).toBeHidden();
   await button.press('ArrowDown');
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('Broad access');
   await expect(page.getByRole('button', { name: 'Open permission rules' })).toBeFocused();
   await expect(page.getByLabel('Profile', { exact: true })).toBeDisabled();
   await expect(page.getByLabel('Without a rule', { exact: true })).toBeDisabled();
@@ -99,7 +105,28 @@ test('permission summary warns for broad access, retains locked details and open
   await expect(page.getByRole('dialog', { name: 'Permissions settings' })).toBeHidden();
   await chat.send(policy());
   await expect(button).not.toHaveClass(/permission-warning/);
+  await expect(warning).toHaveCount(0);
 });
+
+for (const [name, changes, explanation] of [
+  ['Host', { selected: 'host', newActions: 'permit', fallbackLocked: true }, 'Broad access'],
+  ['Permit fallback', { newActions: 'permit' }, 'actions without a matching rule'],
+]) {
+  test(`${name} only warns within the open permissions menu`, async ({ page, chat }) => {
+    await chat.send(config(), policy(changes));
+    const button = page.getByRole('button', { name: 'Permissions', exact: true });
+    const warning = page.locator('.permission-access-warning');
+    await expect(button).not.toHaveClass(/permission-warning/);
+    await expect(button).not.toContainText('⚠');
+    await expect(warning).toBeHidden();
+    await button.click();
+    await expect(warning).toBeVisible();
+    await expect(warning).toContainText(explanation);
+    await page.keyboard.press('Escape');
+    await expect(warning).toBeHidden();
+    await expect(button).toBeFocused();
+  });
+}
 
 test('permission saves and rejected changes restore keyboard focus in the open menu', async ({ page, chat }) => {
   await chat.send(config(), policy());

@@ -2846,19 +2846,19 @@
       { id: 'smart', label: 'Smart' }, { id: 'permit', label: 'Permit' },
     ];
     const profileName = current.profiles.find((item) => item.id === current.selected)?.label || current.selected;
+    // Keep the built-in All warning in the selector, not on the closed summary.
+    const summaryName = current.selected === 'all' && profileName === 'All ⚠' ? 'All' : profileName;
     const fallbackName = fallbackChoices.find((item) => item.id === current.newActions)?.label || current.newActions;
     const warning = ['host', 'all'].includes(current.selected) || current.newActions === 'permit';
-    button.classList.toggle('permission-warning', warning);
-    if (warning) {
-      const icon = el('span', 'permission-warning-icon', '⚠');
-      icon.setAttribute('aria-hidden', 'true');
-      button.appendChild(icon);
-    }
-    button.append(el('span', 'model-name', profileName), el('span', 'settings-separator', '·'),
+    button.append(el('span', 'model-name', summaryName), el('span', 'settings-separator', '·'),
       el('span', 'permission-fallback', fallbackName), OpenCodeModelPicker.chevron());
-    button.title = `Permissions: ${profileName} · ${fallbackName}${current.inherited ? ' · Inherited from parent' : ''}`;
+    button.title = `Permissions: ${summaryName} · ${fallbackName}${current.inherited ? ' · Inherited from parent' : ''}`;
     button.setAttribute('aria-description', button.title);
     panel.appendChild(el('div', 'session-settings-heading', 'Permissions'));
+    if (warning) panel.appendChild(el('div', 'session-settings-note permission-note permission-access-warning',
+      ['host', 'all'].includes(current.selected)
+        ? 'Broad access: this profile permits all actions unless explicit rules restrict them.'
+        : 'Permit allows actions without a matching rule. Explicit restrictions still apply.'));
     const makeSelect = (caption, choices, value, field, disabled) => {
       const label = el('label', 'config permission-field');
       label.appendChild(el('span', null, caption));

@@ -1697,8 +1697,7 @@ button.delivery-indicator:focus-visible {
 .permission-note { padding: 0 12px 12px; }
 .permission-picker .permission-rules-link { display: block; width: 100%; border-top: 1px solid var(--oc-border); padding: 10px 12px; text-align: left; font-size: 12px; }
 .permission-picker .permission-rules-link:hover { background: var(--vscode-list-hoverBackground); }
-.permission-picker .permission-warning { color: var(--vscode-editorWarning-foreground, var(--vscode-charts-orange, #cca700)); border-color: currentColor; }
-.permission-warning-icon { flex: none; }
+.permission-access-warning { color: var(--vscode-editorWarning-foreground, var(--vscode-charts-orange, #cca700)); }
 
 .model-picker { min-width: 0; max-width: 100%; }
 .model-picker-button {
