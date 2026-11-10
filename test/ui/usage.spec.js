@@ -44,7 +44,7 @@ test('billed tokens are not presented as context and unknown limits stay unknown
   expect(await meter.evaluate((node) => node.style.getPropertyValue('--context-used'))).toBe('0%');
 });
 
-test('filled thirds keep their colors and cached prefix uses the capacity scale', async ({ page, chat }) => {
+test('the entire fill changes color by usage and cached prefix uses the capacity scale', async ({ page, chat }) => {
   await chat.send({ type: 'modelLimit', context: 300000 });
   const meter = page.locator('#usage');
   for (const [used, percent] of [[75000, 25], [150000, 50], [225000, 75], [300000, 100]]) {
@@ -52,21 +52,39 @@ test('filled thirds keep their colors and cached prefix uses the capacity scale'
     const styles = await meter.evaluate((node) => ({
       used: parseFloat(node.style.getPropertyValue('--context-used')),
       cached: parseFloat(node.style.getPropertyValue('--context-cached')),
-      gradient: getComputedStyle(node.querySelector('.usage-fill')).backgroundImage,
+      color: getComputedStyle(node.querySelector('.usage-fill')).backgroundColor,
+      image: getComputedStyle(node.querySelector('.usage-fill')).backgroundImage,
       clip: getComputedStyle(node.querySelector('.usage-fill')).clipPath,
       gray: getComputedStyle(node.querySelector('.usage-cache')).backdropFilter,
     }));
     expect(styles.used).toBe(percent);
     expect(styles.cached).toBe(percent / 2);
-    expect(styles.gradient).toMatch(/rgb\(70, 185, 130\).*33\.3333%.*rgb\(214, 181, 77\).*66\.6667%.*rgb\(224, 108, 117\)/);
+    expect(styles.color).toBe(percent >= 200 / 3 ? 'rgb(224, 108, 117)' : percent >= 100 / 3 ? 'rgb(214, 181, 77)' : 'rgb(70, 185, 130)');
+    expect(styles.image).toBe('none');
     expect(styles.clip).toBe(`inset(0px ${100 - percent}% 0px 0px)`);
     expect(styles.gray).toBe('grayscale(0.65)');
     const track = await meter.locator('.usage-track').boundingBox();
     const cache = await meter.locator('.usage-cache').boundingBox();
     expect(cache.x).toBe(track.x);
     expect(cache.width / track.width).toBeCloseTo(percent / 200, 2);
-    if (percent === 75) await chat.snapshot('context-meter-three-zones');
+    if (percent === 75) await chat.snapshot('context-meter-solid-red');
   }
+});
+
+test('fill color switches exactly at one third and two thirds in both directions', async ({ page, chat }) => {
+  await chat.send({ type: 'modelLimit', context: 300000 });
+  const fill = page.locator('#usage .usage-fill');
+  for (const [used, color] of [
+    [0, '70, 185, 130'], [99999, '70, 185, 130'],
+    [100000, '214, 181, 77'], [100001, '214, 181, 77'], [199999, '214, 181, 77'],
+    [200000, '224, 108, 117'], [200001, '224, 108, 117'], [400000, '224, 108, 117'],
+    [199999, '214, 181, 77'], [99999, '70, 185, 130'],
+  ]) {
+    await chat.update({ sessionUpdate: 'usage_update', used });
+    await expect(fill).toHaveCSS('background-color', `rgb(${color})`);
+  }
+  await chat.update({ sessionUpdate: 'usage_update', used: -1 });
+  await expect(fill).toHaveCSS('background-color', 'rgb(70, 185, 130)');
 });
 
 test('meter width depends only on the interface, not model limits, usage or billing', async ({ page, chat }) => {

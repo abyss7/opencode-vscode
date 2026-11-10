@@ -1938,10 +1938,11 @@ button.delivery-indicator:focus-visible {
 .usage-fill {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to right, #46b982 0% 33.333333%, #d6b54d 33.333333% 66.666667%, #e06c75 66.666667% 100%);
-  /* Clip a full-width gradient so the color zones never scale with usage. */
+  background: #46b982;
   clip-path: inset(0 calc(100% - var(--context-used, 0%)) 0 0);
 }
+.usage-meter[data-context-level="yellow"] .usage-fill { background: #d6b54d; }
+.usage-meter[data-context-level="red"] .usage-fill { background: #e06c75; }
 .usage-cache {
   position: absolute;
   inset: 0 auto 0 0;

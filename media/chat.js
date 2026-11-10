@@ -2623,6 +2623,8 @@
     const percent = (value) => capacity > 0 && Number.isFinite(value)
       ? Math.max(0, Math.min(100, value / capacity * 100)) : 0;
     const read = cache ? Number(cache.read) : 0;
+    const fraction = known ? used / capacity : 0;
+    usageEl.dataset.contextLevel = fraction >= 2 / 3 ? 'red' : fraction >= 1 / 3 ? 'yellow' : 'green';
     usageEl.style.setProperty('--context-used', `${percent(used)}%`);
     usageEl.style.setProperty('--context-cached', `${percent(Math.min(used || 0, read))}%`);
     usageEl.style.setProperty('--context-threshold', `${percent(threshold)}%`);
