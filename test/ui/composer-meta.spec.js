@@ -36,7 +36,7 @@ test('agent, centered context and right-aligned billing share the input metadata
     expect(left.y + left.height).toBeLessThanOrEqual(center.y);
     expect(right.y + right.height).toBeLessThanOrEqual(center.y);
   }
-  await expect(page.locator('#usage')).toHaveAttribute('title', /Compaction threshold: 425,000 tokens/);
+  await expect(page.locator('#usage')).toHaveAttribute('aria-label', /Compaction threshold: 425,000 tokens/);
   await expect(page.locator('#usage-subscription')).toBeVisible();
   await chat.snapshot('composer-meta');
 });

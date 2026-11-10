@@ -456,7 +456,7 @@ assert.strictEqual(ids.input.focused, true);
 send({ type: 'compaction', compaction: { auto: true, buffer: 800000 } });
 send({ type: 'turnEnd', stopReason: 'end_turn', usage: { used: 120000, size: 1048576 } });
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 120,000 tokens\nContext capacity: 1,048,576 tokens\nCompaction threshold: 248,576 tokens'
 );
 
@@ -464,14 +464,14 @@ assert.strictEqual(
 send({ type: 'compaction', compaction: { auto: true } });
 send({ type: 'turnEnd', stopReason: 'end_turn', usage: { used: 120000, size: 200000 } });
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 120,000 tokens\nContext capacity: 200,000 tokens\nCompaction threshold: 170,000 tokens'
 );
 
 // Automatic compaction off hides the tick and explains the disabled state.
 send({ type: 'compaction', compaction: { auto: false } });
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 120,000 tokens\nContext capacity: 200,000 tokens\nAutomatic compaction: disabled'
 );
 assert.strictEqual(usageThreshold.hidden, true);
@@ -483,7 +483,7 @@ send({
   update: { sessionUpdate: 'usage_update', used: 90000, size: 1048576 },
 });
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 90,000 tokens\nContext capacity: 1,048,576 tokens\nCompaction threshold: 248,576 tokens'
 );
 send({
@@ -491,7 +491,7 @@ send({
   update: { sessionUpdate: 'usage_update', used: 91000, size: 1048576 },
 });
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 91,000 tokens\nContext capacity: 1,048,576 tokens\nCompaction threshold: 248,576 tokens'
 );
 
@@ -499,7 +499,7 @@ assert.strictEqual(
 send({ type: 'compaction', compaction: { auto: true, buffer: 20000 } });
 send({ type: 'modelLimit', context: 200000, input: 160000 });
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 91,000 tokens\nContext capacity: 160,000 tokens\nCompaction threshold: 140,000 tokens'
 );
 assert.strictEqual(ids.usage.textContent, '');
@@ -638,7 +638,7 @@ assert.strictEqual(
 assert.strictEqual(billedBlock.dataset.exact, '1');
 assert.ok(billedTokens.title.startsWith('Billed tokens for this turn: input 12k'));
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 93,000 tokens\nContext capacity: 160,000 tokens\nCompaction threshold: 140,000 tokens'
 );
 
@@ -665,7 +665,7 @@ send({
   at: Date.now() - 2 * 3600 * 1000,
 });
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 120,000 tokens\nContext capacity: 160,000 tokens\nCached context: 115,000 tokens (95.833% of current context; measured 2 hours ago)\nCompaction threshold: 140,000 tokens'
 );
 assert.strictEqual(ids.usage.style['--context-used'], '75%');
@@ -681,21 +681,21 @@ send({
   at: 0,
 });
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 8,000 tokens\nContext capacity: 160,000 tokens\nCached context: 7,999 tokens (99.987% of current context)\nCompaction threshold: 140,000 tokens'
 );
 
 // 100% is printed only when the whole prompt came from the cache.
 send({ type: 'cacheStats', prompt: 5000, input: 0, read: 5000, write: 0, at: 0 });
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 5,000 tokens\nContext capacity: 160,000 tokens\nCached context: 5,000 tokens (100% of current context)\nCompaction threshold: 140,000 tokens'
 );
 
 // Without a known measurement time only the share is printed.
 send({ type: 'cacheStats', prompt: 50000, input: 50000, read: 0, write: 0, at: 0 });
 assert.strictEqual(
-  ids.usage.title,
+  ids.usage.getAttribute('aria-label'),
   'Context used: 50,000 tokens\nContext capacity: 160,000 tokens\nCached context: 0 tokens (0% of current context)\nCompaction threshold: 140,000 tokens'
 );
 send({ type: 'cacheStats' });

@@ -17,6 +17,7 @@
   const activityTargetEl = document.getElementById('activity-target');
   const activityJump = document.getElementById('activity-jump');
   const usageEl = document.getElementById('usage');
+  const usageTooltipEl = el('span', 'usage-tooltip');
   const usageCostEl = document.getElementById('usage-cost');
   const usageSubscriptionEl = document.getElementById('usage-subscription');
   const usageLinkEl = document.getElementById('usage-link');
@@ -2571,6 +2572,14 @@
     return total - Math.max(Math.floor(total * 0.15), total >= 32000 ? 16000 : 0);
   }
 
+  function positionUsageTooltip() {
+    if (!usageEl || usageTooltipEl.hidden) return;
+    const rect = usageEl.getBoundingClientRect();
+    const width = usageTooltipEl.getBoundingClientRect().width;
+    usageTooltipEl.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2))}px`;
+    usageTooltipEl.style.top = `${Math.max(8, rect.top - usageTooltipEl.offsetHeight - 6)}px`;
+  }
+
   function updateUsageBar() {
     if (!usageEl) return;
     usageResetEl.title = 'Budget reset time';
@@ -2598,7 +2607,8 @@
       parts.push('Automatic compaction: disabled');
     }
     const description = parts.join('\n');
-    usageEl.title = description;
+    usageTooltipEl.textContent = parts.join(' · ');
+    positionUsageTooltip();
     usageEl.setAttribute('aria-label', description);
     const known = capacity > 0 && used !== null;
     usageEl.setAttribute('role', known ? 'meter' : 'img');
@@ -4021,6 +4031,23 @@
       // Ignore focus errors in older webviews.
     }
   });
+
+  usageTooltipEl.id = 'usage-tooltip';
+  usageTooltipEl.setAttribute('role', 'tooltip');
+  usageTooltipEl.hidden = true;
+  document.body.appendChild(usageTooltipEl);
+  if (usageEl) {
+    usageEl.setAttribute('aria-describedby', usageTooltipEl.id);
+    const show = () => { usageTooltipEl.hidden = false; positionUsageTooltip(); };
+    const hide = () => { usageTooltipEl.hidden = true; };
+    usageEl.addEventListener('pointerenter', show);
+    usageEl.addEventListener('pointerleave', () => { if (document.activeElement !== usageEl) hide(); });
+    usageEl.addEventListener('focus', show);
+    usageEl.addEventListener('blur', () => { if (!usageEl.matches(':hover')) hide(); });
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') hide(); });
+    document.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', positionUsageTooltip);
+  }
 
   resizeInput();
   updateComposer();

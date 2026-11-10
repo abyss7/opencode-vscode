@@ -11,7 +11,7 @@ test('context meter has an exact descriptive tooltip and a separate compaction m
   const meter = page.locator('#usage');
   const details = 'Context used: 1,200 tokens\nContext capacity: 1,000,000 tokens\nCached context: 1,152 tokens (96% of current context; measured 2 hours ago)';
   await expect(meter).toHaveText('');
-  await expect(meter).toHaveAttribute('title', `${details}\nCompaction threshold: 980,000 tokens`);
+  await expect(meter).not.toHaveAttribute('title');
   await expect(meter).toHaveAttribute('aria-label', `${details}\nCompaction threshold: 980,000 tokens`);
   await expect(meter).toHaveAttribute('role', 'meter');
   await expect(meter).toHaveAttribute('aria-valuemax', '1000000');
@@ -23,7 +23,7 @@ test('context meter has an exact descriptive tooltip and a separate compaction m
   const mark = await meter.locator('.usage-threshold').boundingBox();
   expect((mark.x + mark.width / 2 - track.x) / track.width).toBeCloseTo(0.98, 3);
   await chat.send({ type: 'compaction', compaction: { auto: false } });
-  await expect(meter).toHaveAttribute('title', `${details}\nAutomatic compaction: disabled`);
+  await expect(meter).toHaveAttribute('aria-label', `${details}\nAutomatic compaction: disabled`);
   await expect(meter.locator('.usage-threshold')).toBeHidden();
   await meter.focus();
   await expect(meter).toBeFocused();
@@ -32,14 +32,14 @@ test('context meter has an exact descriptive tooltip and a separate compaction m
 test('billed tokens are not presented as context and unknown limits stay unknown', async ({ page, chat }) => {
   await chat.send({ type: 'turnEnd', usage: { totalTokens: 99000 } });
   const meter = page.locator('#usage');
-  await expect(meter).toHaveAttribute('title', 'Context used: unknown\nContext capacity: unknown');
+  await expect(meter).toHaveAttribute('aria-label', 'Context used: unknown\nContext capacity: unknown');
   await expect(meter).toHaveAttribute('role', 'img');
   await expect(meter.locator('.usage-threshold')).toBeHidden();
   await chat.send({ type: 'modelLimit', context: 1000000 });
-  await expect(meter).toHaveAttribute('title', 'Context used: unknown\nContext capacity: 1,000,000 tokens\nCompaction threshold: 850,000 tokens');
+  await expect(meter).toHaveAttribute('aria-label', 'Context used: unknown\nContext capacity: 1,000,000 tokens\nCompaction threshold: 850,000 tokens');
   await expect(meter).not.toHaveAttribute('aria-valuenow');
   await chat.update({ sessionUpdate: 'usage_update', used: 0 });
-  await expect(meter).toHaveAttribute('title', 'Context used: 0 tokens\nContext capacity: 1,000,000 tokens\nCompaction threshold: 850,000 tokens');
+  await expect(meter).toHaveAttribute('aria-label', 'Context used: 0 tokens\nContext capacity: 1,000,000 tokens\nCompaction threshold: 850,000 tokens');
   await expect(meter).toHaveAttribute('aria-valuenow', '0');
   expect(await meter.evaluate((node) => node.style.getPropertyValue('--context-used'))).toBe('0%');
 });
@@ -94,7 +94,7 @@ test('overflow is clamped visually without rounding the tooltip and resets clear
     { type: 'cacheStats', prompt: 150001, read: 150000 },
     { type: 'compaction', compaction: { buffer: -1000 } }
   );
-  await expect(meter).toHaveAttribute('title', /Context used: 150,001 tokens\nContext capacity: 100,000 tokens\nCached context: 150,000 tokens \(99\.999% of current context\)\nCompaction threshold: 101,000 tokens/);
+  await expect(meter).toHaveAttribute('aria-label', /Context used: 150,001 tokens\nContext capacity: 100,000 tokens\nCached context: 150,000 tokens \(99\.999% of current context\)\nCompaction threshold: 101,000 tokens/);
   for (const name of ['used', 'cached', 'threshold']) {
     expect(await meter.evaluate((node, key) => node.style.getPropertyValue(`--context-${key}`), name)).toBe('100%');
   }
@@ -103,11 +103,54 @@ test('overflow is clamped visually without rounding the tooltip and resets clear
   expect(await meter.evaluate((node) => node.style.getPropertyValue('--context-cached'))).toBe('60%');
   await chat.send({ type: 'cacheStats', prompt: 0 });
   await chat.update({ sessionUpdate: 'usage_update', used: 25000, size: 200000 });
-  await expect(meter).toHaveAttribute('title', /^Context used: 25,000 tokens/);
+  await expect(meter).toHaveAttribute('aria-label', /^Context used: 25,000 tokens/);
   expect(await meter.evaluate((node) => node.style.getPropertyValue('--context-cached'))).toBe('0%');
   await chat.send({ type: 'modelLimit', context: 0, input: 0 });
   await expect(meter).toHaveAttribute('aria-valuemax', '200000');
   expect(await meter.evaluate((node) => node.style.getPropertyValue('--context-used'))).toBe('12.5%');
+});
+
+test('styled horizontal tooltip supports hover, keyboard, live updates and viewport bounds', async ({ page, chat }) => {
+  await chat.send(
+    { type: 'modelLimit', context: 1000000 },
+    { type: 'cacheStats', prompt: 135500, read: 135290, at: Date.parse('2026-01-01T10:00:00Z') }
+  );
+  const meter = page.locator('#usage');
+  const tooltip = page.locator('#usage-tooltip');
+  await expect(tooltip).toBeHidden();
+  await expect(meter).toHaveAttribute('aria-describedby', 'usage-tooltip');
+  await meter.hover();
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveText('Context used: 135,500 tokens · Context capacity: 1,000,000 tokens · Cached context: 135,290 tokens (99.845% of current context; measured 2 hours ago) · Compaction threshold: 850,000 tokens');
+  const bounds = async () => {
+    const box = await tooltip.boundingBox();
+    const bar = await meter.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(7);
+    expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize().width - 7);
+    expect(box.y).toBeGreaterThanOrEqual(7);
+    expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
+    expect(await tooltip.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  };
+  await bounds();
+  expect(await tooltip.evaluate((node) => getComputedStyle(node).fontFamily)).toBe(await meter.evaluate((node) => getComputedStyle(node).fontFamily));
+  await chat.snapshot('context-horizontal-tooltip');
+  await chat.send({ type: 'compaction', compaction: { auto: false } });
+  await expect(tooltip).toContainText(' · Automatic compaction: disabled');
+  await page.setViewportSize({ width: 300, height: 900 });
+  await meter.hover();
+  await expect(tooltip).toBeVisible();
+  await bounds();
+  await page.mouse.move(0, 0);
+  await expect(tooltip).toBeHidden();
+  await meter.focus();
+  await expect(tooltip).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(tooltip).toBeHidden();
+  await page.locator('#input').focus();
+  await meter.focus();
+  await expect(tooltip).toBeVisible();
+  await page.locator('#input').focus();
+  await expect(tooltip).toBeHidden();
 });
 
 test('ChatGPT subscription opens usage settings and hides misleading zero cost and resets', async ({ page, chat }) => {

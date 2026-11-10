@@ -1639,7 +1639,8 @@ button.delivery-indicator:focus-visible {
 }
 .effort-ticks > span { width: 2px; height: 6px; background: var(--oc-secondary); }
 .effort-ticks > .effort-default-tick { height: 10px; background: transparent; border: 1px solid var(--oc-secondary); }
-.effort-tooltip {
+.effort-tooltip,
+.usage-tooltip {
   position: fixed;
   z-index: 1000;
   max-width: min(240px, calc(100vw - 8px));
@@ -1652,7 +1653,16 @@ button.delivery-indicator:focus-visible {
   overflow-wrap: anywhere;
   pointer-events: none;
 }
-.effort-tooltip[hidden] { display: none; }
+.effort-tooltip[hidden], .usage-tooltip[hidden] { display: none; }
+.usage-tooltip {
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  padding: 6px 9px;
+  font-family: var(--oc-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: normal;
+}
 .session-settings { min-width: 0; max-width: 100%; }
 .session-settings-popup {
   position: fixed;
