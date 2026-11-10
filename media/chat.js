@@ -333,7 +333,9 @@
       !canType ||
       (state.busy && hasImages) ||
       (inputEl.value.trim() === '' && !hasImages);
-    stopBtn.hidden = !state.busy;
+    const showStop = state.busy && inputEl.value.trim() === '' && !hasImages;
+    sendBtn.hidden = showStop;
+    stopBtn.hidden = !showStop;
     if (!canType) closeSlashMenu();
   }
 

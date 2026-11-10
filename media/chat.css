@@ -1567,10 +1567,12 @@ button.delivery-indicator:focus-visible {
 }
 .config-bar[hidden] { display: none; }
 .agent-label { grid-column: 1; grid-row: 1; min-width: 0; justify-self: start; overflow-wrap: anywhere; color: var(--oc-secondary); font: 11px var(--vscode-font-family); }
-.prompt-box { min-width: 0; border: 1px solid var(--oc-border); border-radius: 8px; background: var(--vscode-input-background); }
+.prompt-box { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; min-width: 0; border: 1px solid var(--oc-border); border-radius: 8px; background: var(--vscode-input-background); }
 .prompt-box:has(#input:focus) { border-color: var(--vscode-focusBorder); box-shadow: 0 0 0 2px var(--vscode-focusBorder); }
-.prompt-box #input { display: block; border: 0; background: transparent; }
+.prompt-box #input { grid-column: 1 / -1; display: block; border: 0; background: transparent; }
 .prompt-box #input:focus { box-shadow: none; }
+.prompt-box .config-bar { grid-column: 1; grid-row: 2; min-width: 0; }
+.prompt-actions { grid-column: 2; grid-row: 2; display: flex; margin: 0 8px 8px 0; }
 
 .config {
   display: flex;

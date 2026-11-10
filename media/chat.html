@@ -88,18 +88,20 @@
           <div class="prompt-box">
             <textarea id="input" rows="1" placeholder="Ask OpenCode…" disabled></textarea>
             <div id="config-bar" class="config-bar" hidden></div>
+            <div class="prompt-actions">
+              <button id="send" class="btn primary icon-btn" type="button" title="Send" aria-label="Send" disabled>
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 2.2 13.8 8h-4.1v5.8H6.3V8H2.2L8 2.2Z"/>
+                </svg>
+              </button>
+              <button id="stop" class="btn danger icon-btn" type="button" title="Stop" aria-label="Stop" hidden>
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1.4"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
-        <button id="send" class="btn primary icon-btn" type="button" title="Send" aria-label="Send" disabled>
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M8 2.2 13.8 8h-4.1v5.8H6.3V8H2.2L8 2.2Z"/>
-          </svg>
-        </button>
-        <button id="stop" class="btn danger icon-btn" type="button" title="Stop" aria-label="Stop" hidden>
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1.4"/>
-          </svg>
-        </button>
       </div>
       <div class="hint">
         <span>Enter to send · Shift+Enter for a new line · / for commands and skills</span>
