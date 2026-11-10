@@ -72,7 +72,13 @@
           <div id="selection-context" hidden></div>
           <div class="usage-bar">
             <span id="agent-label" class="agent-label" hidden></span>
-            <span id="usage" class="usage-item"></span>
+            <span id="usage" class="usage-meter" role="img" aria-label="Context usage unknown" tabindex="0">
+              <span class="usage-track" aria-hidden="true">
+                <span class="usage-fill"></span>
+                <span class="usage-cache"></span>
+              </span>
+              <span class="usage-threshold" aria-hidden="true" hidden></span>
+            </span>
             <div class="usage-details">
               <span id="usage-cost" class="usage-item"></span>
               <span id="usage-subscription" class="usage-item" hidden>ChatGPT plan · <a id="usage-link" href="https://chatgpt.com/settings/usage" title="View ChatGPT plan and app usage limits">usage ↗</a></span>

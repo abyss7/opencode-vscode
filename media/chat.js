@@ -2573,7 +2573,6 @@
 
   function updateUsageBar() {
     if (!usageEl) return;
-    usageEl.title = 'Context usage · compaction threshold';
     usageResetEl.title = 'Budget reset time';
     const usage = state.usage;
     const cache = state.cacheStats;
@@ -2581,17 +2580,43 @@
     const context = Number(limit.context) || Number(usage && usage.size) || 0;
     const window = Number(limit.input) || context;
     const prompt = cache && Number(cache.prompt) > 0 ? Number(cache.prompt) : 0;
-    const used = prompt > 0 ? prompt : usage && typeof usage.used === 'number' ? usage.used : null;
+    const rawUsed = prompt > 0 ? prompt : usage && typeof usage.used === 'number' ? usage.used : null;
+    const used = Number.isFinite(rawUsed) && rawUsed >= 0 ? rawUsed : null;
+    const capacity = Number.isFinite(window) && window > 0 ? window : 0;
+    const tokens = (value) => `${value.toLocaleString('en-US')} tokens`;
     const parts = [
-      `context: ${used === null ? '—' : formatCompact(used)}` +
-        (window > 0 ? ` / ${formatCompact(window)}` : '') +
-        cacheSuffix(cache),
+      `Context used: ${used === null ? 'unknown' : tokens(used)}`,
+      `Context capacity: ${capacity > 0 ? tokens(capacity) : 'unknown'}`,
     ];
+    const cached = cacheTooltip(cache);
+    if (cached) parts.push(cached);
     const threshold = compactionThreshold(context, limit.input);
-    if (threshold > 0) {
-      parts.push(`compaction at ${formatCompact(threshold)}`);
+    const hasThreshold = capacity > 0 && Number.isFinite(threshold) && threshold > 0;
+    if (hasThreshold) {
+      parts.push(`Compaction threshold: ${tokens(threshold)}`);
+    } else if (state.compaction && state.compaction.auto === false) {
+      parts.push('Automatic compaction: disabled');
     }
-    usageEl.textContent = parts.join(' · ');
+    const description = parts.join('\n');
+    usageEl.title = description;
+    usageEl.setAttribute('aria-label', description);
+    const known = capacity > 0 && used !== null;
+    usageEl.setAttribute('role', known ? 'meter' : 'img');
+    for (const [name, value] of Object.entries({
+      'aria-valuemin': known ? 0 : null,
+      'aria-valuemax': known ? capacity : null,
+      'aria-valuenow': known ? Math.min(used, capacity) : null,
+    })) {
+      if (value === null) usageEl.removeAttribute(name);
+      else usageEl.setAttribute(name, String(value));
+    }
+    const percent = (value) => capacity > 0 && Number.isFinite(value)
+      ? Math.max(0, Math.min(100, value / capacity * 100)) : 0;
+    const read = cache ? Number(cache.read) : 0;
+    usageEl.style.setProperty('--context-used', `${percent(used)}%`);
+    usageEl.style.setProperty('--context-cached', `${percent(Math.min(used || 0, read))}%`);
+    usageEl.style.setProperty('--context-threshold', `${percent(threshold)}%`);
+    usageEl.querySelector('.usage-threshold').hidden = !hasThreshold;
 
     const subscription = limit.subscription === true;
     if (usageSubscriptionEl) usageSubscriptionEl.hidden = !subscription;
@@ -2727,15 +2752,15 @@
    * from the stored counters of the newest assistant message. The share is
    * floored to three decimals, so it only reaches 100% when nothing was new.
    */
-  function cacheSuffix(cache) {
+  function cacheTooltip(cache) {
     const prompt = cache && Number(cache.prompt) > 0 ? Number(cache.prompt) : 0;
-    if (prompt <= 0) return '';
-    const read = Number(cache.read) || 0;
+    if (!Number.isFinite(prompt) || prompt <= 0) return '';
+    const read = Number.isFinite(Number(cache.read)) ? Math.max(0, Number(cache.read)) : 0;
     const percent = Math.floor((read / prompt) * 100000) / 1000;
-    const pieces = [`${percent}% cached`];
+    const pieces = [`${percent}% of current context`];
     const ago = formatAgo(cache.at);
-    if (ago) pieces.push(ago);
-    return ` (${pieces.join(' ')})`;
+    if (ago) pieces.push(`measured ${ago}`);
+    return `Cached context: ${read.toLocaleString('en-US')} tokens (${pieces.join('; ')})`;
   }
 
   function formatAgo(at) {
@@ -2744,10 +2769,11 @@
     const elapsed = Date.now() - time;
     if (!Number.isFinite(elapsed) || elapsed < 60000) return 'just now';
     const minutes = Math.floor(elapsed / 60000);
-    if (minutes < 60) return `${minutes} min ago`;
+    if (minutes < 60) return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
     const hours = Math.floor(minutes / 60);
-    if (hours < 36) return `${hours} h ago`;
-    return `${Math.floor(hours / 24)} d ago`;
+    if (hours < 36) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+    const days = Math.floor(hours / 24);
+    return `${days} ${days === 1 ? 'day' : 'days'} ago`;
   }
 
   function formatDuration(ms) {

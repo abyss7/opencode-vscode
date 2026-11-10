@@ -1895,7 +1895,7 @@ button.delivery-indicator:focus-visible {
 
 .usage-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, max-content) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 36%) minmax(0, 1fr);
   align-items: center;
   gap: 4px 10px;
   width: 100%;
@@ -1908,7 +1908,48 @@ button.delivery-indicator:focus-visible {
 .usage-item {
   white-space: nowrap;
 }
-.usage-bar > #usage { grid-column: 2; grid-row: 1; min-width: 0; text-align: center; white-space: normal; overflow-wrap: anywhere; }
+.usage-bar > #usage { grid-column: 2; grid-row: 1; min-width: 0; }
+.usage-meter {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 18px;
+  border-radius: 4px;
+}
+.usage-meter:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.usage-track {
+  position: absolute;
+  inset: 5px 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--oc-secondary) 15%, transparent);
+  box-shadow: inset 0 0 0 1px var(--oc-border-soft);
+}
+.usage-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, #46b982 0% 33.333333%, #d6b54d 33.333333% 66.666667%, #e06c75 66.666667% 100%);
+  /* Clip a full-width gradient so the color zones never scale with usage. */
+  clip-path: inset(0 calc(100% - var(--context-used, 0%)) 0 0);
+}
+.usage-cache {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--context-cached, 0%);
+  background: rgba(163, 169, 178, 0.48);
+  backdrop-filter: grayscale(0.65);
+}
+.usage-threshold {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: var(--context-threshold, 0%);
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: var(--vscode-editor-foreground, var(--vscode-foreground));
+  box-shadow: 0 0 0 1px var(--oc-input-bg);
+}
 .usage-details { grid-column: 3; grid-row: 1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 10px; min-width: 0; text-align: right; }
 .usage-details .usage-item { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 

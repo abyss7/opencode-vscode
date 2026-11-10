@@ -49,7 +49,8 @@ class Element {
     this.hidden = false;
     this.open = false;
     this.dataset = {};
-    this.style = {};
+    this.style = { setProperty(name, value) { this[name] = String(value); } };
+    this.attributes = {};
     this.title = '';
     this.disabled = false;
     this.value = '';
@@ -122,7 +123,11 @@ class Element {
     for (const listener of this.listeners[name] || []) listener(payload);
   }
 
-  setAttribute() {}
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+
+  removeAttribute(name) { delete this.attributes[name]; }
+
+  getAttribute(name) { return this.attributes[name] ?? null; }
 
   setSelectionRange() {}
 
@@ -216,6 +221,10 @@ ids.input.tagName = 'textarea';
 ids.send.tagName = 'button';
 ids.stop.tagName = 'button';
 ids.questions.hidden = true;
+const usageThreshold = new Element('span');
+usageThreshold.className = 'usage-threshold';
+usageThreshold.hidden = true;
+ids.usage.append(usageThreshold);
 
 const posted = [];
 let handler = null;
@@ -443,28 +452,29 @@ send({ type: 'focus' });
 assert.strictEqual(ids.messages.scrollTop, ids.messages.scrollHeight);
 assert.strictEqual(ids.input.focused, true);
 
-// The context line shows used / limit, without repeating the limit after compaction.
+// The context meter tooltip shows exact counts, without repeating the capacity.
 send({ type: 'compaction', compaction: { auto: true, buffer: 800000 } });
 send({ type: 'turnEnd', stopReason: 'end_turn', usage: { used: 120000, size: 1048576 } });
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 120k / 1M · compaction at 248.6k'
+  ids.usage.title,
+  'Context used: 120,000 tokens\nContext capacity: 1,048,576 tokens\nCompaction threshold: 248,576 tokens'
 );
 
 // Without a configured buffer the server default is 15% of the window.
 send({ type: 'compaction', compaction: { auto: true } });
 send({ type: 'turnEnd', stopReason: 'end_turn', usage: { used: 120000, size: 200000 } });
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 120k / 200k · compaction at 170k'
+  ids.usage.title,
+  'Context used: 120,000 tokens\nContext capacity: 200,000 tokens\nCompaction threshold: 170,000 tokens'
 );
 
-// Automatic compaction off leaves only the context size.
+// Automatic compaction off hides the tick and explains the disabled state.
 send({ type: 'compaction', compaction: { auto: false } });
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 120k / 200k'
+  ids.usage.title,
+  'Context used: 120,000 tokens\nContext capacity: 200,000 tokens\nAutomatic compaction: disabled'
 );
+assert.strictEqual(usageThreshold.hidden, true);
 
 // Restored usage from history is exact as stored, so it carries no estimate mark.
 send({ type: 'compaction', compaction: { auto: true, buffer: 800000 } });
@@ -473,25 +483,29 @@ send({
   update: { sessionUpdate: 'usage_update', used: 90000, size: 1048576 },
 });
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 90k / 1M · compaction at 248.6k'
+  ids.usage.title,
+  'Context used: 90,000 tokens\nContext capacity: 1,048,576 tokens\nCompaction threshold: 248,576 tokens'
 );
 send({
   type: 'update',
   update: { sessionUpdate: 'usage_update', used: 91000, size: 1048576 },
 });
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 91k / 1M · compaction at 248.6k'
+  ids.usage.title,
+  'Context used: 91,000 tokens\nContext capacity: 1,048,576 tokens\nCompaction threshold: 248,576 tokens'
 );
 
 // The provider input window wins over the context window.
 send({ type: 'compaction', compaction: { auto: true, buffer: 20000 } });
 send({ type: 'modelLimit', context: 200000, input: 160000 });
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 91k / 160k · compaction at 140k'
+  ids.usage.title,
+  'Context used: 91,000 tokens\nContext capacity: 160,000 tokens\nCompaction threshold: 140,000 tokens'
 );
+assert.strictEqual(ids.usage.textContent, '');
+assert.strictEqual(ids.usage.getAttribute('aria-valuemax'), '160000');
+assert.strictEqual(ids.usage.style['--context-used'], '56.875%');
+assert.strictEqual(usageThreshold.hidden, false);
 
 // Cost adds direct sub-agent spending and shows the DeepSeek balance.
 send({
@@ -624,8 +638,8 @@ assert.strictEqual(
 assert.strictEqual(billedBlock.dataset.exact, '1');
 assert.ok(billedTokens.title.startsWith('Billed tokens for this turn: input 12k'));
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 93k / 160k · compaction at 140k'
+  ids.usage.title,
+  'Context used: 93,000 tokens\nContext capacity: 160,000 tokens\nCompaction threshold: 140,000 tokens'
 );
 
 // A turn without its own steps must not overwrite an older turn block.
@@ -651,9 +665,11 @@ send({
   at: Date.now() - 2 * 3600 * 1000,
 });
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 120k / 160k (95.833% cached 2 h ago) · compaction at 140k'
+  ids.usage.title,
+  'Context used: 120,000 tokens\nContext capacity: 160,000 tokens\nCached context: 115,000 tokens (95.833% of current context; measured 2 hours ago)\nCompaction threshold: 140,000 tokens'
 );
+assert.strictEqual(ids.usage.style['--context-used'], '75%');
+assert.strictEqual(ids.usage.style['--context-cached'], '71.875%');
 
 // The share keeps three decimals: a nearly full cache must not round up to 100%.
 send({
@@ -665,22 +681,22 @@ send({
   at: 0,
 });
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 8k / 160k (99.987% cached) · compaction at 140k'
+  ids.usage.title,
+  'Context used: 8,000 tokens\nContext capacity: 160,000 tokens\nCached context: 7,999 tokens (99.987% of current context)\nCompaction threshold: 140,000 tokens'
 );
 
 // 100% is printed only when the whole prompt came from the cache.
 send({ type: 'cacheStats', prompt: 5000, input: 0, read: 5000, write: 0, at: 0 });
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 5k / 160k (100% cached) · compaction at 140k'
+  ids.usage.title,
+  'Context used: 5,000 tokens\nContext capacity: 160,000 tokens\nCached context: 5,000 tokens (100% of current context)\nCompaction threshold: 140,000 tokens'
 );
 
 // Without a known measurement time only the share is printed.
 send({ type: 'cacheStats', prompt: 50000, input: 50000, read: 0, write: 0, at: 0 });
 assert.strictEqual(
-  ids.usage.textContent,
-  'context: 50k / 160k (0% cached) · compaction at 140k'
+  ids.usage.title,
+  'Context used: 50,000 tokens\nContext capacity: 160,000 tokens\nCached context: 0 tokens (0% of current context)\nCompaction threshold: 140,000 tokens'
 );
 send({ type: 'cacheStats' });
 

@@ -2,24 +2,112 @@
 
 const { test, expect } = require('./fixture');
 
-test('context shows the input limit once and preserves the cache indicator', async ({ page, chat }) => {
+test('context meter has an exact descriptive tooltip and a separate compaction mark', async ({ page, chat }) => {
   await chat.send(
     { type: 'modelLimit', context: 1200000, input: 1000000 },
     { type: 'compaction', compaction: { auto: true, buffer: 20000 } },
     { type: 'cacheStats', prompt: 1200, read: 1152, at: Date.parse('2026-01-01T10:00:00Z') }
   );
-  await expect(page.locator('#usage')).toHaveText('context: 1.2k / 1M (96% cached 2 h ago) · compaction at 980k');
+  const meter = page.locator('#usage');
+  const details = 'Context used: 1,200 tokens\nContext capacity: 1,000,000 tokens\nCached context: 1,152 tokens (96% of current context; measured 2 hours ago)';
+  await expect(meter).toHaveText('');
+  await expect(meter).toHaveAttribute('title', `${details}\nCompaction threshold: 980,000 tokens`);
+  await expect(meter).toHaveAttribute('aria-label', `${details}\nCompaction threshold: 980,000 tokens`);
+  await expect(meter).toHaveAttribute('role', 'meter');
+  await expect(meter).toHaveAttribute('aria-valuemax', '1000000');
+  await expect(meter).toHaveAttribute('aria-valuenow', '1200');
+  await expect(meter.locator('.usage-threshold')).toBeVisible();
+  expect(await meter.evaluate((node) => parseFloat(node.style.getPropertyValue('--context-used')))).toBeCloseTo(0.12, 5);
+  expect(await meter.evaluate((node) => parseFloat(node.style.getPropertyValue('--context-cached')))).toBeCloseTo(0.1152, 5);
+  const track = await meter.locator('.usage-track').boundingBox();
+  const mark = await meter.locator('.usage-threshold').boundingBox();
+  expect((mark.x + mark.width / 2 - track.x) / track.width).toBeCloseTo(0.98, 3);
   await chat.send({ type: 'compaction', compaction: { auto: false } });
-  await expect(page.locator('#usage')).toHaveText('context: 1.2k / 1M (96% cached 2 h ago)');
+  await expect(meter).toHaveAttribute('title', `${details}\nAutomatic compaction: disabled`);
+  await expect(meter.locator('.usage-threshold')).toBeHidden();
+  await meter.focus();
+  await expect(meter).toBeFocused();
 });
 
 test('billed tokens are not presented as context and unknown limits stay unknown', async ({ page, chat }) => {
   await chat.send({ type: 'turnEnd', usage: { totalTokens: 99000 } });
-  await expect(page.locator('#usage')).toHaveText('context: —');
+  const meter = page.locator('#usage');
+  await expect(meter).toHaveAttribute('title', 'Context used: unknown\nContext capacity: unknown');
+  await expect(meter).toHaveAttribute('role', 'img');
+  await expect(meter.locator('.usage-threshold')).toBeHidden();
   await chat.send({ type: 'modelLimit', context: 1000000 });
-  await expect(page.locator('#usage')).toHaveText('context: — / 1M · compaction at 850k');
+  await expect(meter).toHaveAttribute('title', 'Context used: unknown\nContext capacity: 1,000,000 tokens\nCompaction threshold: 850,000 tokens');
+  await expect(meter).not.toHaveAttribute('aria-valuenow');
   await chat.update({ sessionUpdate: 'usage_update', used: 0 });
-  await expect(page.locator('#usage')).toHaveText('context: 0 / 1M · compaction at 850k');
+  await expect(meter).toHaveAttribute('title', 'Context used: 0 tokens\nContext capacity: 1,000,000 tokens\nCompaction threshold: 850,000 tokens');
+  await expect(meter).toHaveAttribute('aria-valuenow', '0');
+  expect(await meter.evaluate((node) => node.style.getPropertyValue('--context-used'))).toBe('0%');
+});
+
+test('filled thirds keep their colors and cached prefix uses the capacity scale', async ({ page, chat }) => {
+  await chat.send({ type: 'modelLimit', context: 300000 });
+  const meter = page.locator('#usage');
+  for (const [used, percent] of [[75000, 25], [150000, 50], [225000, 75], [300000, 100]]) {
+    await chat.send({ type: 'cacheStats', prompt: used, read: used / 2 });
+    const styles = await meter.evaluate((node) => ({
+      used: parseFloat(node.style.getPropertyValue('--context-used')),
+      cached: parseFloat(node.style.getPropertyValue('--context-cached')),
+      gradient: getComputedStyle(node.querySelector('.usage-fill')).backgroundImage,
+      clip: getComputedStyle(node.querySelector('.usage-fill')).clipPath,
+      gray: getComputedStyle(node.querySelector('.usage-cache')).backdropFilter,
+    }));
+    expect(styles.used).toBe(percent);
+    expect(styles.cached).toBe(percent / 2);
+    expect(styles.gradient).toMatch(/rgb\(70, 185, 130\).*33\.3333%.*rgb\(214, 181, 77\).*66\.6667%.*rgb\(224, 108, 117\)/);
+    expect(styles.clip).toBe(`inset(0px ${100 - percent}% 0px 0px)`);
+    expect(styles.gray).toBe('grayscale(0.65)');
+    const track = await meter.locator('.usage-track').boundingBox();
+    const cache = await meter.locator('.usage-cache').boundingBox();
+    expect(cache.x).toBe(track.x);
+    expect(cache.width / track.width).toBeCloseTo(percent / 200, 2);
+    if (percent === 75) await chat.snapshot('context-meter-three-zones');
+  }
+});
+
+test('meter width depends only on the interface, not model limits, usage or billing', async ({ page, chat }) => {
+  const meter = page.locator('#usage');
+  const initial = await meter.boundingBox();
+  for (const capacity of [32000, 500000, 1200000]) {
+    await chat.send(
+      { type: 'modelLimit', context: capacity, input: capacity - 1000 },
+      { type: 'cacheStats', prompt: capacity / 2, read: capacity / 4 },
+      { type: 'turnEnd', usage: { cost: { amount: 123.45, currency: 'USD' } } },
+      { type: 'subagents', items: [], totalCost: 98.76 }
+    );
+    const box = await meter.boundingBox();
+    expect(box.width).toBeCloseTo(initial.width, 1);
+    expect(box.x).toBeCloseTo(initial.x, 1);
+  }
+  await page.setViewportSize({ width: page.viewportSize().width > 700 ? 800 : 500, height: 900 });
+  expect((await meter.boundingBox()).width).not.toBeCloseTo(initial.width, 1);
+});
+
+test('overflow is clamped visually without rounding the tooltip and resets clear stale cache', async ({ page, chat }) => {
+  const meter = page.locator('#usage');
+  await chat.send(
+    { type: 'modelLimit', context: 100000 },
+    { type: 'cacheStats', prompt: 150001, read: 150000 },
+    { type: 'compaction', compaction: { buffer: -1000 } }
+  );
+  await expect(meter).toHaveAttribute('title', /Context used: 150,001 tokens\nContext capacity: 100,000 tokens\nCached context: 150,000 tokens \(99\.999% of current context\)\nCompaction threshold: 101,000 tokens/);
+  for (const name of ['used', 'cached', 'threshold']) {
+    expect(await meter.evaluate((node, key) => node.style.getPropertyValue(`--context-${key}`), name)).toBe('100%');
+  }
+  await expect(meter).toHaveAttribute('aria-valuenow', '100000');
+  await chat.send({ type: 'cacheStats', prompt: 60000, read: 90000 });
+  expect(await meter.evaluate((node) => node.style.getPropertyValue('--context-cached'))).toBe('60%');
+  await chat.send({ type: 'cacheStats', prompt: 0 });
+  await chat.update({ sessionUpdate: 'usage_update', used: 25000, size: 200000 });
+  await expect(meter).toHaveAttribute('title', /^Context used: 25,000 tokens/);
+  expect(await meter.evaluate((node) => node.style.getPropertyValue('--context-cached'))).toBe('0%');
+  await chat.send({ type: 'modelLimit', context: 0, input: 0 });
+  await expect(meter).toHaveAttribute('aria-valuemax', '200000');
+  expect(await meter.evaluate((node) => node.style.getPropertyValue('--context-used'))).toBe('12.5%');
 });
 
 test('ChatGPT subscription opens usage settings and hides misleading zero cost and resets', async ({ page, chat }) => {
