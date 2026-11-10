@@ -2636,12 +2636,26 @@
     usageEl.style.setProperty('--context-threshold', `${percent(threshold)}%`);
     usageEl.querySelector('.usage-threshold').hidden = !hasThreshold;
 
-    const subscription = limit.subscription === true;
+    // Billing is a selected-model presentation, not a sum of session ledgers.
+    const billing = limit.billing || { kind: limit.subscription ? 'subscription' : 'metered' };
+    const subscription = billing.kind === 'subscription';
+    const metered = billing.kind === 'metered';
     if (usageSubscriptionEl) usageSubscriptionEl.hidden = !subscription;
-    const cost = usage && usage.cost;
+    if (subscription && billing.label && usageSubscriptionEl) {
+      usageSubscriptionEl.firstChild.textContent = `${billing.label} · `;
+      usageLinkEl.href = billing.url;
+    }
+    const scoped = !!limit.model;
+    const split = state.costSplit;
+    const matches = !scoped || (split?.model?.providerID === limit.model.providerID
+      && split?.model?.id === limit.model.id);
+    const cost = scoped
+      ? matches && split ? { amount: split.total, currency: 'USD' } : null
+      : usage && usage.cost;
     const currency = (cost && cost.currency) || 'USD';
     const parentCost = cost && typeof cost.amount === 'number' ? cost.amount : 0;
-    const subagentCost = Number(state.subagentCost) || 0;
+    // Child totals have no model attribution; never add them to a model ledger.
+    const subagentCost = scoped ? 0 : Number(state.subagentCost) || 0;
     let costText = '';
     if (cost && typeof cost.amount === 'number' && (!subscription || parentCost + subagentCost > 0)) {
       costText = `cost: ${formatCost(parentCost + subagentCost, currency)}`;
@@ -2651,14 +2665,15 @@
     } else if (subagentCost > 0) {
       costText = `cost: ${formatCost(subagentCost, currency)} (sub-agents)`;
     }
-    const budget = subscription ? null : state.budget;
+    if (!metered) costText = '';
+    const budget = metered ? state.budget : null;
     if (budget && typeof budget.remaining === 'number') {
       const suffix =
         budget.modelMatched && budget.label ? ` for ${budget.label}` : '';
       costText +=
         (costText ? ' · ' : '') + `$${budget.remaining.toFixed(2)} left${suffix}`;
     }
-    const balance = subscription ? null : state.balance;
+    const balance = metered ? state.balance : null;
     if (balance && typeof balance.amount === 'number') {
       costText +=
         (costText ? ' · ' : '') +
@@ -2666,9 +2681,9 @@
     }
     usageCostEl.textContent = costText;
     usageCostEl.hidden = !costText;
-    usageCostEl.title = costTooltip(state.costSplit, subagentCost);
+    usageCostEl.title = metered && matches ? costTooltip(split, subagentCost) : '';
 
-    const resetAt = subscription ? 0 : nextReset(state.limits, budget);
+    const resetAt = metered ? nextReset(state.limits, budget) : 0;
     if (resetAt) {
       usageResetEl.textContent = `reset in ${formatDuration(resetAt - Date.now())}`;
       usageResetEl.hidden = false;
@@ -3510,11 +3525,17 @@
         setConfigOptions(message.configOptions);
         break;
       case 'limits':
+        if (message.model && state.modelLimit?.model &&
+            (message.model.providerID !== state.modelLimit.model.providerID ||
+             message.model.id !== state.modelLimit.model.id)) break;
         state.limits = message.limits || null;
         state.budget = message.budget || null;
         updateUsageBar();
         break;
       case 'balance':
+        if (message.model && state.modelLimit?.model &&
+            (message.model.providerID !== state.modelLimit.model.providerID ||
+             message.model.id !== state.modelLimit.model.id)) break;
         state.balance = message.balance || null;
         updateUsageBar();
         break;
@@ -3529,7 +3550,15 @@
         permissionRuleResult(message);
         break;
       case 'modelLimit':
+        if (message.model && (message.model.providerID !== state.modelLimit?.model?.providerID ||
+            message.model.id !== state.modelLimit?.model?.id)) {
+          state.balance = null;
+          state.budget = null;
+          state.limits = null;
+        }
         state.modelLimit = {
+          model: message.model,
+          billing: message.billing,
           context: Number(message.context) || 0,
           input: Number(message.input) || 0,
           subscription: message.subscription === true,
@@ -3551,8 +3580,9 @@
         break;
       case 'costSplit':
         state.costSplit =
-          message && Array.isArray(message.rows) && message.rows.length > 0
+          message && Array.isArray(message.rows)
             ? {
+                model: message.model,
                 total: Number(message.total) || 0,
                 rows: message.rows.map((row) => ({
                   key: String(row.key || ''),
@@ -3962,7 +3992,10 @@
   if (usageLinkEl) {
     usageLinkEl.addEventListener('click', (event) => {
       event.preventDefault();
-      vscode.postMessage({ type: 'openExternal', url: 'https://chatgpt.com/settings/usage' });
+      vscode.postMessage({
+        type: 'openExternal',
+        url: state.modelLimit?.billing?.url || 'https://chatgpt.com/settings/usage',
+      });
     });
   }
 

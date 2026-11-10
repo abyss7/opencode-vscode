@@ -1088,12 +1088,14 @@ class SessionPanel {
 
   async _refreshLimits() {
     if (this._disposed) return;
+    const ref = this._modelRef;
     try {
       const limits = await this.deps.api.getUsageLimits(this.cwd);
-      if (this._disposed) return;
+      if (this._disposed || this._modelRef !== ref) return;
       this._limits = limits;
       this._post({
         type: 'limits',
+        model: ref,
         limits,
         budget: resolveBudget(limits, this._modelRef),
       });
@@ -1145,8 +1147,11 @@ class SessionPanel {
       previous.providerID !== next.providerID ||
       previous.id !== next.id ||
       (next.variant || '') !== (previous.variant || '');
-    this._modelRef = next;
     if (!changed && !force) return;
+    this._modelRef = next;
+    if (force) this._costSplitPosted = '';
+    this._post({ type: 'modelLimit', model: next, billing: { kind: 'pending' } });
+    this._postCostSplit();
     this._refreshModelContext().then(() => {
       if (!this._disposed) this._refreshLimits();
     });
@@ -1198,6 +1203,9 @@ class SessionPanel {
         input,
         model: { providerID: ref.providerID, id: ref.id },
         subscription,
+        billing: subscription
+          ? { kind: 'subscription', label: 'ChatGPT plan', url: 'https://chatgpt.com/settings/usage' }
+          : { kind: 'metered' },
       });
     } catch (error) {
       this.deps.log(`Failed to resolve model limits: ${error.message}`);
@@ -1213,8 +1221,8 @@ class SessionPanel {
         command: this.deps.getConfig().command,
         force,
       });
-      if (this._disposed) return;
-      this._post({ type: 'balance', balance: balance || null });
+      if (this._disposed || this._modelRef !== ref) return;
+      this._post({ type: 'balance', model: ref, balance: balance || null });
       this._balanceErrorLogged = false;
     } catch (error) {
       if (!this._balanceErrorLogged) {
@@ -1223,8 +1231,8 @@ class SessionPanel {
           `Failed to load balance for ${ref.providerID}: ${error.message}`
         );
       }
-      if (this._disposed) return;
-      this._post({ type: 'balance', balance: null });
+      if (this._disposed || this._modelRef !== ref) return;
+      this._post({ type: 'balance', model: ref, balance: null });
     }
   }
 
@@ -1258,9 +1266,8 @@ class SessionPanel {
   /**
    * Per-tariff spending for the cost tooltip. The server stores the billed cost
    * of every step, so each step is accounted once with the prices of its own
-   * model: peak-hour rates and model switches stay honoured. Steps the API no
-   * longer lists (pre-compaction history) are covered by scaling the collected
-   * shares up to the stored session cost.
+   * model: peak-hour rates and model switches stay honoured. Never scale a
+   * model's spending to the mixed session total.
    */
   async _accountCosts(messages) {
     if (this._disposed || !this.sessionId) return;
@@ -1281,8 +1288,11 @@ class SessionPanel {
         message.tokens,
         prices.get(`${model.providerID}/${model.id}`),
         message.cost
-      );
-      if (step) this._costSteps.set(message.id, { ...step, cost: message.cost });
+      ) || (typeof message.cost === 'number'
+        ? { tokens: {}, shares: {}, billed: message.cost } : null);
+      if (step) this._costSteps.set(message.id, {
+        ...step, cost: message.cost, model: `${model.providerID}/${model.id}`,
+      });
     }
     this._postCostSplit();
   }
@@ -1307,8 +1317,12 @@ class SessionPanel {
   }
 
   _postCostSplit() {
-    if (this._disposed || this._costSteps.size === 0) return;
-    const summary = summarizeCost([...this._costSteps.values()], this._sessionCost);
+    if (this._disposed || !this._modelRef) return;
+    const model = this._modelRef;
+    const steps = [...(this._costSteps?.values() || [])].filter(
+      (step) => step.model === `${model.providerID}/${model.id}`
+    );
+    const summary = summarizeCost(steps);
     const labels = {
       input: 'input',
       output: 'output (incl. reasoning)',
@@ -1317,6 +1331,7 @@ class SessionPanel {
     };
     const message = {
       type: 'costSplit',
+      model: { providerID: model.providerID, id: model.id },
       total: summary.total,
       rows: summary.rows
         .filter((row) => row.tokens > 0)

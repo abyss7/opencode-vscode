@@ -191,9 +191,40 @@ test('ChatGPT subscription opens usage settings and hides misleading zero cost a
   await page.keyboard.press('Enter');
   expect(await chat.received('openExternal')).toEqual([{ type: 'openExternal', url: 'https://chatgpt.com/settings/usage' }]);
 
-  // Paid earlier models and subagents remain visible in a mixed session.
-  await chat.send({ type: 'subagents', items: [], totalCost: 0.25 });
-  await expect(page.locator('#usage-cost')).toHaveText('cost: $0.2500 (sub-agents $0.2500)');
+  // Other billing ledgers never leak into the selected subscription.
+  await chat.send(
+    { type: 'subagents', items: [], totalCost: 0.25 },
+    { type: 'turnEnd', usage: { cost: { amount: 0.617, currency: 'USD' } } }
+  );
+  await expect(page.locator('#usage-cost')).toBeHidden();
+});
+
+test('billing follows the selected model rather than the mixed session total', async ({ page, chat }) => {
+  const paid = { providerID: 'deepseek', id: 'chat' };
+  const subscription = { providerID: 'openai', id: 'chat' };
+  await chat.send(
+    { type: 'modelLimit', model: paid, billing: { kind: 'metered' } },
+    { type: 'turnEnd', usage: { cost: { amount: 99, currency: 'USD' } } },
+    { type: 'costSplit', model: paid, total: 0.18, rows: [] },
+    { type: 'subagents', items: [], totalCost: 5 }
+  );
+  await expect(page.locator('#usage-cost')).toHaveText('cost: $0.1800');
+  await chat.send({ type: 'modelLimit', model: subscription, billing: {
+    kind: 'subscription', label: 'ChatGPT plan', url: 'https://chatgpt.com/settings/usage',
+  } });
+  await expect(page.locator('#usage-cost')).toBeHidden();
+  await expect(page.locator('#usage-subscription')).toBeVisible();
+  await chat.send(
+    { type: 'modelLimit', model: paid, billing: { kind: 'pending' } },
+    { type: 'balance', model: subscription, balance: { amount: 999 } }
+  );
+  await expect(page.locator('#usage-cost')).toBeHidden();
+  await expect(page.locator('#usage-subscription')).toBeHidden();
+  await chat.send(
+    { type: 'modelLimit', model: paid, billing: { kind: 'metered' } },
+    { type: 'costSplit', model: subscription, total: 10, rows: [] }
+  );
+  await expect(page.locator('#usage-cost')).toBeHidden();
 });
 
 test('switching to API billing restores cost and DeepSeek balance', async ({ page, chat }) => {

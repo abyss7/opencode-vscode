@@ -231,6 +231,7 @@ async function checkSubscription() {
   };
   await panel._refreshModelContext();
   assert.strictEqual(messages.at(-1).subscription, true);
+  assert.strictEqual(messages.at(-1).billing.kind, 'subscription');
   assert.strictEqual(messages.at(-1).input, 160000);
   panel.deps.api.getChatGPTSubscription = async () => { throw new Error('offline'); };
   await panel._refreshModelContext();
@@ -248,6 +249,20 @@ async function checkSubscription() {
   await pending;
   assert.strictEqual(messages.length, count, 'old OpenAI response cannot overwrite the selected provider');
   assert.strictEqual(messages.at(-1).subscription, false);
+  assert.strictEqual(messages.at(-1).billing.kind, 'metered');
+
+  panel._costSteps = new Map([
+    ['paid', { model: 'deepseek/chat', billed: 0.5, tokens: { input: 100 }, shares: { input: 0.5 } }],
+    ['other', { model: 'other/chat', billed: 2, tokens: { input: 100 }, shares: { input: 2 } }],
+  ]);
+  panel._sessionCost = 99;
+  panel._postCostSplit();
+  assert.strictEqual(messages.at(-1).total, 0.5, 'selected model never scales to the session total');
+  assert.deepStrictEqual(messages.at(-1).model, { providerID: 'deepseek', id: 'chat' });
+  panel._modelRef = { providerID: 'new', id: 'chat' };
+  panel._postCostSplit();
+  assert.strictEqual(messages.at(-1).total, 0, 'a new model has no inherited spending');
+  assert.deepStrictEqual(messages.at(-1).rows, []);
 }
 
 async function checkUsageRestoration() {
