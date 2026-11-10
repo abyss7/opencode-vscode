@@ -25,7 +25,7 @@ test('provider icons and a full-sized chevron render with cross-origin webview r
   expect(await chevron.evaluate((svg) => svg.getBBox().width)).toBeGreaterThanOrEqual(9);
   await button.click();
   const list = page.getByRole('listbox', { name: 'Models' });
-  const icons = list.locator('.model-provider-icon');
+  const icons = list.getByRole('group', { name: 'All models' }).locator('.model-provider-icon');
   await expect(icons).toHaveCount(3);
   expect(await icons.evaluateAll((nodes) => nodes.every((svg) => svg.getBBox().width > 0))).toBe(true);
   await expect(list.locator('use')).toHaveCount(0);

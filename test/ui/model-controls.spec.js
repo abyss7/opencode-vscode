@@ -36,7 +36,7 @@ test('server default and Effort slider survive changes and reopening', async ({ 
   await expect.poll(() => model.locator('.model-provider-icon').evaluate((svg) => svg.getBBox().width)).toBeGreaterThan(0);
   await model.click();
   const list = page.getByRole('listbox', { name: 'Models' });
-  await expect(list.locator('.model-name')).toHaveText(['First', 'Preferred', 'Preferred']);
+  await expect(list.getByRole('group', { name: 'All models' }).locator('.model-name')).toHaveText(['First', 'Preferred', 'Preferred']);
   await expect(list.getByRole('option', { name: 'opencode: Preferred', exact: true }).locator('svg.model-provider-icon'))
     .toHaveAttribute('data-provider', 'opencode');
   await model.press('Escape');
@@ -97,11 +97,11 @@ test('model picker supports keyboard selection, typeahead, dismissal and failed-
   await expect(list).toBeHidden();
   expect(await chat.received('setConfigOption')).toHaveLength(0);
   await button.press('End');
-  await expect(button).toHaveAttribute('aria-activedescendant', /-2$/);
+  await expect(button).toHaveAttribute('aria-activedescendant', /-3$/);
   await button.press('Home');
   await expect(button).toHaveAttribute('aria-activedescendant', /-0$/);
   await button.press('b');
-  await expect(button).toHaveAttribute('aria-activedescendant', /-2$/);
+  await expect(button).toHaveAttribute('aria-activedescendant', /-3$/);
   await button.press('Enter');
   expect(await chat.received('setConfigOption')).toEqual([{ type: 'setConfigOption', configId: 'model', value: 'deepseek/b' }]);
   await button.press('Enter');
@@ -132,7 +132,7 @@ test('long catalogs stay in the viewport and unknown providers have safe fallbac
   const button = page.getByRole('combobox', { name: 'Model', exact: true });
   await button.press('End');
   const list = page.getByRole('listbox', { name: 'Models' });
-  const last = list.getByRole('option').last();
+  const last = list.getByRole('group', { name: 'All models' }).getByRole('option').last();
   await expect(last.locator('.model-provider-fallback')).toHaveText('CH');
   await expect(last.locator('img')).toHaveCount(0);
   await expect(last).toBeInViewport();
@@ -158,10 +158,50 @@ test('bundled provider logos load offline and follow the active theme color', as
   const providers = ['openai', 'opencode', 'deepseek', 'anthropic', 'google', 'xai', 'mistral', 'groq', 'openrouter', 'azure'];
   await chat.send(catalog(providers.map((id) => ({ value: `${id}/chat`, name: `${id}/Chat` }))));
   await page.getByRole('combobox', { name: 'Model', exact: true }).click();
-  const icons = page.getByRole('listbox', { name: 'Models' }).locator('svg');
+  const icons = page.getByRole('group', { name: 'All models' }).locator('svg');
   await expect(icons).toHaveCount(providers.length);
   await expect.poll(() => icons.evaluateAll((nodes) => nodes.every((svg) => svg.getBBox().width > 0))).toBe(true);
   await page.locator('.model-picker-list').evaluate((node) => { node.style.color = 'rgb(123, 45, 67)'; });
   await expect(icons.last()).toHaveCSS('color', 'rgb(123, 45, 67)');
   await chat.snapshot('provider-icons');
+});
+
+test('Recent pins the current model above three unique available models without shrinking the catalog', async ({ page, chat }) => {
+  const options = Array.from({ length: 6 }, (_, i) => ({ value: `openai/model-${i}`, name: `openai/Model ${i}` }));
+  const message = catalog(options, 'openai/model-4');
+  message.configOptions[0].recentValues = ['missing/model', 'openai/model-2', 'openai/model-4', 'openai/model-2',
+    'openai/model-1', 'openai/model-3', 'openai/model-0'];
+  await chat.send(message);
+  const button = page.getByRole('combobox', { name: 'Model', exact: true });
+  await button.click();
+  const recent = page.getByRole('group', { name: 'Recent', exact: true });
+  const all = page.getByRole('group', { name: 'All models', exact: true });
+  await expect(recent.locator('.model-name')).toHaveText(['Model 4', 'Model 2', 'Model 1', 'Model 3']);
+  await expect(all.locator('.model-name')).toHaveText(options.map((_, i) => `Model ${i}`));
+  await expect(recent.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+  await expect(all.getByRole('option', { name: 'openai: Model 4', exact: true })).toHaveAttribute('aria-selected', 'false');
+  await button.press('ArrowDown');
+  await button.press('Enter');
+  expect((await chat.received('setConfigOption')).at(-1).value).toBe('openai/model-2');
+  await chat.send(message);
+  await button.click();
+  const search = page.getByRole('searchbox', { name: 'Search models' });
+  await search.fill('model 2');
+  await expect(recent).toBeHidden();
+  await expect(all.getByRole('option')).toHaveCount(1);
+  await search.fill('unknown');
+  await expect(page.getByText('No matching models', { exact: true })).toBeVisible();
+  await search.fill(' ');
+  await expect(recent).toBeHidden();
+  await expect(all.getByRole('option')).toHaveCount(6);
+  await search.fill('');
+  await expect(recent).toBeVisible();
+  await expect(recent.locator('.model-name')).toHaveText(['Model 4', 'Model 2', 'Model 1', 'Model 3']);
+  await search.fill('model 2');
+  // Incoming host updates preserve the search and do not resurrect Recent.
+  await chat.send(message);
+  await expect(search).toHaveValue('model 2');
+  await expect(recent).toBeHidden();
+  await search.press('Enter');
+  expect((await chat.received('setConfigOption')).at(-1).value).toBe('openai/model-2');
 });

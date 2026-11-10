@@ -157,9 +157,14 @@
     list.setAttribute('role', 'listbox');
     list.setAttribute('aria-label', 'Models');
     search.setAttribute('aria-controls', list.id);
-    const entries = option.options.map((item) => ({ ...item, ...identity(item) }));
+    const catalog = option.options.map((item) => ({ ...item, ...identity(item) }));
+    const current = catalog.find((item) => item.value === option.currentValue)
+      || identity({ value: option.currentValue || '', name: 'No model selected' });
+    const recentValues = Array.isArray(option.recentValues) ? option.recentValues : [];
+    const recent = [...new Set([option.currentValue, ...recentValues])]
+      .map((value) => catalog.find((item) => item.value === value)).filter((item) => item?.value).slice(0, 4);
+    const entries = [...recent, ...catalog];
     const selected = entries.findIndex((item) => item.value === option.currentValue);
-    const current = entries[selected] || identity({ value: option.currentValue || '', name: 'No model selected' });
     button.append(icon(current.provider), element('span', 'model-name', current.name));
     if (effortLabel) {
       button.append(element('span', 'settings-separator', '·'), element('span', 'model-effort', effortLabel));
@@ -169,6 +174,19 @@
     button.setAttribute('aria-description', `${current.label}${effortLabel ? ` · Effort: ${effortLabel}` : ''}`);
     if (!entries.length && !effort) button.setAttribute('aria-disabled', 'true');
     panel.appendChild(list);
+    function group(label, className) {
+      const section = element('div', className);
+      section.setAttribute('role', 'group');
+      section.setAttribute('aria-label', label);
+      const heading = element('div', 'model-picker-heading', label);
+      heading.setAttribute('aria-hidden', 'true');
+      section.appendChild(heading);
+      list.appendChild(section);
+      return section;
+    }
+    const recentGroup = group('Recent', 'model-picker-recent');
+    recentGroup.hidden = !recent.length;
+    const allGroup = group('All models', 'model-picker-all');
     let active = selected >= 0 ? selected : 0;
     let typed = '';
     let typedAt = 0;
@@ -181,7 +199,7 @@
       row.title = item.label;
       if (item.description) row.title += `\n${item.description}`;
       row.append(icon(item.provider), element('span', 'model-name', item.name));
-      list.appendChild(row);
+      (index < recent.length ? recentGroup : allGroup).appendChild(row);
       listen(row, 'pointermove', () => activate(index, false));
       listen(row, 'mousedown', (event) => event.preventDefault());
       listen(row, 'click', () => choose(index));
@@ -208,6 +226,7 @@
 
     menu.onOpen = () => {
       search.value = '';
+      recentGroup.hidden = !recent.length;
       rows.forEach((row) => { row.hidden = false; });
       empty.hidden = true;
       activate(selected >= 0 ? selected : 0);
@@ -243,7 +262,11 @@
         event.preventDefault();
         const wasClosed = panel.hidden;
         if (wasClosed) open();
-        if (!wasClosed || event.key === 'Home' || event.key === 'End') activate(active + moves[event.key]);
+        if (!wasClosed || event.key === 'Home' || event.key === 'End') {
+          const visible = rows.map((row, index) => row.hidden ? -1 : index).filter((index) => index >= 0);
+          const next = Math.max(0, Math.min(visible.length - 1, visible.indexOf(active) + moves[event.key]));
+          if (visible.length) activate(visible[next]);
+        }
         return;
       }
       if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -257,7 +280,8 @@
       for (let offset = search.length === 1 ? 1 : 0; offset < entries.length + 1; offset++) {
         const index = (active + offset) % entries.length;
         const item = entries[index];
-        if (item && (item.name.toLowerCase().startsWith(search) || item.provider.toLowerCase().startsWith(search))) {
+        if (item && !rows[index].hidden
+          && (item.name.toLowerCase().startsWith(search) || item.provider.toLowerCase().startsWith(search))) {
           activate(index);
           break;
         }
@@ -265,7 +289,11 @@
     });
     listen(search, 'input', () => {
       const query = search.value.trim().toLowerCase();
-      rows.forEach((row, index) => { row.hidden = !entries[index].label.toLowerCase().includes(query); });
+      const searching = search.value.length > 0;
+      recentGroup.hidden = searching || !recent.length;
+      rows.forEach((row, index) => {
+        row.hidden = index < recent.length ? searching : !entries[index].label.toLowerCase().includes(query);
+      });
       const first = rows.findIndex((row) => !row.hidden);
       empty.hidden = first >= 0;
       button.removeAttribute('aria-activedescendant');

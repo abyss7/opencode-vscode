@@ -331,7 +331,9 @@ class SessionPanel {
   _post(message) {
     if (this._disposed) return;
     if (message.type === 'config' && Array.isArray(message.configOptions)) {
-      message = { ...message, configOptions: normalizeAgentOptions(message.configOptions) };
+      const recentValues = this.deps.workspaceState?.get('opencode.recentModels', []) || [];
+      message = { ...message, configOptions: normalizeAgentOptions(message.configOptions).map((option) =>
+        option.category === 'model' || option.id === 'model' ? { ...option, recentValues } : option) };
     }
     this.panel.webview.postMessage(message).then(undefined, (error) => {
       this.deps.log(`Webview postMessage failed: ${error.message}`);
@@ -938,6 +940,17 @@ class SessionPanel {
     try {
       const options = await this._client.setConfigOption(configId, value);
       if (this._disposed) return;
+      if ((configId === 'model' || option?.category === 'model') && this.deps.workspaceState) {
+        const stored = this.deps.workspaceState.get('opencode.recentModels', []);
+        const recent = [...new Set([value, option?.currentValue, ...(Array.isArray(stored) ? stored : [])])]
+          .filter((item) => typeof item === 'string' && item).slice(0, 4);
+        try {
+          await this.deps.workspaceState.update('opencode.recentModels', recent);
+          this.deps.onRecentModelsChanged?.(this);
+        } catch (error) {
+          this.deps.log(`Cannot store recent models: ${error.message}`);
+        }
+      }
       this._post({ type: 'config', configOptions: options || [] });
       this._syncModelOptions(options || []);
     } catch (error) {
@@ -949,6 +962,10 @@ class SessionPanel {
         configOptions: this._client.configOptions || [],
       });
     }
+  }
+
+  refreshRecentModels() {
+    if (this._client) this._post({ type: 'config', configOptions: this._client.configOptions || [] });
   }
 
   async _refreshPermissionProfile(change = {}) {

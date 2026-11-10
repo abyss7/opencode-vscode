@@ -156,6 +156,7 @@ function activate(context) {
 
   const deps = {
     extensionUri: context.extensionUri,
+    workspaceState: context.workspaceState,
     api,
     log,
     continuations,
@@ -164,6 +165,11 @@ function activate(context) {
     archive,
     archiveSession: beginArchive,
     defaultAgent,
+    onRecentModelsChanged(source) {
+      for (const panel of allPanels) {
+        if (panel !== source) panel.refreshRecentModels();
+      }
+    },
     openSession: (sessionId, cwd) => openSession(sessionId, cwd),
     async onSessionCreated(panel, sessionId, cwd) {
       log(`Session created: ${sessionId} (${cwd})`);

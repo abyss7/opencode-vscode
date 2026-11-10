@@ -110,5 +110,44 @@ try {
   await client.refreshConfig();
   assert.equal(option('model').options[0].value, 'missing/model', 'unlisted current model stays visible');
   assert.equal(option('effort').currentValue, 'custom');
+
+  const workspace = () => {
+    const values = new Map();
+    return { get: (key, fallback) => values.get(key) ?? fallback,
+      update: async (key, value) => { values.set(key, value); } };
+  };
+  const history = workspace();
+  const messages = [];
+  let broadcasts = 0;
+  const makePanel = (state) => {
+    const panel = Object.create(SessionPanel.prototype);
+    panel.deps = { workspaceState: state, log: () => {}, onRecentModelsChanged: () => { broadcasts++; } };
+    panel.panel = { webview: { postMessage: async (message) => { messages.push(message); } } };
+    panel._syncModelOptions = () => {};
+    panel._client = { configOptions: [{ id: 'model', category: 'model', currentValue: 'p/initial' }],
+      async setConfigOption(id, value) {
+        if (value === 'p/fail') throw new Error('Rejected');
+        this.configOptions = [{ id, category: 'model', currentValue: value }];
+        return this.configOptions;
+      } };
+    return panel;
+  };
+  const firstPanel = makePanel(history);
+  for (const value of ['p/one', 'p/two', 'p/three', 'p/four', 'p/two']) {
+    await firstPanel._setConfigOption('model', value);
+  }
+  assert.deepEqual(history.get('opencode.recentModels'), ['p/two', 'p/four', 'p/three', 'p/one']);
+  assert.equal(broadcasts, 5);
+  await firstPanel._setConfigOption('model', 'p/fail');
+  assert.deepEqual(history.get('opencode.recentModels'), ['p/two', 'p/four', 'p/three', 'p/one'],
+    'rejected selections never enter Recent');
+  makePanel(history).refreshRecentModels();
+  assert.deepEqual(messages.at(-1).configOptions[0].recentValues, history.get('opencode.recentModels'),
+    'other tabs and reopened panels share workspace history');
+  makePanel(workspace()).refreshRecentModels();
+  assert.deepEqual(messages.at(-1).configOptions[0].recentValues, [], 'different workspaces have independent history');
+  const broken = makePanel({ get: () => [], update: async () => { throw new Error('Storage unavailable'); } });
+  await broken._setConfigOption('model', 'p/one');
+  assert.equal(messages.at(-1).configOptions[0].currentValue, 'p/one', 'storage failure does not undo a successful model selection');
   console.log('MODEL CONTROLS OK');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
