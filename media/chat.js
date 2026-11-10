@@ -2607,7 +2607,13 @@
       parts.push('Automatic compaction: disabled');
     }
     const description = parts.join('\n');
-    usageTooltipEl.textContent = parts.join(' · ');
+    const compact = [
+      `context: ${used === null ? '—' : formatCompact(used)}` +
+        (capacity > 0 ? ` / ${formatCompact(capacity)}` : '') +
+        cacheTooltip(cache, true),
+    ];
+    if (hasThreshold) compact.push(`compaction at ${formatCompact(threshold)}`);
+    usageTooltipEl.textContent = compact.join(' · ');
     positionUsageTooltip();
     usageEl.setAttribute('aria-label', description);
     const known = capacity > 0 && used !== null;
@@ -2764,28 +2770,34 @@
    * from the stored counters of the newest assistant message. The share is
    * floored to three decimals, so it only reaches 100% when nothing was new.
    */
-  function cacheTooltip(cache) {
+  function cacheTooltip(cache, compact = false) {
     const prompt = cache && Number(cache.prompt) > 0 ? Number(cache.prompt) : 0;
     if (!Number.isFinite(prompt) || prompt <= 0) return '';
     const read = Number.isFinite(Number(cache.read)) ? Math.max(0, Number(cache.read)) : 0;
     const percent = Math.floor((read / prompt) * 100000) / 1000;
+    if (compact) {
+      const pieces = [`${percent}% cached`];
+      const ago = formatAgo(cache.at, true);
+      if (ago) pieces.push(ago);
+      return ` (${pieces.join(' ')})`;
+    }
     const pieces = [`${percent}% of current context`];
     const ago = formatAgo(cache.at);
     if (ago) pieces.push(`measured ${ago}`);
     return `Cached context: ${read.toLocaleString('en-US')} tokens (${pieces.join('; ')})`;
   }
 
-  function formatAgo(at) {
+  function formatAgo(at, compact = false) {
     const time = Number(at) || 0;
     if (time <= 0) return '';
     const elapsed = Date.now() - time;
     if (!Number.isFinite(elapsed) || elapsed < 60000) return 'just now';
     const minutes = Math.floor(elapsed / 60000);
-    if (minutes < 60) return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
+    if (minutes < 60) return `${minutes} ${compact ? 'min' : minutes === 1 ? 'minute' : 'minutes'} ago`;
     const hours = Math.floor(minutes / 60);
-    if (hours < 36) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+    if (hours < 36) return `${hours} ${compact ? 'h' : hours === 1 ? 'hour' : 'hours'} ago`;
     const days = Math.floor(hours / 24);
-    return `${days} ${days === 1 ? 'day' : 'days'} ago`;
+    return `${days} ${compact ? 'd' : days === 1 ? 'day' : 'days'} ago`;
   }
 
   function formatDuration(ms) {

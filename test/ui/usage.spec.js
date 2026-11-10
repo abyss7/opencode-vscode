@@ -10,6 +10,7 @@ test('context meter has an exact descriptive tooltip and a separate compaction m
   );
   const meter = page.locator('#usage');
   const details = 'Context used: 1,200 tokens\nContext capacity: 1,000,000 tokens\nCached context: 1,152 tokens (96% of current context; measured 2 hours ago)';
+  await expect(page.locator('#usage-tooltip')).toHaveText('context: 1.2k / 1M (96% cached 2 h ago) · compaction at 980k');
   await expect(meter).toHaveText('');
   await expect(meter).not.toHaveAttribute('title');
   await expect(meter).toHaveAttribute('aria-label', `${details}\nCompaction threshold: 980,000 tokens`);
@@ -24,6 +25,7 @@ test('context meter has an exact descriptive tooltip and a separate compaction m
   expect((mark.x + mark.width / 2 - track.x) / track.width).toBeCloseTo(0.98, 3);
   await chat.send({ type: 'compaction', compaction: { auto: false } });
   await expect(meter).toHaveAttribute('aria-label', `${details}\nAutomatic compaction: disabled`);
+  await expect(page.locator('#usage-tooltip')).toHaveText('context: 1.2k / 1M (96% cached 2 h ago)');
   await expect(meter.locator('.usage-threshold')).toBeHidden();
   await meter.focus();
   await expect(meter).toBeFocused();
@@ -33,14 +35,17 @@ test('billed tokens are not presented as context and unknown limits stay unknown
   await chat.send({ type: 'turnEnd', usage: { totalTokens: 99000 } });
   const meter = page.locator('#usage');
   await expect(meter).toHaveAttribute('aria-label', 'Context used: unknown\nContext capacity: unknown');
+  await expect(page.locator('#usage-tooltip')).toHaveText('context: —');
   await expect(meter).toHaveAttribute('role', 'img');
   await expect(meter.locator('.usage-threshold')).toBeHidden();
   await chat.send({ type: 'modelLimit', context: 1000000 });
   await expect(meter).toHaveAttribute('aria-label', 'Context used: unknown\nContext capacity: 1,000,000 tokens\nCompaction threshold: 850,000 tokens');
+  await expect(page.locator('#usage-tooltip')).toHaveText('context: — / 1M · compaction at 850k');
   await expect(meter).not.toHaveAttribute('aria-valuenow');
   await chat.update({ sessionUpdate: 'usage_update', used: 0 });
   await expect(meter).toHaveAttribute('aria-label', 'Context used: 0 tokens\nContext capacity: 1,000,000 tokens\nCompaction threshold: 850,000 tokens');
   await expect(meter).toHaveAttribute('aria-valuenow', '0');
+  await expect(page.locator('#usage-tooltip')).toHaveText('context: 0 / 1M · compaction at 850k');
   expect(await meter.evaluate((node) => node.style.getPropertyValue('--context-used'))).toBe('0%');
 });
 
@@ -139,7 +144,7 @@ test('styled horizontal tooltip supports hover, keyboard, live updates and viewp
   await expect(meter).toHaveAttribute('aria-describedby', 'usage-tooltip');
   await meter.hover();
   await expect(tooltip).toBeVisible();
-  await expect(tooltip).toHaveText('Context used: 135,500 tokens · Context capacity: 1,000,000 tokens · Cached context: 135,290 tokens (99.845% of current context; measured 2 hours ago) · Compaction threshold: 850,000 tokens');
+  await expect(tooltip).toHaveText('context: 135.5k / 1M (99.845% cached 2 h ago) · compaction at 850k');
   const bounds = async () => {
     const box = await tooltip.boundingBox();
     const bar = await meter.boundingBox();
@@ -153,7 +158,7 @@ test('styled horizontal tooltip supports hover, keyboard, live updates and viewp
   expect(await tooltip.evaluate((node) => getComputedStyle(node).fontFamily)).toBe(await meter.evaluate((node) => getComputedStyle(node).fontFamily));
   await chat.snapshot('context-horizontal-tooltip');
   await chat.send({ type: 'compaction', compaction: { auto: false } });
-  await expect(tooltip).toContainText(' · Automatic compaction: disabled');
+  await expect(tooltip).toHaveText('context: 135.5k / 1M (99.845% cached 2 h ago)');
   await page.setViewportSize({ width: 300, height: 900 });
   await meter.hover();
   await expect(tooltip).toBeVisible();
