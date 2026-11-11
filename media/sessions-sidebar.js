@@ -68,6 +68,10 @@
   function render() {
     const top = scroll.scrollTop;
     const focus = document.activeElement.closest?.('.tree-node')?.dataset.key;
+    // Refresh rebuilds rows, but an existing background run must keep its
+    // animation timeline instead of flashing back to full opacity each time.
+    const pulseStarts = new Map([...tree.querySelectorAll('.tree-icon-background')].map((svg) =>
+      [svg.closest('.tree-node').dataset.key, svg.getAnimations()[0]?.startTime]));
     nodes = new Map();
     function build(list, parent, depth) {
       list.forEach((node, index) => {
@@ -131,6 +135,12 @@
     }
     tree.replaceChildren();
     build(items, tree, 1);
+    for (const svg of tree.querySelectorAll('.tree-icon-background')) {
+      const start = pulseStarts.get(svg.closest('.tree-node').dataset.key);
+      if (typeof start === 'number') {
+        for (const animation of svg.getAnimations()) animation.startTime = start;
+      }
+    }
     document.getElementById('sessions-empty').hidden = items.length > 0;
     const elements = [...tree.querySelectorAll('.tree-node')];
     if (!elements.some((node) => node.tabIndex === 0) && elements[0]) elements[0].tabIndex = 0;

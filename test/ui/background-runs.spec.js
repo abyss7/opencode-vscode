@@ -21,7 +21,7 @@ test('background cards stay at launch positions outside Steps, including after c
   await expect(page.locator('#messages > .background-task')).toHaveCount(2);
   expect(await page.locator('.tool-entry').evaluateAll((nodes) => nodes.map((node) => node.dataset.toolCallId)))
     .toEqual(['before', 'one', 'between', 'two', 'after']);
-  await expect(page.locator('#status-text')).toHaveText('Working in background');
+  await expect(page.locator('#status-text')).toHaveText('Working in background…');
   await expect(page.locator('#status')).toHaveClass('status background');
   await expect(page.locator('#send')).toBeVisible();
   await expect(page.locator('#stop')).toBeHidden();
@@ -85,7 +85,7 @@ test('Stop is per card, keeps disclosure state, retries errors and retains outpu
 test('working and attention outrank background; reduced motion keeps a static green dot', async ({ page, chat }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await tool(chat, 'one', true); await runs(chat, ['one']);
-  await expect(page.locator('#status-text')).toHaveText('Working in background');
+  await expect(page.locator('#status-text')).toHaveText('Working in background…');
   const dot = page.locator('#status .dot');
   const green = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--vscode-testing-iconPassed').trim());
   expect(await dot.evaluate((node, color) => { const probe = document.createElement('span'); probe.style.color = color;
@@ -113,6 +113,29 @@ test('native replay and repeated updates preserve one background card and live o
   await expect(page.locator('.turn-steps .tool-entry')).toHaveCount(0);
 });
 
+test('background header counts active commands and ticks from the oldest active start', async ({ page, chat }) => {
+  const first = { id: 'sh_one', toolCallId: 'one', status: 'running', time: { started: Date.parse('2026-01-01T11:58:37Z') } };
+  const second = { id: 'sh_two', toolCallId: 'two', status: 'running', time: { started: Date.parse('2026-01-01T11:59:30Z') } };
+  const finished = { id: 'sh_old', toolCallId: 'old', status: 'exited', time: { started: 1 } };
+  const operation = page.locator('#activity-operation');
+  await chat.send({ type: 'background', runs: [finished, first, second] });
+  await expect(page.locator('#status-text')).toHaveText('Working in background…');
+  await expect(page.locator('#activity-detail')).toBeVisible();
+  await expect(operation).toHaveText('running 2 commands for 1m 23s');
+  await page.clock.setFixedTime(new Date('2026-01-01T12:00:02Z'));
+  // No server update: the existing live clock must tick on its own.
+  await expect(operation).toHaveText('running 2 commands for 1m 25s');
+  await chat.send({ type: 'background', runs: [{ ...first, status: 'exited' }, second] });
+  await expect(operation).toHaveText('running 1 command for 32s');
+  await chat.send({ type: 'status', state: 'busy' });
+  await expect(operation).not.toContainText('command');
+  await chat.send({ type: 'status', state: 'ready' });
+  await expect(operation).toHaveText('running 1 command for 32s');
+  await chat.send({ type: 'background', runs: [] });
+  await expect(page.locator('#status-text')).toHaveText('Ready');
+  await expect(page.locator('#activity-detail')).toBeHidden();
+});
+
 test('sidebar background icon pulses, while working remains a spinner', async ({ page, chat }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const html = (await fs.readFile(path.join(__dirname, '../../media/sessions-sidebar.html'), 'utf8'))
@@ -130,6 +153,18 @@ test('sidebar background icon pulses, while working remains a spinner', async ({
   expect(await icon.evaluate((node) => getComputedStyle(node).animationName)).toBe('none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   expect(await icon.evaluate((node) => getComputedStyle(node).animationName)).toBe('background-pulse');
+  await expect.poll(() => icon.evaluate((node) => Number(getComputedStyle(node).opacity))).toBeLessThan(.65);
+  const phase = await page.evaluate((item) => {
+    const oldIcon = document.querySelector('.tree-icon-background');
+    const before = { opacity: Number(getComputedStyle(oldIcon).opacity), start: oldIcon.getAnimations()[0].startTime };
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'sessions', items: [{ ...item, name: 'Updated session' }] } }));
+    const newIcon = document.querySelector('.tree-icon-background');
+    return { before, after: { opacity: Number(getComputedStyle(newIcon).opacity), start: newIcon.getAnimations()[0].startTime } };
+  }, item);
+  await expect(page.locator('.tree-label')).toHaveText('Updated session');
+  expect(phase.before.start).not.toBeNull();
+  expect(phase.after.start).toBe(phase.before.start);
+  expect(phase.after.opacity).toBeCloseTo(phase.before.opacity, 3);
   await chat.send({ type: 'sessions', items: [{ ...item, icon: 'loading~spin' }] });
   await expect(icon).toHaveCount(0);
   await expect(page.locator('.tree-icon-busy')).toHaveCount(1);

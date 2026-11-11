@@ -700,18 +700,21 @@
   function renderLiveElapsed() {
     const request = state.statusKind === 'cancelling' ? null : currentAttention();
     const active = request || (state.busy ? state.currentAction : null);
-    const background = state.statusKind === 'ready' && [...state.backgroundRuns.values()]
-      .some((run) => run.status === 'running' || run.status === 'stopping');
+    const runs = activeBackgroundRuns();
+    const background = state.statusKind === 'ready' && runs.length > 0;
     const kind = request ? 'attention' : background ? 'background' : state.statusKind;
     const summary = request?.summary || (state.busy && !state.externalBusy && kind !== 'cancelling'
       ? state.activityThought || state.activityPlan || state.activityPurpose || active?.summary || state.statusText
-      : background ? 'Working in background' : state.statusText);
+      : background ? 'Working in background…' : state.statusText);
     statusEl.className = 'status ' + kind;
-    statusEl.title = request ? 'Needs your input' : background ? 'Working in background' : STATUS_LABELS[kind] || kind;
+    statusEl.title = request ? 'Needs your input' : background ? 'Working in background…' : STATUS_LABELS[kind] || kind;
     if (statusTextEl.textContent !== summary) statusTextEl.textContent = summary;
     statusTextEl.title = summary;
-    const startedAt = request?.startedAt ?? state.liveStartedAt;
-    const operation = active?.kind || (state.busy && !state.externalBusy ? 'working' : '');
+    const starts = runs.map((run) => run.time?.started).filter(Number.isFinite);
+    const startedAt = kind === 'background' ? (starts.length ? Math.min(...starts) : null)
+      : request?.startedAt ?? state.liveStartedAt;
+    const operation = kind === 'background' ? `running ${runs.length} ${runs.length === 1 ? 'command' : 'commands'}`
+      : active?.kind || (state.busy && !state.externalBusy ? 'working' : '');
     activityDetailEl.hidden = !operation;
     activityOperationEl.textContent = operation
       ? `${operation}${startedAt !== null && startedAt !== undefined ? ' for ' + formatElapsed(Date.now() - startedAt) : ''}`
@@ -752,7 +755,7 @@
     if (state.busy && !state.externalBusy && !state.currentAction) {
       markLiveStart('working');
     }
-    if (state.busy || state.attentionRequests.size) startLiveClock();
+    if (state.busy || state.attentionRequests.size || (state.statusKind === 'ready' && activeBackgroundRuns().length)) startLiveClock();
     else stopLiveClock();
     renderLiveElapsed();
   }
@@ -1757,10 +1760,14 @@
     }
   }
 
+  function activeBackgroundRuns() {
+    return [...state.backgroundRuns.values()].filter((run) => run.status === 'running' || run.status === 'stopping');
+  }
+
   function showBackground(runs) {
     state.backgroundRuns = new Map((runs || []).map((run) => [run.toolCallId, run]));
     for (const card of state.toolCards.values()) syncBackgroundCard(card);
-    renderLiveElapsed();
+    syncLiveFallback();
   }
 
   function renderLocations(card, locations) {
