@@ -18,11 +18,11 @@ test('summaries preserve steps and count unique files separately from tool total
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
 
   await expect(summary(page).locator('.kind')).toHaveText('7 steps');
-  await expect(summary(page).locator('.step-metric')).toHaveText(['Executed 6 tools', 'Read 2 files', 'Edited 2 files', 'Ran 1 command']);
-  await expect(summary(page)).not.toContainText(/thought|other/);
+  await expect(summary(page).locator('.step-metric')).toHaveText(['Read 2 files', 'Edited 2 files', 'Ran 1 command', '1 other call']);
+  await expect(summary(page)).not.toContainText(/thought|Execut(?:ed|ing)/);
   await chat.send({ type: 'turnStats', scope: 'last', turns: [{ steps: 20, kinds: ['thought', 'read', 'other'], tokens: 12345, cacheRead: 11000, cacheWrite: 0, exact: true }] });
   await expect(summary(page).locator('.kind')).toHaveText('20 steps');
-  await expect(summary(page).locator('.step-metric')).toHaveText(['Executed 6 tools', 'Read 2 files', 'Edited 2 files', 'Ran 1 command']);
+  await expect(summary(page).locator('.step-metric')).toHaveText(['Read 2 files', 'Edited 2 files', 'Ran 1 command', '1 other call']);
   await expect(summary(page).locator('.tokens')).toContainText('cache read');
 
   const box = await summary(page).boundingBox();
@@ -53,12 +53,44 @@ test('pending and failed tools are not reported as successfully edited files', a
   await tool(chat, 'read', 'read', { path: 'src/a.js' });
   await tool(chat, 'edit', 'edit', { path: 'src/b.js' }, { status: 'in_progress' });
   await expect(summary(page).locator('.kind')).toHaveText('2 steps');
-  await expect(summary(page).locator('.step-metric')).toHaveText(['Executing 2 tools', 'Read 1 file']);
+  await expect(summary(page).locator('.step-metric')).toHaveText(['Read 1 file', '1 running']);
   await chat.update({ sessionUpdate: 'tool_call_update', toolCallId: 'edit', status: 'failed' });
   await expect(summary(page).locator('.kind')).toHaveText('2 steps');
-  await expect(summary(page).locator('.step-metric')).toHaveText(['Executed 2 tools', 'Read 1 file', '1 failed']);
+  await expect(summary(page).locator('.step-metric')).toHaveText(['Read 1 file', '1 failed']);
   await tool(chat, 'no-path', 'read', {});
-  await expect(summary(page).locator('.step-metric')).toHaveText(['Executed 3 tools', 'Read 2 times', '1 failed']);
+  await expect(summary(page).locator('.step-metric')).toHaveText(['Read 2 times', '1 failed']);
+});
+
+test('command-only summaries do not repeat the tool total', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  for (let index = 0; index < 52; index += 1) {
+    await tool(chat, `shell-${index}`, 'execute', { command: 'pwd' });
+  }
+  await expect(summary(page).locator('.kind')).toHaveText('52 steps');
+  await expect(summary(page).locator('.step-metric')).toHaveText(['Ran 52 commands']);
+  await expect(summary(page)).not.toContainText(/Execut(?:ed|ing)|tools/);
+});
+
+test('other calls and unfinished statuses stay distinct from successful actions', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await tool(chat, 'skill', 'other', {});
+  await tool(chat, 'agent', 'other', {});
+  await tool(chat, 'queued', 'execute', {}, { status: 'pending' });
+  await tool(chat, 'running', 'execute', {}, { status: 'in_progress' });
+  await tool(chat, 'failed', 'other', {}, { status: 'failed' });
+  await tool(chat, 'cancelled', 'edit', { path: 'src/a.js' }, { status: 'cancelled' });
+  await expect(summary(page).locator('.kind')).toHaveText('6 steps');
+  await expect(summary(page).locator('.step-metric')).toHaveText([
+    '2 other calls', '1 pending', '1 running', '1 failed', '1 cancelled',
+  ]);
+  await expect(summary(page)).not.toContainText(/Ran|Edited|Executed/);
+  const queued = page.locator('.tool-group').filter({ has: page.locator('[data-tool-call-id="queued"]') });
+  await expect(queued.locator(':scope > summary > .kind')).toHaveText('1 tool call');
+  await expect(queued.locator(':scope > summary > .status')).toHaveText('pending');
+  await chat.update({ sessionUpdate: 'tool_call_update', toolCallId: 'running', status: 'completed' });
+  await expect(summary(page).locator('.step-metric')).toHaveText([
+    'Ran 1 command', '2 other calls', '1 pending', '1 failed', '1 cancelled',
+  ]);
 });
 
 test('thought-only details keep their step count without category enumeration', async ({ page, chat }) => {

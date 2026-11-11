@@ -238,6 +238,11 @@ global.document = {
   compatMode: 'CSS1Compat',
   title: '',
   getElementById: (id) => ids[id],
+  // This harness keeps document roots in the ID registry rather than body.
+  querySelectorAll: (selector) => [...new Set(Object.values(ids).flatMap((root) => [
+    ...(root.matches(selector) ? [root] : []),
+    ...root.querySelectorAll(selector),
+  ]))],
   createElement: (tagName) => new Element(tagName),
   addEventListener: () => {},
 };

@@ -801,11 +801,16 @@
     const files = { read: new Set(), edit: new Set(), write: new Set() };
     const calls = { read: 0, edit: 0, write: 0, execute: 0, search: 0, fetch: 0 };
     const unknownPaths = new Set();
-    let failed = 0;
+    const statuses = { pending: 0, in_progress: 0, failed: 0, cancelled: 0 };
+    let other = 0;
     for (const card of cards) {
-      if (card.statusValue === 'failed') failed += 1;
+      if (Object.hasOwn(statuses, card.statusValue)) statuses[card.statusValue] += 1;
       // Completed actions describe results; pending/failed actions are not successes.
-      if (card.statusValue !== 'completed' || !Object.hasOwn(calls, card.kind)) continue;
+      if (card.statusValue !== 'completed') continue;
+      if (!Object.hasOwn(calls, card.kind)) {
+        other += 1;
+        continue;
+      }
       calls[card.kind] += 1;
       if (files[card.kind]) {
         const paths = toolFilePaths(card);
@@ -822,9 +827,12 @@
     if (calls.execute) metrics.push(`Ran ${plural(calls.execute, 'command')}`);
     if (calls.search) metrics.push(`Searched ${plural(calls.search, 'time')}`);
     if (calls.fetch) metrics.push(`Fetched ${plural(calls.fetch, 'resource')}`);
-    if (failed) metrics.push(`${failed} failed`);
-    const running = cards.some((card) => card.statusValue === 'pending' || card.statusValue === 'in_progress');
-    return { label: cards.length ? `${running ? 'Executing' : 'Executed'} ${plural(cards.length, 'tool')}` : 'Details', metrics };
+    if (other) metrics.push(plural(other, 'other call'));
+    const statusMetrics = Object.entries(statuses)
+      .filter(([, count]) => count > 0)
+      .map(([status, count]) => `${count} ${toolStatusLabel(status)}`);
+    // Individual disclosures already have a status badge; aggregates need counts.
+    return { label: cards.length ? plural(cards.length, 'tool call') : 'Details', metrics, statusMetrics };
   }
 
   function turnToolCards(details) {
@@ -836,7 +844,7 @@
     const summary = summarizeTools(cards);
     title.textContent = `${count} step${count === 1 ? '' : 's'}`;
     meta.classList.add('step-metrics');
-    const metrics = cards.length ? [summary.label, ...summary.metrics] : [];
+    const metrics = [...summary.metrics, ...summary.statusMetrics];
     meta.replaceChildren(...metrics.map((text) => el('span', 'step-metric', text)));
   }
 
