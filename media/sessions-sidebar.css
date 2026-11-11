@@ -62,6 +62,9 @@ body {
 .tree-node[data-kind="session"]:focus-within:not(:has(.tree-node:focus-within)) > .tree-row > .tree-description { display: none; }
 .drop-target > .tree-row { background: var(--vscode-list-dropBackground, var(--vscode-list-activeSelectionBackground)); }
 .tree-icon-busy { animation: spin 1s linear infinite; }
+.tree-icon-background { color: var(--vscode-charts-cyan, #53b8b0); animation: background-pulse 2.4s ease-in-out infinite; }
+@keyframes background-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .tree-icon-background { animation: none; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .tree-icon-busy { animation: none; } }
 #sessions-empty { padding: 12px; color: var(--vscode-descriptionForeground); }

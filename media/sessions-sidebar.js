@@ -21,6 +21,7 @@
     trash: ['M3 6h18', 'M9 6V3h6v3', 'M5 6l1 15h12l1-15', 'M10 10v7', 'M14 10v7'],
     'comment-discussion': ['M3 3h16v12H9l-4 4v-4H3z'],
     'server-process': ['M4 3h16v7H4z', 'M4 14h16v7H4z', 'M7 6h1', 'M7 17h1'],
+    terminal: ['M3 4h18v16H3z', 'm6 8 4 4-4 4', 'M13 16h4'],
     'loading~spin': ['M20 12a8 8 0 1 1-8-8'], chevron: ['m9 5 7 7-7 7'], down: ['m5 9 7 7 7-7'],
     more: ['M5 12h1', 'M11 12h1', 'M17 12h1'],
   };
@@ -39,6 +40,7 @@
       svg.appendChild(shape);
     }
     if (name === 'loading~spin') svg.classList.add('tree-icon-busy');
+    if (name === 'terminal') svg.classList.add('tree-icon-background');
     return svg;
   }
   function text(tag, className, value) {

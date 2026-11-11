@@ -67,6 +67,7 @@
     replaying: true,
     messageTimes: new Map(),
     toolCards: new Map(),
+    backgroundRuns: new Map(),
     smartReviews: new Map(),
     smartReviewHistory: null,
     toolGroup: null,
@@ -176,6 +177,7 @@
     state.currentThought = null;
     state.lastUser = null;
     state.toolCards.clear();
+    state.backgroundRuns.clear();
     state.toolGroup = null;
     state.turnSteps = null;
     state.turnId = null;
@@ -698,12 +700,14 @@
   function renderLiveElapsed() {
     const request = state.statusKind === 'cancelling' ? null : currentAttention();
     const active = request || (state.busy ? state.currentAction : null);
-    const kind = request ? 'attention' : state.statusKind;
+    const background = state.statusKind === 'ready' && [...state.backgroundRuns.values()]
+      .some((run) => run.status === 'running' || run.status === 'stopping');
+    const kind = request ? 'attention' : background ? 'background' : state.statusKind;
     const summary = request?.summary || (state.busy && !state.externalBusy && kind !== 'cancelling'
       ? state.activityThought || state.activityPlan || state.activityPurpose || active?.summary || state.statusText
-      : state.statusText);
+      : background ? 'Working in background' : state.statusText);
     statusEl.className = 'status ' + kind;
-    statusEl.title = request ? 'Needs your input' : STATUS_LABELS[kind] || kind;
+    statusEl.title = request ? 'Needs your input' : background ? 'Working in background' : STATUS_LABELS[kind] || kind;
     if (statusTextEl.textContent !== summary) statusTextEl.textContent = summary;
     statusTextEl.title = summary;
     const startedAt = request?.startedAt ?? state.liveStartedAt;
@@ -936,6 +940,8 @@
     if (!Array.isArray(turns) || turns.length === 0) return;
     const groups = turnStepGroups();
     if (groups.length === 0) return;
+    const hasBackground = (group) => [...state.toolCards.values()].some((card) =>
+      card.background && card.activityTurn === group[0].dataset.turn);
     if (scope === 'last') {
       const group = groups[groups.length - 1];
       if (state.turnSteps && group.includes(state.turnSteps.details)) {
@@ -944,7 +950,7 @@
       }
       const turn = group[0].dataset.turn || '';
       if (turn !== (state.turnId || '')) return;
-      if (group.length === 1) applyTurnStat(group[0], turns[turns.length - 1]);
+      if (group.length === 1 && !hasBackground(group)) applyTurnStat(group[0], turns[turns.length - 1]);
       return;
     }
     const count = Math.min(groups.length, turns.length);
@@ -952,7 +958,7 @@
     const turnStart = turns.length - count;
     for (let index = 0; index < count; index += 1) {
       const group = groups[groupStart + index];
-      if (group.length !== 1) continue;
+      if (group.length !== 1 || hasBackground(group)) continue;
       applyTurnStat(group[0], turns[turnStart + index]);
     }
   }
@@ -1543,7 +1549,7 @@
     row.row.hidden = false;
   }
 
-  function createToolGroup() {
+  function createToolGroup(background = false) {
     const details = document.createElement('details');
     details.className = 'tool-group';
     details.open = false;
@@ -1559,7 +1565,11 @@
     const body = el('div', 'body');
     details.appendChild(summary);
     details.appendChild(body);
-    beginIntermediate().body.appendChild(details);
+    if (background) {
+      finalizeToolGroup();
+      finalizeTurnSteps();
+      messagesEl.appendChild(details);
+    } else beginIntermediate().body.appendChild(details);
     const group = { details, kindEl, nameEl, tokensEl, statusEl, body, cards: [] };
     state.toolGroup = group;
     syncTurnSteps();
@@ -1596,6 +1606,7 @@
       ? 'Estimated tokens for these operations'
       : '';
     group.details.dataset.tokens = String(totalTokens);
+    for (const card of group.cards) if (card.background) syncBackgroundCard(card);
   }
 
   function finalizeToolGroup() {
@@ -1607,7 +1618,7 @@
 
   function createToolCard(update) {
     const subagent = isSubagentTool(update);
-    const group = createToolGroup();
+    const group = createToolGroup(Boolean(update.background || update.rawInput?.background));
     const entry = el('div', subagent ? 'tool-entry subagent-entry' : 'tool-entry');
     entry.dataset.toolCallId = update.toolCallId;
     const header = el('div', 'tool-entry-header');
@@ -1660,6 +1671,96 @@
     syncToolGroup(group);
     syncTurnSteps();
     return card;
+  }
+
+  // A foreground tool can be backgrounded after later steps have appeared.
+  // Split the surrounding block rather than moving its card to the transcript end.
+  function separateBackground(card) {
+    const group = card.group.details;
+    group.classList.add('background-task');
+    const block = group.closest('.turn-steps');
+    if (!block) return;
+    const body = group.parentElement;
+    let after;
+    if (group.nextSibling) {
+      after = block.cloneNode(false);
+      after.removeAttribute('data-exact');
+      after.appendChild(block.querySelector('summary').cloneNode(true));
+      const remainder = el('div', 'body');
+      while (group.nextSibling) remainder.appendChild(group.nextSibling);
+      after.appendChild(remainder);
+    }
+    block.after(group);
+    if (after) group.after(after);
+    if (state.turnSteps?.details === block) {
+      state.turnSteps = after ? {
+        details: after, body: after.querySelector('.body'),
+        titleEl: after.querySelector('summary > .kind'), metaEl: after.querySelector('summary > .name'),
+        tokensEl: after.querySelector('summary > .tokens'),
+      } : null;
+    }
+    for (const item of [block, after].filter(Boolean)) {
+      if (!item.querySelector('.body').children.length) { item.remove(); continue; }
+      item.removeAttribute('data-exact');
+      renderStepSummary(item.querySelector('summary > .kind'), item.querySelector('summary > .name'),
+        turnToolCards(item), countBlockSteps(item));
+      const tokens = [...item.querySelector('.body').children].reduce((sum, child) => sum + Number(child.dataset.tokens || 0), 0);
+      item.querySelector('summary > .tokens').textContent = tokens ? formatTokens(tokens) : '';
+    }
+  }
+
+  function syncBackgroundCard(card) {
+    const run = state.backgroundRuns.get(card.entry.dataset.toolCallId);
+    if (!card.background && !run && !card.activity.background && !card.activity.rawInput?.background) return;
+    card.background = true;
+    separateBackground(card);
+    if (!card.stopBackground) {
+      const button = el('button', 'background-stop', 'Stop');
+      button.type = 'button';
+      button.setAttribute('aria-label', 'Stop background task');
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        card.stopError = '';
+        const current = state.backgroundRuns.get(card.entry.dataset.toolCallId);
+        if (!current || current.status !== 'running') return;
+        current.status = 'stopping';
+        syncBackgroundCard(card);
+        vscode.postMessage({ type: 'stopBackground', toolCallId: card.entry.dataset.toolCallId });
+      });
+      card.group.details.querySelector('summary').appendChild(button);
+      card.stopBackground = button;
+      card.backgroundError = el('div', 'background-error');
+      card.backgroundError.setAttribute('role', 'alert');
+      card.group.body.appendChild(card.backgroundError);
+    }
+    const status = run?.status || (card.statusValue === 'failed' ? 'failed' : 'unknown');
+    const labels = { unknown: 'Background', running: 'Background', stopping: 'Stopping…', stopped: 'Stopped',
+      killed: 'Stopped', timeout: 'Timed out', unavailable: 'Unavailable', failed: 'Failed' };
+    card.group.statusEl.textContent = status === 'exited' ? (run.exit === 0 ? 'Completed' : `Exit ${run.exit ?? '?'}`) : labels[status] || status;
+    card.group.statusEl.className = 'status background-state';
+    card.group.kindEl.textContent = 'Background';
+    card.group.nameEl.textContent = describeTool(card.activity);
+    card.stopBackground.hidden = !['running', 'stopping'].includes(status);
+    card.stopBackground.disabled = status === 'stopping';
+    card.stopBackground.textContent = status === 'stopping' ? 'Stopping…' : 'Stop';
+    card.backgroundError.textContent = card.stopError || run?.error || '';
+    card.backgroundError.hidden = !card.backgroundError.textContent;
+    if (typeof run?.output === 'string' && card.rows.output) {
+      const text = run.output + (run.truncated ? '\n… Output truncated' : '');
+      if (card.rows.output.contentEl.textContent !== text) {
+        card.rows.output.contentEl.replaceChildren();
+        setToolPre(card.rows.output, text);
+        card.backgroundOutput = text;
+      }
+      card.body.hidden = false;
+    }
+  }
+
+  function showBackground(runs) {
+    state.backgroundRuns = new Map((runs || []).map((run) => [run.toolCallId, run]));
+    for (const card of state.toolCards.values()) syncBackgroundCard(card);
+    renderLiveElapsed();
   }
 
   function renderLocations(card, locations) {
@@ -1786,12 +1887,13 @@
       card.body.hidden = !Object.values(card.rows).some((row) => !row.row.hidden);
     }
     syncToolGroup(card.group);
+    syncBackgroundCard(card);
     syncTurnSteps();
-    if (card.statusValue === 'pending' || card.statusValue === 'in_progress') {
+    if (!card.background && (card.statusValue === 'pending' || card.statusValue === 'in_progress')) {
       showToolActivity(card);
     } else if (state.liveToolId === update.toolCallId) {
       const running = [...state.toolCards.values()].reverse().find((item) =>
-        item.activityTurn === state.turnId && (item.statusValue === 'pending' || item.statusValue === 'in_progress'));
+        !item.background && item.activityTurn === state.turnId && (item.statusValue === 'pending' || item.statusValue === 'in_progress'));
       if (running) showToolActivity(running);
       else clearLiveAction();
     }
@@ -3470,6 +3572,16 @@
       case 'status':
         setStatus(message.state, message.message, message.external);
         break;
+      case 'background':
+        showBackground(message.runs);
+        break;
+      case 'backgroundStopError': {
+        const card = state.toolCards.get(message.toolCallId);
+        const run = state.backgroundRuns.get(message.toolCallId);
+        if (run?.status === 'stopping') run.status = 'running';
+        if (card) { card.stopError = message.message; syncBackgroundCard(card); }
+        break;
+      }
       case 'session':
         setSession(message);
         for (const submission of restoredSubmissions) {

@@ -104,18 +104,40 @@ class SessionsProvider {
     this._cwd = null;
     this._error = null;
     this._refreshSequence = 0;
+    this._background = new Set();
+    this._backgroundTimer = setInterval(() => this.refreshBackground(), 3000);
+    this._backgroundTimer.unref?.();
     this._onDidChangeTreeData = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
   }
 
   dispose() {
+    this._disposed = true;
+    clearInterval(this._backgroundTimer);
     this._onDidChangeTreeData.dispose();
+  }
+
+  async refreshBackground() {
+    const cwd = this._cwd;
+    if (!cwd || !this.api.background || this._backgroundReading || this._disposed) return;
+    this._backgroundReading = true;
+    try {
+      const sessions = [...this._sessions, ...[...this._children.values()].flat()];
+      const eligible = new Set(sessions.filter((session) => !isBusy(session)).map((session) => session.id));
+      const next = await this.api.background.discover(cwd, eligible);
+      if (this._disposed || cwd !== this._cwd) return;
+      const changed = next.size !== this._background.size || [...next].some((id) => !this._background.has(id));
+      this._background = next;
+      if (changed) this._onDidChangeTreeData.fire();
+    } catch (error) { this.log(`Background commands unavailable: ${error.message}`); }
+    finally { this._backgroundReading = false; }
   }
 
   async refresh() {
     const sequence = ++this._refreshSequence;
     const cwd = this.getCwd();
     this._cwd = cwd;
+    this.refreshBackground();
     if (!cwd) {
       this._groups = [];
       this._sessions = [];
@@ -269,6 +291,8 @@ class SessionsProvider {
       item.iconPath = new vscode.ThemeIcon('loading~spin');
     } else if (unconfirmed) {
       item.iconPath = new vscode.ThemeIcon('question');
+    } else if (this._background.has(session.id)) {
+      item.iconPath = new vscode.ThemeIcon('terminal');
     } else if (subagent) {
       item.iconPath = new vscode.ThemeIcon('server-process');
     } else {
@@ -280,6 +304,7 @@ class SessionsProvider {
         ? 'opencode.session.archived'
         : 'opencode.session';
     item.tooltip = sessionTitle(session);
+    if (!busy && this._background.has(session.id)) item.tooltip += '\nWorking in background';
     item.command = {
       command: 'opencode.openSession',
       title: 'Open Session',

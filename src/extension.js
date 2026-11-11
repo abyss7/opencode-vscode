@@ -102,6 +102,7 @@ function activate(context) {
   const allPanels = new Set();
   const archiveFinalizations = new Map();
   context.subscriptions.push(provider.onDidChangeTreeData(() => {
+    sidebar.view?.webview.postMessage({ type: 'sessions', items: sidebar.tree() });
     // The list can receive a generated title before (or without) an ACP title event.
     const pending = [...provider.getChildren()];
     const seen = new Set();

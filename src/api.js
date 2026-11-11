@@ -8,6 +8,7 @@ const path = require('node:path');
 const http = require('node:http');
 const https = require('node:https');
 const { sessionActivity } = require('./session-activity');
+const { BackgroundRuns } = require('./background-runs');
 
 const execFileAsync = promisify(execFile);
 const USERNAME = 'opencode';
@@ -54,6 +55,7 @@ class OpenCodeApi {
     this._localSessions = new Map();
     this._activeRead = null;
     this._activeAt = 0;
+    this.background = new BackgroundRuns(this);
   }
 
   setCommand(command) {

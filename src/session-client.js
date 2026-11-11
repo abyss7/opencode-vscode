@@ -7,6 +7,7 @@ const { sessionActivity } = require('./session-activity');
 const { nativeDiffs } = require('./native-diffs');
 const { parseModelRef } = require('./usage');
 const { modelRefString } = require('./model-ref');
+const { backgroundRun, active: backgroundActive } = require('./background-runs');
 
 const messageID = () => `msg_${randomUUID().replaceAll('-', '')}`;
 const unwrap = (value) => value?.data ?? value;
@@ -36,6 +37,7 @@ function toolUpdate(part) {
   return { sessionUpdate: 'tool_call_update', toolCallId: part.id,
     title: state.metadata?.title || part.name, kind: toolKind(part.name),
     status: state.status === 'error' ? 'failed' : state.status === 'completed' ? 'completed' : 'in_progress',
+    background: backgroundRun(part),
     rawInput: state.input, rawOutput: { metadata: state.metadata,
       ...(state.error ? { error: state.error.message || JSON.stringify(state.error) } : {}) }, content };
 }
@@ -228,6 +230,10 @@ class SessionClient extends EventEmitter {
 
   onEvent(event) {
     if (event.type === 'server.connected') return;
+    if (event.type.startsWith('shell.')) {
+      this.refreshBackground();
+      return;
+    }
     const data = event.data || {};
     const id = data.sessionID || data.form?.sessionID || data.request?.sessionID;
     if (id !== this.sessionId) {
@@ -371,6 +377,7 @@ class SessionClient extends EventEmitter {
       return;
     }
     this.emit('transcript', { messages: changed, inbox: pending, states: [...states] });
+    this.refreshBackground();
     await this.syncRequests(permissions || [], forms || []);
     if (this.closed) return;
     if (revision !== this.revision) { this.again = true; return; }
@@ -561,6 +568,40 @@ class SessionClient extends EventEmitter {
     return this.configOptions;
   }
 
+  async refreshBackground() {
+    if (this.closed || !this.sessionId || !this.api.background) return;
+    if (this.backgroundReading) { this.backgroundAgain = true; return; }
+    clearTimeout(this.backgroundTimer);
+    this.backgroundReading = true;
+    let retry = false;
+    try {
+      const runs = await this.api.background.refresh(this.sessionId, this.cwd, [...this.messages.values()]);
+      if (this.closed) return;
+      this.emit('background', runs);
+      retry = runs.some((run) => backgroundActive(run) || run.status === 'unknown');
+    } catch (error) {
+      this.log(`Background commands unavailable: ${error.message}`);
+      retry = true;
+    } finally {
+      this.backgroundReading = false;
+      if (!this.closed && (retry || this.backgroundAgain)) {
+        const delay = this.backgroundAgain ? 0 : 2000;
+        this.backgroundAgain = false;
+        this.backgroundTimer = setTimeout(() => this.refreshBackground(), delay);
+        this.backgroundTimer.unref?.();
+      }
+    }
+  }
+
+  async stopBackground(toolCallId) {
+    if (!this.api.background) return;
+    try {
+      await this.api.background.stop(this.sessionId, this.cwd, toolCallId);
+    } catch (error) {
+      if (!this.closed) this.emit('backgroundStopError', { toolCallId, message: error.message });
+    } finally { this.refreshBackground(); }
+  }
+
   async cancel() {
     try {
       const pending = await this.request('GET', '/inbox');
@@ -581,6 +622,7 @@ class SessionClient extends EventEmitter {
   dispose() {
     this.closed = true;
     clearTimeout(this.timer);
+    clearTimeout(this.backgroundTimer);
     this.stream?.dispose();
     // Detaching a tab is not a permission denial or an interrupt.
   }

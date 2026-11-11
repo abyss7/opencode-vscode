@@ -232,6 +232,7 @@ class SessionPanel {
     else if (this._loading) kind = 'loading';
     else if (this._archiveFinalizing) kind = 'working';
     else if (this._archived) kind = 'archived';
+    else if (kind === 'idle' && this._backgroundRunning) kind = 'background';
     if (this._disposed || this._iconKind === kind) return;
     this._iconKind = kind;
     if (kind === 'attention') {
@@ -240,6 +241,8 @@ class SessionPanel {
       this.panel.iconPath = this._iconUri('opencode-working.svg');
     } else if (kind === 'done') {
       this.panel.iconPath = this._iconUri('opencode-done.svg');
+    } else if (kind === 'background') {
+      this.panel.iconPath = this._iconUri('opencode-background.svg');
     } else if (kind === 'loading') {
       this.panel.iconPath = this._iconUri('opencode-loading.svg');
     } else if (kind === 'archived') {
@@ -385,6 +388,9 @@ class SessionPanel {
       case 'cancel':
         this._cancel();
         break;
+      case 'stopBackground':
+        if (typeof message.toolCallId === 'string') this._client?.stopBackground(message.toolCallId);
+        break;
       case 'permissionResponse':
         this._answerPermission(message.requestId, message.optionId || null);
         break;
@@ -461,6 +467,15 @@ class SessionPanel {
     }));
     client.on('submission', (submission) => this._post({ type: 'submission', ...submission }));
     client.on('activity', (activity) => this._onServerActivity(activity));
+    client.on('background', (runs) => {
+      const running = runs.some((run) => run.status === 'running' || run.status === 'stopping');
+      const changed = this._backgroundRunning !== running;
+      this._backgroundRunning = running;
+      this._refreshAttention();
+      this._post({ type: 'background', runs });
+      if (changed) this.deps.onSessionChanged?.();
+    });
+    client.on('backgroundStopError', (error) => this._post({ type: 'backgroundStopError', ...error }));
     client.on('connection', (connected) => {
       if (!connected) this._post({ type: 'status', state: 'connecting',
         message: 'Reconnecting — server work continues.' });
