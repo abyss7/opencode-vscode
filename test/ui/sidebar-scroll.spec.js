@@ -5,6 +5,22 @@ const path = require('node:path');
 const { test, expect } = require('./fixture');
 const { watchRootScroll, expectInside } = require('./root-scroll');
 
+test('queued sessions show a static clock and their queue label', async ({ page, chat }) => {
+  const html = (await fs.readFile(path.join(__dirname, '../../media/sessions-sidebar.html'), 'utf8'))
+    .replaceAll('{{cspSource}}', 'https://opencode.test').replaceAll('{{nonce}}', 'test-nonce')
+    .replaceAll('{{styleUri}}', 'https://opencode.test/media/sessions-sidebar.css')
+    .replaceAll('{{scrollUri}}', 'https://opencode.test/media/scroll.js')
+    .replaceAll('{{scriptUri}}', 'https://opencode.test/media/sessions-sidebar.js');
+  await page.route('https://opencode.test/', route => route.fulfill({ contentType: 'text/html', body: html }));
+  await page.goto('https://opencode.test/');
+  await chat.send({ type: 'sessions', items: [{ kind: 'session', id: 'queued', name: 'Waiting task',
+    description: 'queued', icon: 'clock', children: [], actions: ['openSession'] }] });
+  await expect(page.locator('.tree-description')).toHaveText('queued');
+  const clock = page.locator('.tree-row > svg');
+  await expect(clock.locator('path')).toHaveCount(2);
+  expect(await clock.evaluate((el) => getComputedStyle(el).animationName)).toBe('none');
+});
+
 test('session keyboard navigation and refresh keep the defaults footer fixed', async ({ page, chat }) => {
   const html = (await fs.readFile(path.join(__dirname, '../../media/sessions-sidebar.html'), 'utf8'))
     .replaceAll('{{cspSource}}', 'https://opencode.test')

@@ -46,6 +46,7 @@
     ready: 'Ready',
     unconfirmed: 'Execution unconfirmed',
     busy: 'Working…',
+    queued: 'Queued',
     cancelling: 'Stopping…',
     error: 'Error',
   };
@@ -256,9 +257,9 @@
     state.statusKind = kind;
     state.externalBusy = external && kind === 'busy';
     state.statusText = text || STATUS_LABELS[kind] || kind;
-    state.connected = kind === 'ready' || kind === 'unconfirmed' || kind === 'busy' || kind === 'cancelling';
+    state.connected = kind === 'ready' || kind === 'unconfirmed' || kind === 'busy' || kind === 'queued' || kind === 'cancelling';
     if (kind === 'busy' || kind === 'cancelling') state.busy = true;
-    if (kind === 'ready' || kind === 'unconfirmed' || kind === 'error' || kind === 'connecting') state.busy = false;
+    if (kind === 'ready' || kind === 'queued' || kind === 'unconfirmed' || kind === 'error' || kind === 'connecting') state.busy = false;
     stopBtn.disabled = kind === 'cancelling';
     if (!state.busy || state.externalBusy) {
       stopLiveClock();
@@ -591,7 +592,9 @@
     renderAttachments();
     resizeInput();
     closeSlashMenu();
-    if (!wasBusy) {
+    if (!wasBusy && state.nativeTransport && !command) {
+      setStatus('queued');
+    } else if (!wasBusy) {
       state.busy = true;
       if (!state.liveStartedAt) {
         state.liveStartedAt = Date.now();

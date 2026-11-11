@@ -272,6 +272,7 @@ class SessionsProvider {
   sessionTreeItem(session) {
     const busy = isBusy(session);
     const unconfirmed = sessionActivity(session) === 'unconfirmed';
+    const queued = sessionActivity(session) === 'queued';
     const subagent = isSubagent(session);
     const children = this._children.get(session.id);
     const hasChildren = Array.isArray(children) && children.length > 0;
@@ -282,6 +283,8 @@ class SessionsProvider {
     item.id = session.id;
     if (busy) {
       item.description = 'working';
+    } else if (queued) {
+      item.description = 'queued';
     } else if (unconfirmed) {
       item.description = 'execution unconfirmed';
     } else {
@@ -289,6 +292,8 @@ class SessionsProvider {
     }
     if (busy) {
       item.iconPath = new vscode.ThemeIcon('loading~spin');
+    } else if (queued) {
+      item.iconPath = new vscode.ThemeIcon('clock');
     } else if (unconfirmed) {
       item.iconPath = new vscode.ThemeIcon('question');
     } else if (this._background.has(session.id)) {
@@ -304,6 +309,7 @@ class SessionsProvider {
         ? 'opencode.session.archived'
         : 'opencode.session';
     item.tooltip = sessionTitle(session);
+    if (queued) item.tooltip += '\nUser message queued — execution has not started';
     if (!busy && this._background.has(session.id)) item.tooltip += '\nWorking in background';
     item.command = {
       command: 'opencode.openSession',

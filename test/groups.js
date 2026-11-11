@@ -171,6 +171,10 @@ const groupByName = (provider, name) =>
   );
   assert.strictEqual(sessionItem.contextValue, 'opencode.session');
   assert.strictEqual(sessionItem.session.id, 'ses_1');
+  const queuedItem = provider.getTreeItem({ ...sessionItem.session, _activity: 'queued' });
+  assert.strictEqual(queuedItem.description, 'queued');
+  assert.strictEqual(queuedItem.iconPath.id, 'clock');
+  assert.ok(queuedItem.tooltip.includes('execution has not started'));
 
   // Sub-agents nest under their parent session and never appear in a folder.
   const ses1 = groupByName(provider, 'Ungrouped').sessions.find(

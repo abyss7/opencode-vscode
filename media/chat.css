@@ -181,6 +181,10 @@ select {
   .tool-group.background-task > summary > .name { grid-column: 2 / -1; grid-row: 2; }
 }
 
+.status.queued .dot {
+  background: var(--vscode-testing-iconQueued, #cca700);
+}
+
 .status.busy .dot,
 .status.connecting .dot,
 .status.cancelling .dot {

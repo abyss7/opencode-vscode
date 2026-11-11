@@ -131,6 +131,26 @@ const assistant = (content, completed) => ({ id: 'msg_answer', type: 'assistant'
   assert.equal(new Map(data.snapshot.states).get('msg_next'), 'failed');
   assert.equal(data.reported, 'idle');
 
+  const passive = fixture();
+  passive.data.activity = 'idle';
+  passive.data.inbox = [{ id: 'msg_notice', type: 'synthetic', payload: {
+    text: 'Command cancelled because the server restarted', metadata: { source: 'shell', state: 'cancelled' },
+  } }];
+  await passive.client.reconcile();
+  assert.equal(passive.data.reported, 'idle', 'recovered background notices must not revive idle owners');
+  assert.equal(passive.data.snapshot.inbox.length, 1, 'passive notices remain admitted, not deleted');
+  passive.data.inbox.push({ id: 'msg_prompt', type: 'user', payload: { text: 'Next' } });
+  await passive.client.reconcile();
+  assert.equal(passive.data.reported, 'queued');
+  passive.data.activity = 'running';
+  await passive.client.reconcile();
+  assert.equal(passive.data.reported, 'running', 'execution ownership wins over queue state');
+  passive.data.activity = 'idle';
+  passive.data.inbox = [];
+  passive.client.submissions.set('msg_unknown', { state: 'unknown', item: { id: 'msg_unknown', type: 'user' } });
+  await passive.client.reconcile();
+  assert.equal(passive.data.reported, 'unconfirmed', 'a lost admission response is not successful completion');
+
   const race = fixture();
   race.data.activity = 'idle';
   race.api.listAllMessages = async () => {

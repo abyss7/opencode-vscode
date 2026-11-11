@@ -263,6 +263,7 @@ class SessionClient extends EventEmitter {
     if (event.type === 'session.tool.success' || event.type === 'session.tool.failed') this.liveTools.delete(data.id);
     if (!event.type.endsWith('.delta')) this.revision++;
     if (/session\.(execution|inbox|status)/.test(event.type)) this.api._activeRead = null;
+    if (event.type.startsWith('session.inbox.')) this.api.invalidateSessionInbox?.(id);
     if (event.type === 'session.inbox.cancelled') {
       this.submissions.delete(data.inboxID);
       this.emit('submission', { id: data.inboxID, state: 'cancelled' });
@@ -382,9 +383,7 @@ class SessionClient extends EventEmitter {
     if (this.closed) return;
     if (revision !== this.revision) { this.again = true; return; }
     if (info?.title) this.emit('title', info.title);
-    const activity = sessionActivity(info);
-    this.emit('activity', pending.length && activity === 'idle'
-      ? pending.some((item) => item.submissionState === 'unknown') ? 'unconfirmed' : 'queued' : activity);
+    this.emit('activity', sessionActivity(info, pending));
     this.emit('connection', this.connected);
   }
 

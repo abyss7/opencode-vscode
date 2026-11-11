@@ -30,7 +30,7 @@ class SessionsSidebar {
         : element.parentID ? ['openSession', 'deleteSession']
           : ['openSession', 'renameSession', 'moveSessionTo',
             item.contextValue === 'opencode.session.archived' ? 'restoreSession' : 'archiveSession', 'deleteSession'];
-      const dated = kind === 'session' && !['running', 'unconfirmed'].includes(sessionActivity(element));
+      const dated = kind === 'session' && !['running', 'queued', 'unconfirmed'].includes(sessionActivity(element));
       return { kind, id: element.id, name: item.label, description: dated ? '' : item.description || '',
         timestamp: dated ? element.time?.updated || element.time?.created || 0 : undefined,
         tooltip: item.tooltip || '', icon: item.iconPath?.id || 'comment-discussion', actions,

@@ -2,6 +2,29 @@
 
 const { test, expect } = require('./fixture');
 
+test('queued input has no execution clock, pulse or running Stop button', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await expect(page.locator('#activity-detail')).toBeVisible();
+  await chat.send({ type: 'status', state: 'queued' });
+  await expect(page.locator('#status')).toHaveClass('status queued');
+  await expect(page.locator('#status-text')).toHaveText('Queued');
+  await expect(page.locator('#activity-detail')).toBeHidden();
+  await expect(page.locator('#stop')).toBeHidden();
+  await expect(page.locator('#input')).toBeEnabled();
+  expect(await page.locator('#status .dot').evaluate((el) => getComputedStyle(el).animationName)).toBe('none');
+  await chat.send({ type: 'status', state: 'busy' });
+  await expect(page.locator('#status-text')).toHaveText('Working…');
+  await expect(page.locator('#activity-detail')).toBeVisible();
+});
+
+test('native send waits for server execution before starting its clock', async ({ page, chat }) => {
+  await chat.send({ type: 'transcript', messages: [], inbox: [], states: [] });
+  await page.locator('#input').fill('Next task');
+  await page.locator('#input').press('Enter');
+  await expect(page.locator('#status-text')).toHaveText('Queued');
+  await expect(page.locator('#activity-detail')).toBeHidden();
+});
+
 test('unconfirmed execution stops the clock and allows an explicit continuation', async ({ page, chat }) => {
   await chat.send({ type: 'status', state: 'busy' });
   await expect(page.locator('#activity-detail')).toBeVisible();

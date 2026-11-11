@@ -239,6 +239,8 @@ class SessionPanel {
       this.panel.iconPath = this._iconUri('opencode-attention.svg');
     } else if (kind === 'working') {
       this.panel.iconPath = this._iconUri('opencode-working.svg');
+    } else if (kind === 'queued') {
+      this.panel.iconPath = this._iconUri('opencode-queued.svg');
     } else if (kind === 'done') {
       this.panel.iconPath = this._iconUri('opencode-done.svg');
     } else if (kind === 'background') {
@@ -815,20 +817,29 @@ class SessionPanel {
     if (this._disposed) return;
     const previous = this._serverActivity;
     this._serverActivity = activity;
-    if (activity === 'running' || activity === 'queued') {
+    if (activity === 'running') {
       this._busy = true;
       this._setIcon('working');
       this._post({ type: 'status', state: 'busy' });
     } else {
       const finished = this._busy;
-      if (finished && activity === 'idle') this._post({ type: 'turnEnd', stopReason: 'end_turn' });
-      if (finished || (previous && previous !== activity)) {
+      if (finished && (activity === 'idle' || activity === 'queued')) {
+        this._post({ type: 'turnEnd', stopReason: 'end_turn' });
+      }
+      if (finished) {
         this._finishTurn(activity === 'unconfirmed' ? 'unconfirmed' : 'ready');
-      } else {
+        this._afterTurn();
+      }
+      this._serverActivity = activity;
+      if (activity === 'queued') {
+        this._setIcon('queued');
+        this._post({ type: 'status', state: 'queued' });
+      } else if (!finished) {
+        // An unchanged idle snapshot must not clear an unread completion icon.
+        if (previous === 'queued' || previous === 'unconfirmed') this._setIcon('idle');
         this._post({ type: 'status', state: activity === 'unconfirmed' ? 'unconfirmed' : 'ready',
           ...(activity === 'unconfirmed' ? { message: UNCONFIRMED_MESSAGE } : {}) });
       }
-      if (finished) this._afterTurn();
     }
     if (previous !== activity) this.deps.onSessionChanged?.();
   }

@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const https = require('node:https');
-const { sessionActivity } = require('./session-activity');
+const { sessionActivity, pendingActivity } = require('./session-activity');
 const { BackgroundRuns } = require('./background-runs');
 
 const execFileAsync = promisify(execFile);
@@ -55,6 +55,7 @@ class OpenCodeApi {
     this._localSessions = new Map();
     this._activeRead = null;
     this._activeAt = 0;
+    this._inboxReads = new Map();
     this.background = new BackgroundRuns(this);
   }
 
@@ -212,7 +213,7 @@ class OpenCodeApi {
         (a, b) =>
           ((b.time && (b.time.updated || b.time.created)) || 0) -
           ((a.time && (a.time.updated || a.time.created)) || 0)
-      ));
+      ), { inbox: true });
   }
 
   setSessionRunning(sessionId, owner, running) {
@@ -224,7 +225,35 @@ class OpenCodeApi {
     else this._localSessions.delete(sessionId);
   }
 
-  async _withActivity(sessions) {
+  invalidateSessionInbox(sessionId) {
+    this._inboxReads.delete(sessionId);
+  }
+
+  async _inboxActivity(session) {
+    const updated = session.time?.updated;
+    const cached = this._inboxReads.get(session.id);
+    // Admissions touch time.updated, cancellations do not. Cache empty/passive
+    // inboxes until an admission, but recheck queued work even at the same stamp.
+    if (cached && updated === cached.updated &&
+        (updated !== undefined && cached.activity === 'idle' || Date.now() - cached.at < 2000)) return cached.read;
+    const entry = { updated, at: Date.now() };
+    entry.read = this._request('GET', `/api/session/${encodeURIComponent(session.id)}/inbox`)
+      .then((response) => {
+        if (!Array.isArray(response?.data)) throw new Error('Invalid session inbox response');
+        entry.activity = pendingActivity(response.data);
+        return entry.activity;
+      })
+      .catch((error) => {
+        if (this._inboxReads.get(session.id) === entry) this._inboxReads.delete(session.id);
+        this.log(`Session inbox unavailable: ${error.message}`);
+        return cached?.activity || 'idle';
+      });
+    this._inboxReads.set(session.id, entry);
+    if (this._inboxReads.size > 500) this._inboxReads.delete(this._inboxReads.keys().next().value);
+    return entry.read;
+  }
+
+  async _withActivity(sessions, options = {}) {
     // The shared service only reports its own executions. Local ACP prompts
     // are owned by separate servers; absence in both sources remains unknown
     // when durable busy intent exists (another window may own the session).
@@ -243,11 +272,24 @@ class OpenCodeApi {
         });
     }
     const active = await this._activeRead;
-    return sessions.map((session) => ({
+    const result = sessions.map((session) => ({
       ...session,
       _activity: this._localSessions.has(session.id) || active?.[session.id]?.type === 'running'
         ? 'running' : sessionActivity(session),
     }));
+    if (options.inbox) {
+      // Closed tabs need queued icons too. Bound cold-cache reads; unchanged
+      // idle sessions subsequently require no extra requests.
+      let index = 0;
+      await Promise.all(Array.from({ length: Math.min(4, result.length) }, async () => {
+        while (index < result.length) {
+          const session = result[index++];
+          if (session.archived || session._activity !== 'idle') continue;
+          session._activity = await this._inboxActivity(session);
+        }
+      }));
+    }
+    return result;
   }
 
   /**
@@ -279,7 +321,7 @@ class OpenCodeApi {
       if (!session.parentID) return false;
       if (parentId && session.parentID !== parentId) return false;
       return true;
-    }));
+    }), { inbox: true });
   }
 
   async updateSession(sessionId, patch) {

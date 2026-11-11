@@ -22,6 +22,7 @@
     'comment-discussion': ['M3 3h16v12H9l-4 4v-4H3z'],
     'server-process': ['M4 3h16v7H4z', 'M4 14h16v7H4z', 'M7 6h1', 'M7 17h1'],
     terminal: ['M3 4h18v16H3z', 'm6 8 4 4-4 4', 'M13 16h4'],
+    clock: ['M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0', 'M12 7v5l3 2'],
     'loading~spin': ['M20 12a8 8 0 1 1-8-8'], chevron: ['m9 5 7 7-7 7'], down: ['m5 9 7 7 7-7'],
     more: ['M5 12h1', 'M11 12h1', 'M17 12h1'],
   };

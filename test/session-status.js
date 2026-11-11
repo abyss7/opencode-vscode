@@ -46,6 +46,32 @@ function fixture() {
   api.setSessionRunning('orphan', 'tab2', false);
   assert.equal(sessionActivity((await api._withActivity([unfinished]))[0]), 'unconfirmed');
   assert.equal(requests, 1, 'sidebar and tabs share one live activity snapshot');
+
+  const queues = new OpenCodeApi();
+  let inbox = [{ id: 'notice', type: 'synthetic' }];
+  let inboxReads = 0;
+  queues._request = async (method, path) => {
+    if (path === '/api/session/active') return { data: {} };
+    if (path === '/api/session/closed') return { data: { id: 'closed', time: { idle: 20 } } };
+    inboxReads++;
+    return { data: inbox };
+  };
+  const listed = { id: 'closed', time: { updated: 1, idle: 20 } };
+  assert.equal(sessionActivity((await queues._withActivity([listed], { inbox: true }))[0]), 'idle');
+  await queues._withActivity([listed], { inbox: true });
+  assert.equal(inboxReads, 1, 'unchanged passive inboxes are cached');
+  inbox = [{ id: 'prompt', type: 'user' }];
+  const changed = { ...listed, time: { ...listed.time, updated: 2 } };
+  assert.equal(sessionActivity((await queues._withActivity([changed], { inbox: true }))[0]), 'queued',
+    'sidebar discovers queued user work even without an open tab');
+  assert.equal(sessionActivity(await queues.getSession('closed')), 'idle',
+    'client snapshots read execution separately from the sidebar queue overlay');
+  inbox = [];
+  queues._inboxReads.get('closed').at -= 2001;
+  assert.equal(sessionActivity((await queues._withActivity([changed], { inbox: true }))[0]), 'idle',
+    'cancellation clears the icon even when time.updated did not change');
+  queues.invalidateSessionInbox('closed');
+  assert.equal(queues._inboxReads.has('closed'), false);
   api._activeRead = null;
   api._request = async () => { throw new Error('offline'); };
   assert.equal(sessionActivity((await api._withActivity([unfinished]))[0]), 'unconfirmed', 'an unavailable owner is not completion');
@@ -94,6 +120,35 @@ function fixture() {
   initialIdle.panel.deps.api.getSession = async () => ({ time: { busy: 10, idle: 20 } });
   initialIdle.panel._finishTurn = () => assert.fail('initial idle must not mark an inactive tab as newly completed');
   await initialIdle.panel._refreshServerStatus();
+
+  const waiting = fixture();
+  waiting.panel.panel.active = false;
+  waiting.panel._permissions = new Map();
+  waiting.panel._elicitations = new Map();
+  const icons = [];
+  let completions = 0;
+  waiting.panel._setIcon = (kind) => icons.push(kind);
+  waiting.panel._afterTurn = () => completions++;
+  waiting.panel._completeContinuation = () => assert.fail('queued-only work is not a completed turn');
+  waiting.panel._onServerActivity('queued');
+  assert.equal(Boolean(waiting.panel._busy), false);
+  assert.equal(waiting.messages.at(-1).state, 'queued');
+  assert.equal(icons.at(-1), 'queued');
+  waiting.panel._onServerActivity('idle');
+  assert.equal(waiting.messages.some((message) => message.type === 'turnEnd'), false);
+  assert.equal(icons.at(-1), 'idle');
+  assert.equal(completions, 0);
+  waiting.panel._completeContinuation = () => {};
+  waiting.panel._onServerActivity('running');
+  waiting.panel._onServerActivity('queued');
+  assert.equal(completions, 1, 'a real running turn can finish while the next input waits');
+  assert.equal(waiting.messages.filter((message) => message.type === 'turnEnd').length, 1);
+  assert.equal(waiting.panel._serverActivity, 'queued');
+  waiting.panel._onServerActivity('running');
+  waiting.panel._onServerActivity('idle');
+  assert.equal(icons.at(-1), 'done');
+  waiting.panel._onServerActivity('idle');
+  assert.equal(icons.at(-1), 'done', 'repeated idle snapshots preserve the unread completion icon');
 
   const recovery = fixture();
   const token = { sessionID: 'session', turn: 'interrupted' };
