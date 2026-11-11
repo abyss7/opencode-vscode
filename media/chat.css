@@ -156,26 +156,28 @@ select {
 
 .status.background .dot {
   background: var(--oc-completed);
+}
+.status.background .dot,
+.background-state[data-running="true"] {
   animation: background-pulse 2.4s ease-in-out infinite;
 }
 @keyframes background-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
-@media (prefers-reduced-motion: reduce) { .status.background .dot { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .status.background .dot, .background-state[data-running="true"] { animation: none; }
+}
 
 #messages > .background-task { margin: 10px 0; }
-.tool-group.background-task > summary { grid-template-columns: 12px auto minmax(0, 1fr) auto auto; }
-.tool-group.background-task > summary > .tokens { display: none; }
-.tool-group.background-task > summary > .status { grid-column: 4; }
-.tool-group.background-task > summary > .background-stop { grid-column: 5; grid-row: 1; }
-.background-stop { border: 1px solid var(--oc-border); border-radius: 4px; padding: 2px 7px;
-  background: transparent; color: var(--vscode-foreground); font-size: 11px; cursor: pointer; }
-.background-stop:hover { background: var(--vscode-toolbar-hoverBackground); }
+.tool-group.background-task > summary { grid-template-columns: 12px 144px minmax(0, 1fr) auto auto auto; }
+.tool-group.background-task > summary > .background-stop { grid-column: 6; grid-row: 1; align-self: center; }
+.tool-group .status.background-state[data-running="true"] { color: var(--oc-completed); }
+.btn.icon-btn.background-stop { width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 4px; }
+.btn.icon-btn.background-stop svg { width: 12px; height: 12px; }
 .background-stop:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 .background-stop:disabled { opacity: .6; cursor: default; }
 .background-error { color: var(--vscode-errorForeground); font-size: 12px; padding: 4px 0; }
 @media (max-width: 600px) {
-  .tool-group.background-task > summary { grid-template-columns: 12px minmax(0, 1fr) auto auto; }
-  .tool-group.background-task > summary > .status { grid-column: 3; }
-  .tool-group.background-task > summary > .background-stop { grid-column: 4; }
+  .tool-group.background-task > summary { grid-template-columns: 12px minmax(0, 1fr) auto auto auto; }
+  .tool-group.background-task > summary > .background-stop { grid-column: 5; }
   .tool-group.background-task > summary > .name { grid-column: 2 / -1; grid-row: 2; }
 }
 

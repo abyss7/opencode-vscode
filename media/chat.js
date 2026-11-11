@@ -655,9 +655,15 @@
   function ensureTurnSteps() {
     if (state.turnSteps) return state.turnSteps;
     if (state.turnEnded || !state.turnId) beginTurn();
+    state.turnSteps = createTurnSteps(state.turnId);
+    syncLiveFallback();
+    return state.turnSteps;
+  }
+
+  function createTurnSteps(turn, before = null) {
     const details = document.createElement('details');
     details.className = 'turn-steps';
-    details.dataset.turn = state.turnId || '';
+    details.dataset.turn = turn || '';
     details.open = false;
     const summary = document.createElement('summary');
     const titleEl = el('span', 'kind', 'Steps');
@@ -669,16 +675,14 @@
     const body = el('div', 'body');
     details.appendChild(summary);
     details.appendChild(body);
-    messagesEl.appendChild(details);
-    state.turnSteps = {
+    messagesEl.insertBefore(details, before);
+    return {
       details,
       body,
       titleEl,
       metaEl,
       tokensEl,
     };
-    syncLiveFallback();
-    return state.turnSteps;
   }
 
   function currentAttention() {
@@ -722,6 +726,7 @@
     activityTargetEl.textContent = active?.text || '';
     activityTargetEl.title = active?.text || '';
     activityTargetEl.hidden = !active?.text;
+    syncBackgroundPulse();
   }
 
   function startLiveClock() {
@@ -1553,6 +1558,7 @@
   }
 
   function createToolGroup(background = false) {
+    if (background && (state.turnEnded || !state.turnId)) beginTurn();
     const details = document.createElement('details');
     details.className = 'tool-group';
     details.open = false;
@@ -1573,6 +1579,7 @@
       finalizeTurnSteps();
       messagesEl.appendChild(details);
     } else beginIntermediate().body.appendChild(details);
+    details.dataset.turn = state.turnId || '';
     const group = { details, kindEl, nameEl, tokensEl, statusEl, body, cards: [] };
     state.toolGroup = group;
     syncTurnSteps();
@@ -1598,6 +1605,7 @@
     if (statuses.includes('in_progress')) status = 'in_progress';
     else if (statuses.includes('pending')) status = 'pending';
     else if (statuses.includes('failed')) status = 'failed';
+    else if (statuses.includes('cancelled')) status = 'cancelled';
     else if (statuses.length > 0 && statuses.every((value) => value === 'completed')) {
       status = 'completed';
     }
@@ -1683,11 +1691,13 @@
     group.classList.add('background-task');
     const block = group.closest('.turn-steps');
     if (!block) return;
+    group.dataset.turn = block.dataset.turn;
     const body = group.parentElement;
     let after;
     if (group.nextSibling) {
       after = block.cloneNode(false);
       after.removeAttribute('data-exact');
+      after.removeAttribute('data-anchor-id');
       after.appendChild(block.querySelector('summary').cloneNode(true));
       const remainder = el('div', 'body');
       while (group.nextSibling) remainder.appendChild(group.nextSibling);
@@ -1702,25 +1712,81 @@
         tokensEl: after.querySelector('summary > .tokens'),
       } : null;
     }
-    for (const item of [block, after].filter(Boolean)) {
-      if (!item.querySelector('.body').children.length) { item.remove(); continue; }
-      item.removeAttribute('data-exact');
-      renderStepSummary(item.querySelector('summary > .kind'), item.querySelector('summary > .name'),
-        turnToolCards(item), countBlockSteps(item));
-      const tokens = [...item.querySelector('.body').children].reduce((sum, child) => sum + Number(child.dataset.tokens || 0), 0);
-      item.querySelector('summary > .tokens').textContent = tokens ? formatTokens(tokens) : '';
+    for (const item of [block, after].filter(Boolean)) refreshStepBlock(item);
+  }
+
+  function refreshStepBlock(block) {
+    const body = block.querySelector('.body');
+    if (!body.children.length) { block.remove(); return; }
+    block.removeAttribute('data-exact');
+    renderStepSummary(block.querySelector('summary > .kind'), block.querySelector('summary > .name'),
+      turnToolCards(block), countBlockSteps(block));
+    const tokens = [...body.children].reduce((sum, child) => sum + Number(child.dataset.tokens || 0), 0);
+    block.querySelector('summary > .tokens').textContent = tokens ? formatTokens(tokens) : '';
+  }
+
+  function restoreBackgroundSteps(card, statusChanged) {
+    const group = card.group.details;
+    group.classList.remove('background-task');
+    if (group.closest('.turn-steps')) {
+      if (statusChanged) refreshStepBlock(group.closest('.turn-steps'));
+      return;
+    }
+    const turn = group.dataset.turn;
+    const adjacent = (node) => node?.classList.contains('turn-steps') && node.dataset.turn === turn ? node : null;
+    const previous = adjacent(group.previousElementSibling);
+    const next = adjacent(group.nextElementSibling);
+    const block = previous || next || createTurnSteps(turn, group).details;
+    const body = block.querySelector('.body');
+    const open = block.open || group.open || Boolean(next?.open);
+    if (previous) {
+      body.appendChild(group);
+      if (next) {
+        body.append(...next.querySelector('.body').childNodes);
+        next.remove();
+      }
+    } else if (next) body.prepend(group);
+    else {
+      if (group.dataset.anchorId) {
+        block.dataset.anchorId = group.dataset.anchorId;
+        delete group.dataset.anchorId;
+      }
+      body.appendChild(group);
+    }
+    block.open = open;
+    // Reuse only adjacent work from the same turn. Never absorb a later answer
+    // or redirect a newer turn's in-flight Steps into this historical block.
+    if (state.turnSteps?.details === previous || state.turnSteps?.details === next ||
+        (!state.turnEnded && turn === state.turnId && block === messagesEl.lastElementChild)) {
+      state.turnSteps = { details: block, body, titleEl: block.querySelector('summary > .kind'),
+        metaEl: block.querySelector('summary > .name'), tokensEl: block.querySelector('summary > .tokens') };
+    }
+    refreshStepBlock(block);
+  }
+
+  function syncBackgroundPulse() {
+    // CSS animations start when their elements appear. A shared document
+    // timeline keeps late-arriving labels in phase with the header dot.
+    for (const node of document.querySelectorAll('#status.background .dot, .background-state[data-running="true"]')) {
+      for (const animation of node.getAnimations()) {
+        if (animation.animationName === 'background-pulse' && animation.startTime !== 0) animation.startTime = 0;
+      }
     }
   }
 
   function syncBackgroundCard(card) {
     const run = state.backgroundRuns.get(card.entry.dataset.toolCallId);
     if (!card.background && !run && !card.activity.background && !card.activity.rawInput?.background) return;
-    card.background = true;
-    separateBackground(card);
-    if (!card.stopBackground) {
-      const button = el('button', 'background-stop', 'Stop');
+    const status = run?.status || (card.activity.status === 'failed' ? 'failed' : 'unknown');
+    const finished = !['unknown', 'running', 'stopping'].includes(status);
+    card.background = !finished;
+    if (!finished) separateBackground(card);
+    if (!finished && !card.stopBackground) {
+      const button = el('button', 'btn danger icon-btn background-stop');
       button.type = 'button';
       button.setAttribute('aria-label', 'Stop background task');
+      button.title = 'Stop background task';
+      button.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1.4"/></svg>';
       button.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1737,18 +1803,13 @@
       card.backgroundError.setAttribute('role', 'alert');
       card.group.body.appendChild(card.backgroundError);
     }
-    const status = run?.status || (card.statusValue === 'failed' ? 'failed' : 'unknown');
-    const labels = { unknown: 'Background', running: 'Background', stopping: 'Stopping…', stopped: 'Stopped',
-      killed: 'Stopped', timeout: 'Timed out', unavailable: 'Unavailable', failed: 'Failed' };
-    card.group.statusEl.textContent = status === 'exited' ? (run.exit === 0 ? 'Completed' : `Exit ${run.exit ?? '?'}`) : labels[status] || status;
-    card.group.statusEl.className = 'status background-state';
-    card.group.kindEl.textContent = 'Background';
-    card.group.nameEl.textContent = describeTool(card.activity);
-    card.stopBackground.hidden = !['running', 'stopping'].includes(status);
-    card.stopBackground.disabled = status === 'stopping';
-    card.stopBackground.textContent = status === 'stopping' ? 'Stopping…' : 'Stop';
-    card.backgroundError.textContent = card.stopError || run?.error || '';
-    card.backgroundError.hidden = !card.backgroundError.textContent;
+    if (card.stopBackground) {
+      card.stopBackground.hidden = !['running', 'stopping'].includes(status);
+      card.stopBackground.disabled = status === 'stopping';
+      card.stopBackground.title = status === 'stopping' ? 'Stopping…' : 'Stop background task';
+      card.backgroundError.textContent = card.stopError || run?.error || '';
+      card.backgroundError.hidden = !card.backgroundError.textContent;
+    }
     if (typeof run?.output === 'string' && card.rows.output) {
       const text = run.output + (run.truncated ? '\n… Output truncated' : '');
       if (card.rows.output.contentEl.textContent !== text) {
@@ -1758,6 +1819,22 @@
       }
       card.body.hidden = false;
     }
+    if (finished) {
+      const previousStatus = card.statusValue;
+      card.statusValue = status === 'exited' ? (run.exit === 0 ? 'completed' : 'failed')
+        : ['stopped', 'killed'].includes(status) ? 'cancelled' : status === 'unavailable' ? 'unknown' : 'failed';
+      card.statusEl.textContent = toolStatusLabel(card.statusValue);
+      card.statusEl.className = 'status ' + card.statusValue;
+      delete card.group.statusEl.dataset.running;
+      syncToolGroup(card.group);
+      if (status === 'unavailable') card.group.statusEl.textContent = 'unavailable';
+      restoreBackgroundSteps(card, previousStatus !== card.statusValue);
+    } else {
+      card.group.statusEl.textContent = status === 'unknown' ? 'pending' : 'in background';
+      card.group.statusEl.className = 'status background-state';
+      card.group.statusEl.dataset.running = String(status !== 'unknown');
+      syncBackgroundPulse();
+    }
   }
 
   function activeBackgroundRuns() {
@@ -1765,9 +1842,11 @@
   }
 
   function showBackground(runs) {
+    const viewport = captureViewport();
     state.backgroundRuns = new Map((runs || []).map((run) => [run.toolCallId, run]));
     for (const card of state.toolCards.values()) syncBackgroundCard(card);
     syncLiveFallback();
+    if (!transcript.navigating) restoreViewport(viewport);
   }
 
   function renderLocations(card, locations) {

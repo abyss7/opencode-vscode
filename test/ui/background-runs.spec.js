@@ -12,7 +12,7 @@ const runs = (chat, ...items) => chat.send({ type: 'background', runs: items.map
   ({ id: `sh_${id}`, toolCallId: id, status, output: `Output ${id}`, exit: 0 })) });
 const card = (page, id) => page.locator('.tool-group').filter({ has: page.locator(`[data-tool-call-id="${id}"]`) });
 
-test('background cards stay at launch positions outside Steps, including after completion', async ({ page, chat }) => {
+test('active background cards stay in place and completed commands rejoin ordinary Steps', async ({ page, chat }) => {
   await chat.send({ type: 'status', state: 'busy' });
   await tool(chat, 'before'); await tool(chat, 'one', true); await tool(chat, 'between'); await tool(chat, 'two', true); await tool(chat, 'after');
   await runs(chat, ['one'], ['two']);
@@ -26,12 +26,21 @@ test('background cards stay at launch positions outside Steps, including after c
   await expect(page.locator('#send')).toBeVisible();
   await expect(page.locator('#stop')).toBeHidden();
   await expect(page.locator('#header button')).toHaveCount(2); // Existing Artifacts and jump only.
+  await expect(card(page, 'one').locator('summary > .kind')).toHaveText('Ran 1 command');
+  await expect(card(page, 'one').locator('summary > .name')).toHaveText('shell');
+  await expect(card(page, 'one').locator('summary > .status')).toHaveText('in background');
   await card(page, 'one').locator('summary').click();
   await expect(card(page, 'one')).toHaveAttribute('open', '');
   await expect(card(page, 'one').locator('.tool-row').filter({ hasText: 'OUT' })).toContainText('Output one');
   await runs(chat, ['one', 'exited'], ['two', 'exited']);
   await expect(page.locator('#status-text')).toHaveText('Ready');
-  await expect(page.locator('#messages > .background-task')).toHaveCount(2);
+  await expect(page.locator('.background-task')).toHaveCount(0);
+  await expect(page.locator('.turn-steps')).toHaveCount(1);
+  await expect(page.locator('.turn-steps > summary > .kind')).toHaveText('5 steps');
+  await expect(card(page, 'one').locator('summary > .kind')).toHaveText('Ran 1 command');
+  await expect(card(page, 'one').locator('summary > .status')).toHaveText('done');
+  expect(await page.locator('.tool-entry').evaluateAll((nodes) => nodes.map((node) => node.dataset.toolCallId)))
+    .toEqual(['before', 'one', 'between', 'two', 'after']);
   await expect(card(page, 'one').getByRole('button', { name: 'Stop background task' })).toBeHidden();
 });
 
@@ -64,6 +73,11 @@ test('Stop is per card, keeps disclosure state, retries errors and retains outpu
   await tool(chat, 'one', true); await tool(chat, 'two', true); await runs(chat, ['one'], ['two']);
   const first = card(page, 'one');
   const stop = first.getByRole('button', { name: 'Stop background task' });
+  await expect(stop).toHaveText('');
+  await expect(stop.locator('svg rect')).toHaveCount(1);
+  const size = await stop.boundingBox();
+  expect(size.width).toBe(20);
+  expect(size.height).toBe(20);
   await stop.click();
   expect(await chat.received('stopBackground')).toEqual([{ type: 'stopBackground', toolCallId: 'one' }]);
   await expect(first).not.toHaveAttribute('open', '');
@@ -78,8 +92,78 @@ test('Stop is per card, keeps disclosure state, retries errors and retains outpu
   await runs(chat, ['one', 'stopped'], ['two']);
   await expect(stop).toBeHidden();
   await expect(first).toHaveAttribute('open', '');
-  await expect(first.locator('.background-state')).toHaveText('Stopped');
+  await expect(first.locator('summary > .status')).toHaveText('cancelled');
+  await expect(first.locator('.background-state')).toHaveCount(0);
   await expect(first).toContainText('Output one');
+});
+
+test('completed background replay is ordinary collapsible work and retains exact turn statistics', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await runs(chat, ['old', 'exited']);
+  await tool(chat, 'old', true);
+  await tool(chat, 'ordinary');
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await expect(page.locator('.background-task')).toHaveCount(0);
+  await expect(page.locator('.turn-steps')).toHaveCount(1);
+  await expect(card(page, 'old').locator('summary > .kind')).toHaveText('Ran 1 command');
+  await expect(card(page, 'old').locator('summary > .status')).toHaveText('done');
+  await expect(card(page, 'old').locator('summary > .background-stop')).toHaveCount(0);
+  await page.locator('.turn-steps > summary').click();
+  await expect(card(page, 'old')).toBeHidden();
+  await page.locator('.turn-steps > summary').click();
+  await card(page, 'old').locator('summary').click();
+  await expect(card(page, 'old')).toContainText('Output old');
+  await chat.send({ type: 'turnStats', scope: 'last', turns: [{ steps: 2, tokens: 12345, exact: true }] });
+  const tokens = await page.locator('.turn-steps > summary > .tokens').textContent();
+  await runs(chat, ['old', 'exited']);
+  await expect(page.locator('.turn-steps > summary > .tokens')).toHaveText(tokens);
+});
+
+test('out-of-order completion never groups across answers or later turns', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await tool(chat, 'first', true); await tool(chat, 'second', true);
+  await runs(chat, ['first'], ['second']);
+  await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'First answer' } });
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await chat.send({ type: 'status', state: 'busy' });
+  await tool(chat, 'later');
+  await runs(chat, ['first'], ['second', 'exited']);
+  await runs(chat, ['first', 'exited'], ['second', 'exited']);
+  await tool(chat, 'latest');
+  await expect(page.locator('.turn-steps')).toHaveCount(2);
+  expect(await page.locator('.turn-steps').first().locator('.tool-entry').evaluateAll((nodes) => nodes.map((node) => node.dataset.toolCallId)))
+    .toEqual(['first', 'second']);
+  expect(await page.locator('.turn-steps').last().locator('.tool-entry').evaluateAll((nodes) => nodes.map((node) => node.dataset.toolCallId)))
+    .toEqual(['later', 'latest']);
+});
+
+test('background failure uses ordinary failed command styling instead of claiming success', async ({ page, chat }) => {
+  await tool(chat, 'fail', true);
+  await chat.send({ type: 'background', runs: [{ id: 'sh_fail', toolCallId: 'fail', status: 'exited', exit: 7, output: 'Command failed' }] });
+  await expect(card(page, 'fail').locator('summary > .status')).toHaveText('failed');
+  await expect(card(page, 'fail').locator('summary > .status')).toHaveClass('status failed');
+  await expect(card(page, 'fail').locator('summary > .kind')).not.toHaveText('Ran 1 command');
+  await expect(page.locator('.turn-steps .tool-entry')).toHaveCount(1);
+  await expect(page.locator('.background-task')).toHaveCount(0);
+});
+
+test('in-background labels pulse in phase with the header, even when added later', async ({ page, chat }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await tool(chat, 'first', true); await runs(chat, ['first']);
+  const dot = page.locator('#status .dot');
+  await expect.poll(() => dot.evaluate((node) => Number(getComputedStyle(node).opacity))).toBeLessThan(.7);
+  await tool(chat, 'second', true); await runs(chat, ['first'], ['second']);
+  const phase = await page.evaluate(() => [...document.querySelectorAll('#status .dot, .background-state')].map((node) => ({
+    opacity: Number(getComputedStyle(node).opacity), start: node.getAnimations()[0].startTime,
+  })));
+  expect(phase).toHaveLength(3);
+  for (const value of phase.slice(1)) {
+    expect(value.start).toBe(phase[0].start);
+    expect(value.opacity).toBeCloseTo(phase[0].opacity, 3);
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await page.locator('.background-state').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).animationName)))
+    .toEqual(['none', 'none']);
 });
 
 test('working and attention outrank background; reduced motion keeps a static green dot', async ({ page, chat }) => {
