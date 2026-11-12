@@ -23,6 +23,8 @@ for (const height of [280, 450]) {
     await expect(page.locator('.message.user .body')).toHaveText('Full prompt line\n'.repeat(80).trim());
     await chat.send({ type: 'subagents', items: Array.from({ length: 25 }, (_, i) => ({ id: `child-${i}`, title: `Worker ${i}`, running: true })) });
     await expectInside(page.locator('#subagents-summary'), page.locator('#app'));
+    await expect(page.locator('#subagents-list')).toBeHidden();
+    await page.locator('#subagents-summary').click();
     await expectInside(page.locator('#subagents-list'), page.locator('#app'));
     await page.locator('#subagents-list').evaluate(node => { node.scrollTop = node.scrollHeight; });
     await page.locator('#subagents-summary').click();

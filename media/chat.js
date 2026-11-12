@@ -100,7 +100,6 @@
     activityThought: '',
     activityPurpose: '',
     attentionRequests: new Map(),
-    subagentsRunning: 0,
     acpCommands: [],
     restCommands: [],
     skills: [],
@@ -3961,7 +3960,6 @@
     if (!items || items.length === 0) {
       subagentsEl.hidden = true;
       subagentsListEl.replaceChildren();
-      state.subagentsRunning = 0;
       return;
     }
 
@@ -3982,13 +3980,6 @@
         ' tok';
     }
     subagentsSummaryTextEl.textContent = summary;
-
-    // Expand once when sub-agents start running, then leave the user's toggle
-    // alone so the strip can be collapsed during a long run.
-    if (running > 0 && !state.subagentsRunning) {
-      setSubagentsExpanded(true);
-    }
-    state.subagentsRunning = running;
 
     subagentsListEl.replaceChildren();
     for (const item of items) {

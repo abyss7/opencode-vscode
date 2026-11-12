@@ -214,6 +214,7 @@ select {
   flex-direction: column;
   gap: 2px;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 16px 32px;
   min-height: 0;
   overscroll-behavior: contain;
@@ -222,6 +223,7 @@ select {
 
 .messages > * {
   flex-shrink: 0;
+  min-width: 0;
   width: 100%;
   max-width: 100%;
   margin: 0;
@@ -2149,6 +2151,7 @@ button.delivery-indicator:focus-visible {
   border-radius: 6px;
   background: var(--vscode-editorWidget-background, transparent);
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
 
