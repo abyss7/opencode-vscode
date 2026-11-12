@@ -297,12 +297,22 @@ function start() {
 
 start();
 
-// The menu opens on a leading slash and merges ACP commands with REST commands and skills.
+// Slash completion merges only ACP/REST commands, not skills.
 type('/');
 assert.strictEqual(ids['slash-menu'].hidden, false);
-assert.strictEqual(rows().length, 5);
+assert.strictEqual(rows().length, 4);
 assert.strictEqual(rowName(0), '/init');
-assert.strictEqual(rows()[4].querySelector('.slash-kind').textContent, 'skill');
+assert.strictEqual(rowName(3), '/compact');
+assert.ok(rows().every((row) => row.querySelector('.slash-kind').textContent === 'cmd'));
+
+type('/comp');
+assert.strictEqual(rows().length, 1);
+assert.strictEqual(rowName(0), '/compact');
+
+type('/hand');
+assert.strictEqual(ids['slash-menu'].hidden, true);
+type('@review');
+assert.strictEqual(ids['slash-menu'].hidden, true);
 
 // Prefix filtering keeps only matching entries.
 type('/re');
@@ -313,11 +323,20 @@ assert.strictEqual(ids.input.value, '/review ');
 assert.strictEqual(ids['slash-menu'].hidden, true);
 
 // Skills are inserted as @ mentions.
-type('/hand');
+type('@hand');
 assert.strictEqual(rows().length, 1);
 assert.strictEqual(rowName(0), '@handoff');
 ids.input.emit('keydown', { key: 'Enter' });
 assert.strictEqual(ids.input.value, '@handoff ');
+
+type('Please use\n@hand');
+ids.input.emit('keydown', { key: 'Tab' });
+assert.strictEqual(ids.input.value, 'Please use\n@handoff ');
+
+for (const text of ['name@host', '#hand', '!review', 'Please /review']) {
+  type(text);
+  assert.strictEqual(ids['slash-menu'].hidden, true, text);
+}
 
 // Arrow keys move the selection and Escape closes the menu.
 type('/');

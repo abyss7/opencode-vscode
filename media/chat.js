@@ -461,19 +461,31 @@
 
   function slashQuery() {
     const value = inputEl.value;
-    if (value.startsWith('/') === false) return null;
-    if (/\s/.test(value)) return null;
-    return value.slice(1);
+    const caret = inputEl.selectionStart ?? value.length;
+    if ((inputEl.selectionEnd ?? caret) !== caret) return null;
+    const before = value.slice(0, caret);
+    const command = before.match(/^\/([^\s/]*)$/);
+    const skill = before.match(/(?:^|\s)@([^\s@]*)$/);
+    const match = command || skill;
+    if (!match) return null;
+    return {
+      kind: command ? 'command' : 'skill',
+      needle: match[1],
+      start: caret - match[1].length - 1,
+      end: caret + value.slice(caret).match(/^\S*/)[0].length,
+    };
   }
 
   function filteredSlashItems(query) {
-    const needle = String(query || '').toLowerCase();
-    if (!needle) return state.slashItems;
-    const startsWith = state.slashItems.filter((item) =>
+    if (!query) return [];
+    const items = state.slashItems.filter((item) => item.kind === query.kind);
+    const needle = query.needle.toLowerCase();
+    if (!needle) return items;
+    const startsWith = items.filter((item) =>
       item.name.toLowerCase().startsWith(needle)
     );
     if (startsWith.length > 0) return startsWith;
-    return state.slashItems.filter((item) =>
+    return items.filter((item) =>
       item.name.toLowerCase().includes(needle)
     );
   }
@@ -513,6 +525,7 @@
       return;
     }
     buildSlashItems();
+    slashMenuEl.setAttribute('aria-label', query.kind === 'skill' ? 'Skills' : 'Commands');
     renderSlashMenu(filteredSlashItems(query));
   }
 
@@ -537,12 +550,14 @@
     const items = filteredSlashItems(query);
     const item = items[index];
     if (!item) return;
-    inputEl.value = item.insert;
+    const suffix = inputEl.value.slice(query.end);
+    const insert = /^\s/.test(suffix) ? item.insert.trimEnd() : item.insert;
+    inputEl.value = inputEl.value.slice(0, query.start) + insert + suffix;
     closeSlashMenu();
     resizeInput();
     updateComposer();
     focusLocal(inputEl, composerControls);
-    const position = inputEl.value.length;
+    const position = query.start + insert.length;
     try {
       inputEl.setSelectionRange(position, position);
     } catch {
@@ -3435,7 +3450,7 @@
           ? update.availableCommands
           : [];
         buildSlashItems();
-        if (state.slashOpen) refreshSlashMenu();
+        if (state.slashOpen || document.activeElement === inputEl) refreshSlashMenu();
         break;
       default:
         break;
@@ -3716,7 +3731,7 @@
         state.skills = Array.isArray(message.skills) ? message.skills : [];
         state.restCommands = Array.isArray(message.commands) ? message.commands : [];
         buildSlashItems();
-        if (state.slashOpen) refreshSlashMenu();
+        if (state.slashOpen || document.activeElement === inputEl) refreshSlashMenu();
         break;
       case 'historyReset':
         artifacts.reset();
@@ -4128,9 +4143,14 @@
   inputEl.addEventListener('input', () => {
     resizeInput();
     updateComposer();
+    state.slashIndex = 0;
     refreshSlashMenu();
   });
 
+  inputEl.addEventListener('click', refreshSlashMenu);
+  inputEl.addEventListener('keyup', (event) => {
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) refreshSlashMenu();
+  });
   inputEl.addEventListener('blur', () => closeSlashMenu());
 
   inputEl.addEventListener('paste', (event) => {

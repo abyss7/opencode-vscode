@@ -26,7 +26,7 @@ editor tab connected to the shared OpenCode server.
 - Model output is buffered and rendered only once the message is complete, so the text never
   flickers from raw chunks into formatted markdown.
 - Paste images from the clipboard directly into the composer, including queued messages.
-- Type `/` in the composer to autocomplete slash commands and skills.
+- Type `/` for slash commands or `@` for skills in the composer.
 - File references in answers (`src/api.js:42`, markdown links to files, and tool-call locations)
   open in an editor tab beside the chat at that line and column. A reference becomes a link only
   after the extension confirms that the file exists; everything else stays plain text.
@@ -293,7 +293,8 @@ node scripts/generate-configuration.js
 
 ## Commands and skills
 
-- Typing `/` at the start of the composer opens an autocomplete list of slash commands and skills.
+- Typing `/` at the start of the composer suggests only slash commands; `@` suggests only skills,
+  including mentions within a message. Other prefixes do not open these lists.
 - Commands come from `GET /api/command`.
 - Skills come from `GET /api/skill` scoped to the workspace directory; they are inserted as
   `@skill-id` mentions, which OpenCode resolves into a skill load.
