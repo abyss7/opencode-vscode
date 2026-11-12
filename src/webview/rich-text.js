@@ -7,6 +7,7 @@ const hljs = require('highlight.js/lib/common');
 const { katex } = require('@mdit/plugin-katex');
 require('katex/dist/katex.css');
 const visuals = require('./visuals');
+const { themes } = require('./diagram-themes');
 const toolResults = require('./tool-results');
 const artifacts = require('./artifacts');
 const reading = require('./reading');
@@ -45,7 +46,9 @@ md.renderer.rules.fence = (tokens, index) => {
     `<pre><code data-lang="${escape(language)}">${highlight(token.content.replace(/\n$/, ''), language)}</code></pre></div>\n`;
   if (language.toLowerCase() !== 'mermaid') return code;
   return '<figure class="visual-block diagram"><div class="visual-toolbar"><span>Diagram</span>' +
-    '<span class="visual-actions"><button type="button" data-diagram-zoom="out" aria-label="Zoom out">−</button>' +
+    '<span class="visual-actions"><select class="diagram-theme" aria-label="Diagram theme" title="Diagram theme">' +
+    themes.map((theme) => `<option value="${theme.id}">${theme.label}</option>`).join('') + '</select>' +
+    '<button type="button" data-diagram-zoom="out" aria-label="Zoom out">−</button>' +
     '<button type="button" data-diagram-zoom="in" aria-label="Zoom in">+</button>' +
     '<button type="button" data-diagram-zoom="fit" aria-label="Fit diagram">Fit</button>' +
     '<button type="button" class="visual-source-toggle" aria-pressed="false">Source</button></span></div>' +

@@ -1389,8 +1389,17 @@ button.delivery-indicator:focus-visible {
 .visual-toolbar button:hover { background: var(--vscode-list-hoverBackground); }
 .visual-toolbar button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
 .visual-actions { display: flex; align-items: center; gap: 2px; }
-.diagram-preview { padding: 16px; overflow-x: auto; min-height: 60px; }
+.diagram .visual-toolbar { flex-wrap: wrap; gap: 4px 8px; }
+.diagram .visual-actions { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; min-width: 0; }
+.diagram-theme { max-width: 145px; min-width: 0; padding: 3px 5px; font: inherit; }
+.diagram-theme:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.diagram-preview { padding: 16px; overflow-x: auto; min-height: 60px; color: #333; background: #fff; color-scheme: light; }
+.diagram-preview[data-appearance="dark"] { color: #ccc; background: #333; color-scheme: dark; }
 .diagram-preview svg { display: block; margin: auto; height: auto; }
+/* Mermaid measures its own labels: transcript Markdown spacing must not leak in. */
+.diagram-preview p, .diagram-preview pre { margin: 0; padding: 0; border: 0; background: transparent; }
+.diagram-preview code { color: inherit; background: transparent; padding: 0; }
+.diagram-preview ul, .diagram-preview ol { margin: 0; }
 .visual-source-panel .code-block { margin: 0; border: 0; border-radius: 0; }
 .visual-error { color: var(--vscode-errorForeground); }
 .math-block { overflow-x: auto; margin: 12px 0; padding: 8px 10px; border: 1px solid var(--oc-border-soft); border-radius: 6px; }

@@ -1,18 +1,13 @@
 'use strict';
 
+const { findTheme } = require('./diagram-themes');
 let library;
 let observer;
 let lastTheme;
 
 function theme() {
   const style = getComputedStyle(document.body);
-  return {
-    foreground: style.getPropertyValue('--vscode-foreground').trim() || '#cccccc',
-    background: style.getPropertyValue('--vscode-editor-background').trim() || '#1e1e1e',
-    accent: style.getPropertyValue('--vscode-textLink-foreground').trim() || '#4daafc',
-    font: style.fontFamily,
-    dark: !document.body.classList.contains('vscode-light') && !document.body.classList.contains('vscode-high-contrast-light'),
-  };
+  return { font: style.fontFamily };
 }
 
 function diagrams() {
@@ -48,11 +43,14 @@ async function renderDiagram(block, onLayout) {
   block.dataset.rendered = 'pending';
   const preview = block.querySelector('.diagram-preview');
   const source = block.querySelector('.visual-source-panel code').textContent;
+  const selected = findTheme(block.querySelector('.diagram-theme').value);
   try {
     if (source.length > 30000) throw new Error('Diagram is too large to preview.');
     const renderer = await diagrams();
-    const svg = await renderer.render(source, theme());
+    const svg = await renderer.render(source, { ...theme(), theme: selected.id });
     if (!block.isConnected || Number(block.dataset.revision) !== revision) return;
+    preview.dataset.theme = selected.id;
+    preview.dataset.appearance = selected.dark ? 'dark' : 'light';
     preview.innerHTML = svg;
     scaleDiagram(block);
     block.dataset.rendered = 'ready';
@@ -84,6 +82,7 @@ function hydrate(root, onLayout) {
     if (annotation) formula.title = annotation.textContent;
   }
   for (const block of root.querySelectorAll('.diagram:not([data-rendered])')) {
+    block.querySelector('.diagram-theme').addEventListener('change', () => { void renderDiagram(block, onLayout); });
     for (const button of block.querySelectorAll('[data-diagram-zoom]')) {
       button.addEventListener('click', () => scaleDiagram(block, button.dataset.diagramZoom));
     }
