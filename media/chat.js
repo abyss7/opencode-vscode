@@ -69,6 +69,7 @@
     messageTimes: new Map(),
     toolCards: new Map(),
     backgroundRuns: new Map(),
+    commandProgress: new Map(),
     smartReviews: new Map(),
     smartReviewHistory: null,
     toolGroup: null,
@@ -179,6 +180,7 @@
     state.lastUser = null;
     state.toolCards.clear();
     state.backgroundRuns.clear();
+    state.commandProgress.clear();
     state.toolGroup = null;
     state.turnSteps = null;
     state.turnId = null;
@@ -974,8 +976,8 @@
     if (!Array.isArray(turns) || turns.length === 0) return;
     const groups = turnStepGroups();
     if (groups.length === 0) return;
-    const hasBackground = (group) => [...state.toolCards.values()].some((card) =>
-      card.background && card.activityTurn === group[0].dataset.turn);
+    const hasStandalone = (group) => [...state.toolCards.values()].some((card) =>
+      (card.background || card.progressVisible) && card.activityTurn === group[0].dataset.turn);
     if (scope === 'last') {
       const group = groups[groups.length - 1];
       if (state.turnSteps && group.includes(state.turnSteps.details)) {
@@ -984,7 +986,7 @@
       }
       const turn = group[0].dataset.turn || '';
       if (turn !== (state.turnId || '')) return;
-      if (group.length === 1 && !hasBackground(group)) applyTurnStat(group[0], turns[turns.length - 1]);
+      if (group.length === 1 && !hasStandalone(group)) applyTurnStat(group[0], turns[turns.length - 1]);
       return;
     }
     const count = Math.min(groups.length, turns.length);
@@ -992,7 +994,7 @@
     const turnStart = turns.length - count;
     for (let index = 0; index < count; index += 1) {
       const group = groups[groupStart + index];
-      if (group.length !== 1 || hasBackground(group)) continue;
+      if (group.length !== 1 || hasStandalone(group)) continue;
       applyTurnStat(group[0], turns[turnStart + index]);
     }
   }
@@ -1644,6 +1646,7 @@
       : '';
     group.details.dataset.tokens = String(totalTokens);
     for (const card of group.cards) if (card.background) syncBackgroundCard(card);
+    for (const card of group.cards) syncCommandProgress(card);
   }
 
   function finalizeToolGroup() {
@@ -1710,11 +1713,10 @@
     return card;
   }
 
-  // A foreground tool can be backgrounded after later steps have appeared.
+  // A tool can gain progress or be backgrounded after later steps have appeared.
   // Split the surrounding block rather than moving its card to the transcript end.
-  function separateBackground(card) {
+  function separateStandalone(card) {
     const group = card.group.details;
-    group.classList.add('background-task');
     const block = group.closest('.turn-steps');
     if (!block) return;
     group.dataset.turn = block.dataset.turn;
@@ -1751,9 +1753,8 @@
     block.querySelector('summary > .tokens').textContent = tokens ? formatTokens(tokens) : '';
   }
 
-  function restoreBackgroundSteps(card, statusChanged) {
+  function restoreStandaloneSteps(card, statusChanged) {
     const group = card.group.details;
-    group.classList.remove('background-task');
     if (group.closest('.turn-steps')) {
       if (statusChanged) refreshStepBlock(group.closest('.turn-steps'));
       return;
@@ -1800,13 +1801,60 @@
     }
   }
 
+  function syncCommandProgress(card) {
+    const value = state.commandProgress.get(card.entry.dataset.toolCallId);
+    const active = card.background || ['pending', 'in_progress'].includes(card.statusValue);
+    const visible = active && value && Number.isSafeInteger(value.completed) && Number.isSafeInteger(value.total) &&
+      value.total > 0 && value.completed >= 0 && value.completed <= value.total;
+    const changed = Boolean(card.progressVisible) !== Boolean(visible);
+    card.progressVisible = Boolean(visible);
+    const group = card.group;
+    const wasStandalone = group.details.classList.contains('standalone-task');
+    if (visible && !group.progressEl) {
+      group.progressEl = el('span', 'command-progress');
+      group.progressTrack = el('span', 'command-progress-track');
+      group.progressTrack.setAttribute('role', 'progressbar');
+      group.progressFill = el('span', 'command-progress-fill');
+      group.progressCount = el('span', 'command-progress-count');
+      group.progressCount.setAttribute('aria-hidden', 'true');
+      group.progressTrack.appendChild(group.progressFill);
+      group.progressEl.append(group.progressTrack, group.progressCount);
+      group.details.querySelector('summary').insertBefore(group.progressEl, group.tokensEl);
+    }
+    if (group.progressEl) group.progressEl.hidden = !visible;
+    group.nameEl.hidden = Boolean(visible);
+    group.details.classList.toggle('progress-task', Boolean(visible));
+    group.details.classList.toggle('background-task', Boolean(card.background));
+    group.details.classList.toggle('standalone-task', Boolean(card.background || visible));
+    if (visible) {
+      const count = `${value.completed.toLocaleString('en-US')} / ${value.total.toLocaleString('en-US')}`;
+      group.progressTrack.setAttribute('aria-label', value.label || 'Command progress');
+      group.progressTrack.setAttribute('aria-valuemin', '0');
+      group.progressTrack.setAttribute('aria-valuemax', String(value.total));
+      group.progressTrack.setAttribute('aria-valuenow', String(value.completed));
+      group.progressTrack.setAttribute('aria-valuetext', count);
+      group.progressFill.style.width = `${value.completed / value.total * 100}%`;
+      group.progressCount.textContent = count;
+      group.progressEl.title = `${value.label || 'Command progress'}: ${count}`;
+    }
+    if (card.background || visible) separateStandalone(card);
+    else if (wasStandalone) restoreStandaloneSteps(card, changed);
+  }
+
+  function showCommandProgress(items) {
+    const viewport = captureViewport();
+    state.commandProgress = new Map((items || []).map((item) => [item.toolCallId, item]));
+    for (const card of state.toolCards.values()) syncCommandProgress(card);
+    if (!transcript.navigating) restoreViewport(viewport);
+  }
+
   function syncBackgroundCard(card) {
     const run = state.backgroundRuns.get(card.entry.dataset.toolCallId);
     if (!card.background && !run && !card.activity.background && !card.activity.rawInput?.background) return;
     const status = run?.status || (card.activity.status === 'failed' ? 'failed' : 'unknown');
     const finished = !['unknown', 'running', 'stopping'].includes(status);
     card.background = !finished;
-    if (!finished) separateBackground(card);
+    if (!finished) separateStandalone(card);
     if (!finished && !card.stopBackground) {
       const button = el('button', 'btn danger icon-btn background-stop');
       button.type = 'button';
@@ -1854,13 +1902,14 @@
       delete card.group.statusEl.dataset.running;
       syncToolGroup(card.group);
       if (status === 'unavailable') card.group.statusEl.textContent = 'unavailable';
-      restoreBackgroundSteps(card, previousStatus !== card.statusValue);
+      restoreStandaloneSteps(card, previousStatus !== card.statusValue);
     } else {
       card.group.statusEl.textContent = status === 'unknown' ? 'pending' : 'in background';
       card.group.statusEl.className = 'status background-state';
       card.group.statusEl.dataset.running = String(status !== 'unknown');
       syncBackgroundPulse();
     }
+    syncCommandProgress(card);
   }
 
   function activeBackgroundRuns() {
@@ -2000,6 +2049,7 @@
     }
     syncToolGroup(card.group);
     syncBackgroundCard(card);
+    syncCommandProgress(card);
     syncTurnSteps();
     if (!card.background && (card.statusValue === 'pending' || card.statusValue === 'in_progress')) {
       showToolActivity(card);
@@ -3686,6 +3736,9 @@
         break;
       case 'background':
         showBackground(message.runs);
+        break;
+      case 'commandProgress':
+        showCommandProgress(message.items);
         break;
       case 'backgroundStopError': {
         const card = state.toolCards.get(message.toolCallId);

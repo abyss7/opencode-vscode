@@ -1,0 +1,14 @@
+{
+  "id": "ninja",
+  "match": { "executables": ["ninja", "ninja-build"] },
+  "rules": [
+    {
+      "pattern": "^\\s*\\[\\s*(?<done>\\d+)\\s*/\\s*(?<total>\\d+)\\s*\\]",
+      "set": {
+        "completed": { "capture": "done", "type": "integer" },
+        "total": { "capture": "total", "type": "integer" }
+      }
+    }
+  ],
+  "presentation": { "template": "progress", "label": "Ninja" }
+}

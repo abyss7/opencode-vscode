@@ -478,6 +478,7 @@ class SessionPanel {
       if (changed) this.deps.onSessionChanged?.();
     });
     client.on('backgroundStopError', (error) => this._post({ type: 'backgroundStopError', ...error }));
+    client.on('commandProgress', (items) => this._post({ type: 'commandProgress', items }));
     client.on('connection', (connected) => {
       if (!connected) this._post({ type: 'status', state: 'connecting',
         message: 'Reconnecting — server work continues.' });

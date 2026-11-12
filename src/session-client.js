@@ -8,6 +8,7 @@ const { nativeDiffs } = require('./native-diffs');
 const { parseModelRef } = require('./usage');
 const { modelRefString } = require('./model-ref');
 const { backgroundRun, active: backgroundActive } = require('./background-runs');
+const { CommandProgress } = require('./command-progress');
 
 const messageID = () => `msg_${randomUUID().replaceAll('-', '')}`;
 const unwrap = (value) => value?.data ?? value;
@@ -136,6 +137,8 @@ class SessionClient extends EventEmitter {
     this.emitted = new Map();
     this.liveText = new Map();
     this.liveTools = new Map();
+    this.commandProgress = new CommandProgress(api);
+    this.progressSnapshot = null;
     this.diffs = new Map();
     this.permissions = new Map();
     this.forms = new Map();
@@ -568,16 +571,28 @@ class SessionClient extends EventEmitter {
   }
 
   async refreshBackground() {
-    if (this.closed || !this.sessionId || !this.api.background) return;
+    if (this.closed || !this.sessionId) return;
     if (this.backgroundReading) { this.backgroundAgain = true; return; }
     clearTimeout(this.backgroundTimer);
     this.backgroundReading = true;
     let retry = false;
+    const sessionID = this.sessionId;
     try {
-      const runs = await this.api.background.refresh(this.sessionId, this.cwd, [...this.messages.values()]);
+      const messages = [...this.messages.values()];
+      const runs = this.api.background ? await this.api.background.refresh(sessionID, this.cwd, messages) : [];
       if (this.closed) return;
+      if (this.sessionId !== sessionID) { this.backgroundAgain = true; return; }
       this.emit('background', runs);
       retry = runs.some((run) => backgroundActive(run) || run.status === 'unknown');
+      const progress = await this.commandProgress.refresh(sessionID, this.cwd, messages, runs);
+      if (this.closed) return;
+      if (this.sessionId !== sessionID) { this.backgroundAgain = true; return; }
+      const progressSnapshot = JSON.stringify([sessionID, progress.items]);
+      if (this.progressSnapshot !== progressSnapshot) {
+        this.progressSnapshot = progressSnapshot;
+        this.emit('commandProgress', progress.items);
+      }
+      retry ||= progress.pending;
     } catch (error) {
       this.log(`Background commands unavailable: ${error.message}`);
       retry = true;

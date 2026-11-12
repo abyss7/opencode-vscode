@@ -166,7 +166,7 @@ select {
   .status.background .dot, .background-state[data-running="true"] { animation: none; }
 }
 
-#messages > .background-task { margin: 10px 0; }
+#messages > .standalone-task { margin: 10px 0; }
 .tool-group.background-task > summary { grid-template-columns: 12px 144px minmax(0, 1fr) auto auto auto; }
 .tool-group.background-task > summary > .background-stop { grid-column: 6; grid-row: 1; align-self: center; }
 .tool-group .status.background-state[data-running="true"] { color: var(--oc-completed); }
@@ -732,6 +732,58 @@ button.delivery-indicator:focus-visible {
 
 .tool-group > summary:hover .name {
   color: var(--vscode-foreground);
+}
+
+.tool-group.progress-task > summary { align-items: center; }
+.tool-group.progress-task > summary > .name[hidden] { display: none; }
+.tool-group > summary > .command-progress { grid-column: 3; grid-row: 1; }
+.command-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+  max-width: 360px;
+}
+.command-progress[hidden] { display: none; }
+.command-progress-track {
+  display: block;
+  flex: 1;
+  min-width: 8px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vscode-progressBar-background, #0e70c0) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vscode-progressBar-background, #0e70c0) 14%, transparent);
+}
+.command-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--vscode-progressBar-background, #0e70c0);
+  transition: width 160ms ease-out;
+}
+.command-progress-count {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--oc-secondary);
+  font-family: var(--oc-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .tool-group.progress-task > summary { grid-template-columns: 12px minmax(0, 80px) minmax(0, 1fr) auto auto; column-gap: 5px; }
+  .tool-group.progress-task.background-task > summary { grid-template-columns: 12px minmax(0, 80px) minmax(0, 1fr) auto auto auto; }
+  .tool-group.progress-task > summary > .tokens { grid-column: 4; }
+  .tool-group.progress-task > summary > .status { grid-column: 5; }
+  .tool-group.progress-task > summary > .background-stop { grid-column: 6; }
+  .command-progress { gap: 5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .command-progress-fill { transition: none; }
 }
 
 .tool-group .status {
