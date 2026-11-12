@@ -44,13 +44,16 @@ function createFakeVscode(options = {}) {
     workspace: {
       workspaceFolders: options.workspaceFolders || [],
       textDocuments: [],
-      getConfiguration(_section, scopeUri) {
+      getConfiguration(section, scopeUri) {
+        // VS Code prepends the selected section to every inspect/update key.
+        const qualify = (id) => section ? `${section}.${id}` : id;
         const folderValues = () =>
           scopeUri && scopeUri.fsPath
             ? stores.folders.get(scopeUri.fsPath) || new Map()
             : null;
         return {
           inspect(id) {
+            id = qualify(id);
             const folders = folderValues();
             return {
               key: id,
@@ -61,6 +64,7 @@ function createFakeVscode(options = {}) {
             };
           },
           async update(id, value, target) {
+            id = qualify(id);
             let targetMap;
             if (target === 1) targetMap = stores.global;
             else if (target === 2) targetMap = stores.workspace;
@@ -217,6 +221,7 @@ async function run() {
   stores.global.set('opencode.default_agent', 'plan');
   stores.workspace.set('opencode.shell', '/bin/bash');
   stores.workspace.set('opencode.compaction.auto', true);
+  stores.workspace.set('opencode.model', 'acme/workspace-chat#medium');
 
   const sync = new OpenCodeSync({ vscode, command: '/nonexistent/opencode', log: () => {} });
   await sync.start();
@@ -224,6 +229,9 @@ async function run() {
   assert.strictEqual(stores.global.get('opencode.model'), 'openai/gpt-5');
   assert.strictEqual(stores.global.get('opencode.default_agent'), 'build');
   assert.strictEqual(readJson(globalFile).model, 'openai/gpt-5');
+  assert.strictEqual(readJson(path.join(projectDir, 'opencode.jsonc')).model,
+    'acme/workspace-chat#medium', 'Workspace default must reach OpenCode without changing the global model');
+  assert.strictEqual(stores.workspace.get('opencode.model'), 'acme/workspace-chat#medium');
   assert.strictEqual(stores.workspace.get('opencode.shell'), '/bin/zsh');
   assert.strictEqual(stores.workspace.get('opencode.compaction.auto'), false);
   assert.strictEqual(
@@ -273,6 +281,21 @@ async function run() {
   stores.workspace.set('opencode.compaction.auto', true);
   await sync._enqueue();
   assert.strictEqual(readJson(path.join(projectDir, 'opencode.jsonc')).compaction.auto, true);
+
+  stores.workspace.set('opencode.model', 'acme/workspace-chat#high');
+  await sync._enqueue();
+  assert.strictEqual(readJson(path.join(projectDir, 'opencode.jsonc')).model, 'acme/workspace-chat#high');
+
+  const projectFile = path.join(projectDir, 'opencode.jsonc');
+  writeJson(projectFile, { ...readJson(projectFile), model: 'acme/project-chat#low' });
+  await sync._enqueue();
+  assert.strictEqual(stores.workspace.get('opencode.model'), 'acme/project-chat#low',
+    'OpenCode changes must update the actual Workspace key, not opencode.opencode.model');
+  assert.strictEqual(stores.workspace.has('opencode.opencode.model'), false);
+
+  stores.workspace.delete('opencode.model');
+  await sync._enqueue();
+  assert.strictEqual(readJson(projectFile).model, undefined, 'removing the Workspace override restores inheritance');
 
   sync.dispose();
 

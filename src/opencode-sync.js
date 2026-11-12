@@ -162,7 +162,9 @@ class ApiVsSide {
   }
 
   _configuration() {
-    return this.vscode.workspace.getConfiguration(PREFIX, this.scopeUri);
+    // Setting IDs already include "opencode.". Selecting that section here
+    // would make inspect/update address "opencode.opencode.<setting>".
+    return this.vscode.workspace.getConfiguration(undefined, this.scopeUri);
   }
 
   _valueName() {
