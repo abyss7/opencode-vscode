@@ -162,6 +162,7 @@ class SessionClient extends EventEmitter {
     const session = await this.api.getSession(id);
     const owned = Boolean(session?.parentID) && await this.belongsToSession(session.parentID, seen);
     this.ancestry.set(id, owned);
+    if (this.ancestry.size > 1000) this.ancestry.delete(this.ancestry.keys().next().value);
     return owned;
   }
 
@@ -325,8 +326,8 @@ class SessionClient extends EventEmitter {
         const old = previous.get(source.id);
         const ordinals = { text: 0, reasoning: 0 };
         message = { ...source, content: source.content.map((part, index) => {
-          const ordinal = ordinals[part.type]++;
-          const live = this.liveText.get(`${source.id}:${part.type}:${ordinal}`);
+          const ordinal = Object.hasOwn(ordinals, part.type) ? ordinals[part.type]++ : -1;
+          const live = ordinal >= 0 ? this.liveText.get(`${source.id}:${part.type}:${ordinal}`) : undefined;
           if (live && live.type === part.type && !source.time.completed) return { ...part, text: live.text };
           const prefix = old?.content[index];
           if (!source.time.completed && prefix?.type === part.type && typeof part.text === 'string' &&
@@ -339,10 +340,11 @@ class SessionClient extends EventEmitter {
         if (source.time.completed) {
           for (const [key, part] of this.liveText) if (part.messageID === source.id) this.liveText.delete(key);
         }
-        for (const part of message.content) {
+        for (let index = 0; index < message.content.length; index++) {
+          const part = message.content[index];
           if (part.type !== 'tool' || part.state.status !== 'completed' || !Array.isArray(part.state.metadata?.files)) continue;
           if (!this.diffs.has(part.id)) this.diffs.set(part.id, await nativeDiffs(part.state.metadata, this.cwd));
-          part.diffs = this.diffs.get(part.id);
+          message.content[index] = { ...part, diffs: this.diffs.get(part.id) };
         }
       }
       this.messages.set(message.id, message);
