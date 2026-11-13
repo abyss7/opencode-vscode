@@ -76,12 +76,13 @@ class SessionsSidebar {
     const { vscode, extensionUri } = this;
     view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')] };
     const resource = (name) => view.webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', name)).toString();
+    const nonce = crypto.randomBytes(16).toString('hex');
     view.webview.html = fs.readFileSync(path.join(__dirname, '../media/sessions-sidebar.html'), 'utf8')
-      .replaceAll('{{cspSource}}', view.webview.cspSource)
-      .replaceAll('{{nonce}}', crypto.randomBytes(16).toString('hex'))
-      .replaceAll('{{styleUri}}', resource('sessions-sidebar.css'))
-      .replaceAll('{{scrollUri}}', resource('scroll.js'))
-      .replaceAll('{{scriptUri}}', resource('sessions-sidebar.js'));
+      .replaceAll('{{cspSource}}', () => view.webview.cspSource)
+      .replaceAll('{{nonce}}', () => nonce)
+      .replaceAll('{{styleUri}}', () => resource('sessions-sidebar.css'))
+      .replaceAll('{{scrollUri}}', () => resource('scroll.js'))
+      .replaceAll('{{scriptUri}}', () => resource('sessions-sidebar.js'));
     view.onDidDispose(() => { if (this.view === view) this.view = null; });
     view.onDidChangeVisibility(() => { if (view.visible) this.refresh(); });
     view.webview.onDidReceiveMessage(async (message) => {
