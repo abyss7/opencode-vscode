@@ -36,6 +36,11 @@ assert.strictEqual(
   84000,
   'a buffer as large as the window falls back to the default'
 );
+assert.strictEqual(
+  compactionThreshold({ context: 100000, compaction: { buffer: null } }),
+  84000,
+  'a null buffer falls back to the default instead of coercing to zero'
+);
 assert.strictEqual(compactionThreshold({ context: 10000, compaction: {} }), 8500);
 assert.strictEqual(
   compactionThreshold({ context: 1048576, compaction: { buffer: 800000 } }),

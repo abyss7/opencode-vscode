@@ -2832,7 +2832,7 @@
     if (total <= 0) return 0;
     const compaction = state.compaction || {};
     if (compaction.auto === false) return 0;
-    const buffer = Number(compaction.buffer);
+    const buffer = typeof compaction.buffer === 'number' ? compaction.buffer : NaN;
     if (Number.isFinite(buffer) && buffer < total) return total - buffer;
     return total - Math.max(Math.floor(total * 0.15), total >= 32000 ? 16000 : 0);
   }
