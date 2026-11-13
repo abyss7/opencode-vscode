@@ -52,6 +52,7 @@ class OpenCodeApi {
     this.log = options.log || (() => {});
     this._server = null;
     this._serverAt = 0;
+    this._resolving = null;
     this._localSessions = new Map();
     this._activeRead = null;
     this._activeAt = 0;
@@ -64,12 +65,13 @@ class OpenCodeApi {
       this.command = command;
       this._server = null;
       this._serverAt = 0;
+      this._resolving = null;
       this._activeRead = null;
     }
   }
 
-  async _readStatus() {
-    const { stdout } = await execFileAsync(this.command, ['service', 'status'], {
+  async _readStatus(command = this.command) {
+    const { stdout } = await execFileAsync(command, ['service', 'status'], {
       timeout: 5000,
       maxBuffer: 1024 * 1024,
     });
@@ -81,32 +83,47 @@ class OpenCodeApi {
   }
 
   async _resolveServer(force = false) {
-    if (!force && this._server && Date.now() - this._serverAt < SERVICE_TTL_MS) {
+    if (force) {
+      this._server = null;
+      this._serverAt = 0;
+    } else if (this._server && Date.now() - this._serverAt < SERVICE_TTL_MS) {
       return this._server;
     }
+    if (this._resolving) return this._resolving;
 
-    let url;
-    try {
-      url = await this._readStatus();
-    } catch (firstError) {
-      this.log(`OpenCode server is not running, starting it: ${firstError.message}`);
+    const command = this.command;
+    const resolving = (async () => {
+      let url;
       try {
-        await execFileAsync(this.command, ['service', 'start'], {
-          timeout: 20000,
-          maxBuffer: 1024 * 1024,
-        });
-        url = await this._readStatus();
-      } catch (startError) {
-        throw new Error(
-          `Failed to connect to the OpenCode server. Check the "${this.command}" command ` +
-            `and run "opencode service start". ${startError.message}`
-        );
+        url = await this._readStatus(command);
+      } catch (firstError) {
+        this.log(`OpenCode server is not running, starting it: ${firstError.message}`);
+        try {
+          await execFileAsync(command, ['service', 'start'], {
+            timeout: 20000,
+            maxBuffer: 1024 * 1024,
+          });
+          url = await this._readStatus(command);
+        } catch (startError) {
+          throw new Error(
+            `Failed to connect to the OpenCode server. Check the "${command}" command ` +
+              `and run "opencode service start". ${startError.message}`
+          );
+        }
       }
-    }
 
-    this._server = { url, password: readServicePassword() };
-    this._serverAt = Date.now();
-    return this._server;
+      const server = { url, password: readServicePassword() };
+      if (this.command === command) {
+        this._server = server;
+        this._serverAt = Date.now();
+      }
+      return server;
+    })().finally(() => {
+      if (this._resolving === resolving) this._resolving = null;
+    });
+
+    this._resolving = resolving;
+    return resolving;
   }
 
   _rawRequest(server, method, pathname, body) {
