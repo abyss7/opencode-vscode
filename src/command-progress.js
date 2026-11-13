@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { StringDecoder } = require('node:string_decoder');
 const unwrap = (value) => value?.data ?? value;
 const running = (status) => ['pending', 'running', 'in_progress'].includes(status);
 
@@ -72,6 +73,14 @@ function matchingAdapters(command, registry = adapters) {
   return registry.filter((adapter) => adapter.match.executables.some((name) => names.includes(name)));
 }
 
+// Compatibility with older servers/other platforms: only an unredirected,
+// single adapted invocation has an unambiguous lifetime in shell capture.
+function directInvocation(command, registry) {
+  const names = executables(command);
+  return !/[;&|()<>\n]/.test(command) && names.length === 1 &&
+    registry.some((adapter) => adapter.match.executables.includes(names[0]));
+}
+
 // A bounded, incremental current-line decoder. Keep escape sequences and cursor
 // state across reads; parsing never alters the original shell output.
 class ProgressParser {
@@ -82,6 +91,7 @@ class ProgressParser {
     this.escape = '';
     this.overflow = false;
     this.value = null;
+    this.revision = 0;
   }
 
   parse() {
@@ -94,7 +104,10 @@ class ProgressParser {
       const completed = Number(match.groups?.[rule.set.completed.capture]);
       const total = Number(match.groups?.[rule.set.total.capture]);
       if (!Number.isSafeInteger(completed) || !Number.isSafeInteger(total) || completed < 0 || total <= 0 || completed > total) continue;
-      this.value = { adapterId: adapter.id, label: adapter.presentation.label || adapter.id, completed, total };
+      if (this.value?.adapterId !== adapter.id || this.value.completed !== completed || this.value.total !== total) {
+        this.value = { adapterId: adapter.id, label: adapter.presentation.label || adapter.id, completed, total };
+        this.revision++;
+      }
     }
   }
 
@@ -141,7 +154,80 @@ class ProgressParser {
 }
 
 class CommandProgress {
-  constructor(api) { this.api = api; this.entries = new Map(); }
+  constructor(api) { this.api = api; this.entries = new Map(); this.sequence = 0; }
+
+  source(entry, id, reset = false) {
+    let source = entry.sources.get(id);
+    if (!source || reset) {
+      source = { parser: new ProgressParser(entry.registry), decoder: new StringDecoder('utf8'), cursor: 0 };
+      entry.sources.set(id, source);
+    }
+    return source;
+  }
+
+  feed(source, text) {
+    const revision = source.parser.revision;
+    source.parser.feed(text);
+    if (source.parser.revision !== revision) source.sequence = ++this.sequence;
+  }
+
+  async capture(sessionID, directory, entry, source, skipExisting) {
+    const query = new URLSearchParams({ 'location[directory]': directory });
+    for (let page = 0; page < 8; page++) {
+      query.set('cursor', String(source.cursor));
+      query.set('limit', skipExisting && !source.started ? '1' : '65536');
+      const output = unwrap(await this.api._request('GET', `/api/shell/${encodeURIComponent(entry.shellID)}/output?${query}`));
+      if (this.sessionID !== sessionID) return;
+      if (typeof output?.output !== 'string' || !Number.isSafeInteger(output.cursor) || output.cursor < source.cursor) return;
+      // Capture is shared by the outer script. On attaching a real child, skip
+      // already printed records (including head replays of earlier build logs).
+      if (skipExisting && !source.started && Number.isSafeInteger(output.size)) {
+        source.cursor = output.size; source.started = true; return;
+      }
+      source.started = true;
+      this.feed(source, output.output);
+      const previous = source.cursor;
+      source.cursor = output.cursor;
+      if (output.cursor >= output.size || output.cursor === previous) break;
+    }
+  }
+
+  async observe(sessionID, directory, candidate, entry, shell) {
+    let observation;
+    if (typeof this.api.permissionProfiles === 'function' && shell?.pid) {
+      try {
+        observation = await this.api.permissionProfiles('progress', {
+          sessionID, shellID: entry.shellID, pid: shell.pid,
+          executables: [...new Set(candidate.registry.flatMap((adapter) => adapter.match.executables))],
+          states: [...entry.sources].map(([id, source]) => ({ id, cursor: source.cursor, identity: source.identity })),
+        }, directory);
+      } catch (error) {
+        if (![400, 404, 501].includes(error.statusCode)) throw error;
+      }
+    }
+    if (this.sessionID !== sessionID) return;
+    if (!observation?.supported) {
+      // No process source discovery: never mistake a compound command's head
+      // excerpt for a live build. Plain direct commands retain basic progress.
+      if (!directInvocation(candidate.command, candidate.registry)) { entry.sources.clear(); return; }
+      const source = this.source(entry, 'direct-capture');
+      for (const id of entry.sources.keys()) if (id !== 'direct-capture') entry.sources.delete(id);
+      await this.capture(sessionID, directory, entry, source, false);
+      return;
+    }
+    const keep = new Set();
+    for (const chunk of observation.sources || []) {
+      if (typeof chunk.id !== 'string' || !['file', 'capture'].includes(chunk.kind)) continue;
+      keep.add(chunk.id);
+      const source = this.source(entry, chunk.id, chunk.reset);
+      if (chunk.kind === 'file') {
+        if (typeof chunk.data !== 'string' || !Number.isSafeInteger(chunk.cursor) || chunk.cursor < source.cursor) continue;
+        this.feed(source, source.decoder.write(Buffer.from(chunk.data, 'base64')));
+        source.cursor = chunk.cursor; source.identity = chunk.identity;
+      } else await this.capture(sessionID, directory, entry, source, !directInvocation(candidate.command, candidate.registry));
+    }
+    for (const id of entry.sources.keys()) if (!keep.has(id)) entry.sources.delete(id);
+  }
 
   async refresh(sessionID, directory, messages, background = []) {
     if (this.sessionID !== sessionID) { this.sessionID = sessionID; this.entries.clear(); }
@@ -168,41 +254,37 @@ class CommandProgress {
     for (const id of this.entries.keys()) if (!keep.has(id)) this.entries.delete(id);
     await Promise.all(candidates.map(async (candidate) => {
       const { part, registry, command, cwd } = candidate;
-      let shellID = candidate.shellID;
+      let shellID = candidate.shellID, shell;
       if (!shellID) {
         const matches = shells.filter((shell) => shell.status === 'running' && shell.metadata?.sessionID === sessionID &&
           shell.command === command && typeof shell.cwd === 'string' && path.resolve(shell.cwd) === cwd);
         // Never guess which of several identical concurrent calls owns a shell.
         if (matches.length !== 1 || candidates.filter((item) => !item.shellID && item.command === command && item.cwd === cwd).length !== 1) return;
-        shellID = matches[0].id;
+        shell = matches[0]; shellID = shell.id;
       }
       let entry = this.entries.get(part.id);
       if (!entry || entry.shellID !== shellID) {
-        entry = { shellID, parser: new ProgressParser(registry), cursor: 0 };
+        entry = { shellID, registry, sources: new Map() };
         this.entries.set(part.id, entry);
       }
-      const query = new URLSearchParams({ 'location[directory]': directory });
       try {
-        // Read the existing capture by byte cursor, including every intervening
-        // line. Bounded catch-up keeps noisy jobs from blocking the session UI.
-        for (let page = 0; page < 8; page++) {
-          query.set('cursor', String(entry.cursor)); query.set('limit', '65536');
-          const output = unwrap(await this.api._request('GET', `/api/shell/${encodeURIComponent(shellID)}/output?${query}`));
-          if (this.sessionID !== sessionID || this.entries.get(part.id) !== entry) return;
-          if (typeof output?.output !== 'string' || !Number.isSafeInteger(output.cursor) || output.cursor < entry.cursor) return;
-          entry.parser.feed(output.output);
-          const previous = entry.cursor;
-          entry.cursor = output.cursor;
-          if (output.cursor >= output.size || output.cursor === previous) break;
+        if (!shell && typeof this.api.permissionProfiles === 'function') {
+          const query = new URLSearchParams({ 'location[directory]': directory });
+          shell = unwrap(await this.api._request('GET', `/api/shell/${encodeURIComponent(shellID)}?${query}`));
+          if (shell?.metadata?.sessionID !== sessionID || shell.status !== 'running') { entry.sources.clear(); return; }
         }
+        if (this.sessionID !== sessionID || this.entries.get(part.id) !== entry) return;
+        await this.observe(sessionID, directory, candidate, entry, shell);
       } catch (error) {
         if (error.statusCode !== 404) throw error;
-        // Exit/removal can precede the tool's terminal snapshot. Retain the last
-        // parsed value until the authoritative execution update arrives.
+        // Older servers can remove capture before the terminal tool snapshot.
       }
     }));
-    return { items: [...this.entries].flatMap(([toolCallId, entry]) => entry.parser.value
-      ? [{ toolCallId, ...entry.parser.value }] : []), pending: candidates.length > 0 };
+    return { items: [...this.entries].flatMap(([toolCallId, entry]) => {
+      const latest = [...entry.sources.values()].filter((source) => source.parser.value)
+        .sort((a, b) => (b.sequence || 0) - (a.sequence || 0))[0];
+      return latest ? [{ toolCallId, ...latest.parser.value }] : [];
+    }), pending: candidates.length > 0 };
   }
 }
 

@@ -109,3 +109,21 @@ test('progress arriving before a tool card is attached when that active tool app
   await expect(page.locator('.progress-task')).toHaveCount(0);
   await expect(page.locator('.turn-steps .tool-group')).toHaveCount(1);
 });
+
+test('Ninja source completion removes its bar while the outer background shell keeps running tests', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await tool(chat, 'pipeline', { status: 'completed', background: { id: 'sh_pipeline', toolCallId: 'pipeline' },
+    rawInput: { command: 'ninja >build.log 2>&1; head -c 1100 build.log; run-tests', background: true } });
+  await chat.send({ type: 'background', runs: [{ id: 'sh_pipeline', toolCallId: 'pipeline', status: 'running' }] });
+  await progress(chat, 'pipeline', '[190/192] compiling');
+  const pipeline = card(page, 'pipeline');
+  await expect(pipeline.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '190');
+  await chat.send({ type: 'commandProgress', items: [] });
+  await chat.send({ type: 'background', runs: [{ id: 'sh_pipeline', toolCallId: 'pipeline', status: 'running',
+    output: 'build_exit=0\n[10/192] truncated head\nRunning tests' }] });
+  await expect(pipeline.getByRole('progressbar')).toHaveCount(0);
+  await expect(page.locator('#messages > .background-task')).toHaveCount(1);
+  await expect(pipeline.locator('summary > .status')).toHaveText('in background');
+  await expect(pipeline.getByRole('button', { name: 'Stop background task' })).toBeEnabled();
+  await expect(pipeline.locator('summary > .name')).toHaveText('shell');
+});

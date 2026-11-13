@@ -57,6 +57,7 @@ class PermissionService {
       'classifier.cjs': path.join(__dirname, '../plugins/permission-profiles/classifier.cjs'),
       'bridge.cjs': path.join(__dirname, '../plugins/permission-profiles/bridge.cjs'),
       'session-temp.cjs': path.join(__dirname, '../plugins/permission-profiles/session-temp.cjs'),
+      'progress.cjs': path.join(__dirname, '../plugins/permission-profiles/progress.cjs'),
       'engine.cjs': path.join(__dirname, 'permission-profiles.js'),
       'project.cjs': path.join(__dirname, 'permission-project.js'),
       'global.cjs': path.join(__dirname, 'permission-global.js'),

@@ -7,6 +7,7 @@ const engine = require('./engine.cjs');
 const project = require('./project.cjs');
 const globalPermissions = require('./global.cjs');
 const { createManager, resolveBase } = require('./session-temp.cjs');
+const { createObserver } = require('./progress.cjs');
 const { createBridge, result: rpcResult, failure } = require('./bridge.cjs');
 const { classify, CLASSIFIER } = require('./classifier.cjs');
 const { randomUUID, createHash } = require('node:crypto');
@@ -17,6 +18,7 @@ async function setup(ctx, contract, directory, configDirectory = path.resolve(__
   const inputs = new Map();
   const reviews = [];
   const temporary = createManager();
+  const progress = createObserver();
   const callKey = (event) => `${event.sessionID}/${event.messageID}/${event.id}`;
   const file = (id) => {
     if (!/^ses_[\w-]+$/.test(id)) throw new Error('Invalid session ID');
@@ -235,6 +237,11 @@ async function setup(ctx, contract, directory, configDirectory = path.resolve(__
   const afterHook = await ctx.tool.hook('execute.after', async (event) => { inputs.delete(callKey(event)); });
   const rpc = await ctx.rpc.register(contract, {
     status: async () => ({ version: engine.VERSION }),
+    progress: (input) => rpcResult(async () => {
+      file(input.sessionID);
+      await session(input.sessionID);
+      return progress.observe(input);
+    }),
     describe: (input) => rpcResult(async () => {
       try { return (await describe(input)).details; }
       catch (error) {
@@ -279,7 +286,7 @@ async function setup(ctx, contract, directory, configDirectory = path.resolve(__
       return view(state);
     },
   });
-  return async () => { await disposeTemporary(); await rpc.dispose(); await afterHook.dispose(); await toolHook.dispose(); await hook.dispose(); await bridge.dispose(); };
+  return async () => { progress.dispose(); await disposeTemporary(); await rpc.dispose(); await afterHook.dispose(); await toolHook.dispose(); await hook.dispose(); await bridge.dispose(); };
 }
 
 module.exports = { setup };

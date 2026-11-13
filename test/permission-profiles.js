@@ -82,6 +82,7 @@ async function main() {
   fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles/classifier.cjs'), path.join(plugin, 'classifier.cjs'));
   fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles/bridge.cjs'), path.join(plugin, 'bridge.cjs'));
   fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles/session-temp.cjs'), path.join(plugin, 'session-temp.cjs'));
+  fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles/progress.cjs'), path.join(plugin, 'progress.cjs'));
   const { setup } = require(path.join(plugin, 'runtime.cjs'));
   let hook;
   let rpc;

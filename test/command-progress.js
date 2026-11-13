@@ -40,7 +40,7 @@ const custom = compileAdapter({ id: 'tests', match: { executables: ['tests'] },
 assert.equal(new ProgressParser([custom]).feed('3 of 8').completed, 3);
 assert.throws(() => compileAdapter({ id: 'invalid' }));
 
-const part = (id, command = 'echo before; ninja; echo after', state = 'running', shellID) => ({
+const part = (id, command = 'ninja', state = 'running', shellID) => ({
   type: 'tool', id, name: 'shell', state: { status: state, input: { command }, metadata: { ...(shellID ? { shellID } : {}) } },
 });
 const messages = (...parts) => [{ type: 'assistant', content: parts }];
@@ -79,7 +79,7 @@ function fixture() {
   result = await f.service.refresh('session', '/work', messages(build));
   assert.equal(result.items[0].completed, 2);
   assert.equal(result.items[0].toolCallId, 'build');
-  const firstCursor = f.service.entries.get('build').cursor;
+  const firstCursor = f.service.entries.get('build').sources.get('direct-capture').cursor;
   const previousCalls = f.calls.length;
   f.output.set('sh_foreground', f.output.get('sh_foreground') + 'no match\n[3/100] CXX three');
   result = await f.service.refresh('session', '/work', messages(build));
@@ -145,5 +145,55 @@ function fixture() {
   await staleRead;
   assert.equal(leaked, false, 'never deliver old-session observations into a new session');
   switched.dispose();
+
+  // File output bypasses outer shell capture entirely, including bounded head
+  // excerpts. End of the real Ninja removes progress while the shell runs tests.
+  const redirected = fixture();
+  const script = 'f="$OUT/build.log"; ninja >"$f" 2>&1; head -c 1100 "$f"; run-tests';
+  redirected.add('sh_redirected', script);
+  redirected.shells[0].pid = 500;
+  redirected.output.set('sh_redirected', 'build_exit=0\n[10/192] CXX truncated head');
+  let phase = 'build', bytes = Buffer.from('preparing ñ\n[7/192] CXX build'), position = 0;
+  redirected.api.permissionProfiles = async (method, input, directory) => {
+    assert.equal(method, 'progress'); assert.equal(directory, '/work'); assert.equal(input.pid, 500);
+    if (phase === 'tests') return { supported: true, sources: [] };
+    const state = input.states.find((state) => state.id === '501:birth/file/1:2');
+    const cursor = phase === 'reset' ? 0 : state?.cursor || 0;
+    const end = Math.min(bytes.length, cursor + (phase === 'reset' ? bytes.length : 1));
+    position = end;
+    return { supported: true, sources: [{ id: '501:birth/file/1:2', kind: 'file', identity: '1:2',
+      cursor: end, reset: phase === 'reset', data: bytes.subarray(cursor, end).toString('base64') }] };
+  };
+  let fileResult;
+  while (position < bytes.length) fileResult = await redirected.service.refresh('session', '/work', messages(part('redirected', script)));
+  assert.equal(fileResult.items[0].completed, 7);
+  assert.equal(fileResult.items[0].total, 192);
+  bytes = Buffer.from('[1/3] next'); phase = 'reset';
+  fileResult = await redirected.service.refresh('session', '/work', messages(part('redirected', script)));
+  assert.equal(fileResult.items[0].completed, 1);
+  assert.equal(fileResult.items[0].total, 3);
+  phase = 'tests';
+  fileResult = await redirected.service.refresh('session', '/work', messages(part('redirected', script)));
+  assert.deepEqual(fileResult, { items: [], pending: true });
+  assert.ok(!redirected.calls.some((call) => call.raw.includes('/output')), 'file progress never parses head output');
+  redirected.api.permissionProfiles = async () => ({ supported: false, sources: [] });
+  fileResult = await redirected.service.refresh('session', '/work', messages(part('redirected', script)));
+  assert.equal(fileResult.items.length, 0, 'unsupported platforms do not parse redirected compound capture');
+
+  const captured = fixture();
+  captured.add('sh_capture', script); captured.shells[0].pid = 600;
+  captured.output.set('sh_capture', '[10/192] stale head replay\n');
+  captured.api.permissionProfiles = async () => ({ supported: true, sources: [{ id: '601:birth/capture', kind: 'capture' }] });
+  let captureResult = await captured.service.refresh('session', '/work', messages(part('capture', script)));
+  assert.equal(captureResult.items.length, 0, 'attaching a process skips existing shared capture');
+  captured.output.set('sh_capture', captured.output.get('sh_capture') + '[2/10] live Ninja\n');
+  captureResult = await captured.service.refresh('session', '/work', messages(part('capture', script)));
+  assert.equal(captureResult.items[0].completed, 2);
+  const plain = fixture();
+  plain.add('sh_plain', 'ninja'); plain.shells[0].pid = 700;
+  plain.output.set('sh_plain', '[4/10] already printed by this direct invocation\n');
+  plain.api.permissionProfiles = async () => ({ supported: true, sources: [{ id: '700:birth/capture', kind: 'capture' }] });
+  assert.equal((await plain.service.refresh('session', '/work', messages(part('plain', 'ninja')))).items[0].completed, 4,
+    'direct invocations preserve their initial captured progress');
   console.log('Command progress: parser, declarative adapters, cursor reads, ownership and transport passed');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
