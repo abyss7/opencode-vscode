@@ -666,8 +666,8 @@ class OpenCodeSync {
           const ignoredKey = `${scope.id}:${meta.id}`;
           if (this._ignored.has(ignoredKey)) continue;
           next.set(meta.id, {
-            open: getPath(actualDocument.value || {}, meta.path),
-            vs: actualVs.get(meta.id),
+            open: normalizeValue(meta, getPath(actualDocument.value || {}, meta.path)),
+            vs: normalizeValue(meta, actualVs.get(meta.id)),
           });
         }
       } catch (error) {

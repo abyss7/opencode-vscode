@@ -268,6 +268,13 @@ async function run() {
   await sync._enqueue();
   assert.strictEqual(stores.global.get('opencode.model'), 'acme/chat-large');
 
+  // Editing VS Code after mirroring a structured OpenCode model must not be
+  // mistaken for a concurrent OpenCode file change on the next sync pass.
+  stores.global.set('opencode.model', 'acme/chat-large#high');
+  await sync._enqueue();
+  assert.strictEqual(readJson(globalFile).model, 'acme/chat-large#high');
+  assert.strictEqual(stores.global.get('opencode.model'), 'acme/chat-large#high');
+
   const withoutAgent = readJson(globalFile);
   delete withoutAgent.default_agent;
   writeJson(globalFile, withoutAgent);

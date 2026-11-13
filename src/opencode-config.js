@@ -180,6 +180,7 @@ module.exports = {
   CONFIG_NAMES,
   fileExists,
   directoryExists,
+  platformConfigDir,
   localConfigCandidates,
   resolveGlobalConfigDir,
   resolveConfigDirFromCli,
