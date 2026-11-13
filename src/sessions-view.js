@@ -199,7 +199,9 @@ class SessionsProvider {
       if (list) list.push(session);
       else children.set(parentId, [session]);
     }
-    for (const list of children.values()) sortSessions(list);
+    for (const [parentId, list] of children) {
+      children.set(parentId, sortSessions(list));
+    }
     this._children = children;
     // Only prune when the active list came back non-empty; a transiently empty
     // list (a race while the server starts) must not drop assignments.

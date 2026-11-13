@@ -195,6 +195,20 @@ const groupByName = (provider, name) =>
   assert.strictEqual(subagentItem.iconPath.id, 'server-process');
   assert.strictEqual(provider.find('ses_1a').id, 'ses_1a');
 
+  // Multiple sub-agent children are sorted newest first.
+  api.add({
+    id: 'ses_1b',
+    title: 'Sub Two',
+    parentID: 'ses_1',
+    time: { updated: 5 },
+    location: { directory: cwd },
+  });
+  await provider.refresh();
+  assert.deepStrictEqual(
+    provider.getChildren(groupByName(provider, 'Ungrouped').sessions[0]).map((session) => session.id),
+    ['ses_1b', 'ses_1a']
+  );
+
   // A local folder move never touches the server.
   folders.add(cwd, 'Work');
   await provider.refresh();
