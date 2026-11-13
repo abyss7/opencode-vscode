@@ -207,6 +207,9 @@ class CommandProgress {
     }
     if (this.sessionID !== sessionID) return;
     if (!observation?.supported) {
+      // Capability/RPC reload gaps do not terminate an already observed source.
+      // Keep its cursor, decoder and value instead of falling back to head logs.
+      if (entry.observed) return;
       // No process source discovery: never mistake a compound command's head
       // excerpt for a live build. Plain direct commands retain basic progress.
       if (!directInvocation(candidate.command, candidate.registry)) { entry.sources.clear(); return; }
@@ -215,6 +218,8 @@ class CommandProgress {
       await this.capture(sessionID, directory, entry, source, false);
       return;
     }
+    entry.observed = true;
+    if (observation.complete === false) return;
     const keep = new Set();
     for (const chunk of observation.sources || []) {
       if (typeof chunk.id !== 'string' || !['file', 'capture'].includes(chunk.kind)) continue;
@@ -245,6 +250,14 @@ class CommandProgress {
       candidates.push({ part, registry, shellID, command: input.command,
         cwd: path.resolve(directory, input.workdir || directory) });
     }
+    const observed = new Set(candidates.map((candidate) => candidate.part.id));
+    for (const [id, entry] of this.entries) {
+      // Native background ownership survives transcript/compaction snapshot
+      // gaps. Revalidate the known shell instead of dropping its parser state.
+      if (!observed.has(id) && entry.candidate && ['unknown', 'running', 'stopping'].includes(runs.get(id)?.status)) {
+        candidates.push({ ...entry.candidate, shellID: entry.shellID });
+      }
+    }
     let shells = [];
     if (candidates.some((candidate) => !candidate.shellID)) {
       const query = new URLSearchParams({ 'location[directory]': directory });
@@ -267,6 +280,7 @@ class CommandProgress {
         entry = { shellID, registry, sources: new Map() };
         this.entries.set(part.id, entry);
       }
+      entry.candidate = candidate;
       try {
         if (!shell && typeof this.api.permissionProfiles === 'function') {
           const query = new URLSearchParams({ 'location[directory]': directory });

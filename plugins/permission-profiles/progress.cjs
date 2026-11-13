@@ -30,22 +30,26 @@ function createObserver({ platform = process.platform, procRoot = '/proc', owner
   const roots = new Map();
   const supported = platform === 'linux';
   const file = (pid, suffix) => path.join(procRoot, String(pid), suffix);
-  const processInfo = async (pid) => {
+  const processInfo = async (pid, snapshot) => {
     try {
       const stat = await fsp.readFile(file(pid, 'stat'), 'utf8');
       const fields = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/);
-      if (fields[0] === 'Z' || !/^\d+$/.test(fields[19] || '')) return null;
+      if (fields[0] === 'Z') return null;
+      if (!/^\d+$/.test(fields[19] || '')) { if (snapshot) snapshot.incomplete = true; return null; }
       return { pid, parent: Number(fields[1]), id: `${pid}:${fields[19]}` };
-    } catch { return null; }
+    } catch (error) {
+      if (snapshot && !['ENOENT', 'ESRCH'].includes(error.code)) snapshot.incomplete = true;
+      return null;
+    }
   };
-  const owned = async (root) => {
+  const owned = async (root, snapshot) => {
     if (root.pid === ownerPID) return false;
     const seen = new Set();
     let parent = root.parent;
     while (parent > 0 && !seen.has(parent) && seen.size < 64) {
       if (parent === ownerPID) return true;
       seen.add(parent);
-      const info = await processInfo(parent);
+      const info = await processInfo(parent, snapshot);
       if (!info) return false;
       parent = info.parent;
     }
@@ -62,9 +66,11 @@ function createObserver({ platform = process.platform, procRoot = '/proc', owner
           !Array.isArray(states) || states.length > 8 || states.some((state) => !Number.isSafeInteger(state.cursor) || state.cursor < 0)) {
         throw new Error('Invalid command progress observation');
       }
-      const empty = { supported: true, sources: [] };
-      const root = await processInfo(pid);
-      if (!root || !await owned(root)) return empty;
+      const empty = { supported: true, complete: true, sources: [] };
+      const pending = { supported: true, complete: false, sources: [] };
+      const snapshot = { incomplete: false };
+      const root = await processInfo(pid, snapshot);
+      if (!root || !await owned(root, snapshot)) return snapshot.incomplete ? pending : empty;
       const key = `${sessionID}/${shellID}`;
       const previousRoot = roots.get(key);
       if (previousRoot && previousRoot !== root.id) return empty; // PID reuse is not a new execution.
@@ -84,17 +90,37 @@ function createObserver({ platform = process.platform, procRoot = '/proc', owner
           for (const value of children.trim().split(/\s+/)) {
             const childPID = Number(value);
             if (!Number.isSafeInteger(childPID) || childPID <= 0 || queue.length >= 1024) continue;
-            const child = await processInfo(childPID);
+            const child = await processInfo(childPID, snapshot);
             if (child?.parent === current.pid) queue.push(child);
           }
-        } catch { /* A process can exit at any point during observation. */ }
+        } catch (error) {
+          if (!['ENOENT', 'ESRCH'].includes(error.code)) snapshot.incomplete = true;
+        }
       }
       // A single inline bar cannot attribute interleaved output from concurrent
       // matching executables. Do not guess which process a record belongs to.
-      if (matches.length !== 1) return empty;
+      if (matches.length > 1) return pending;
+      if (matches.length === 0) {
+        if (snapshot.incomplete) return pending;
+        // A discovery gap is not an exit. Probe previously observed producers
+        // directly before invalidating their cursor and parsed progress.
+        const checked = new Set();
+        for (const state of states) {
+          const match = /^(\d+):(\d+)\//.exec(state.id || '');
+          if (!match || checked.has(match[0])) continue;
+          checked.add(match[0]);
+          const previous = await processInfo(Number(match[1]), snapshot);
+          if (previous?.id !== `${match[1]}:${match[2]}`) continue;
+          try {
+            const name = path.basename(await fsp.readlink(file(previous.pid, 'exe'))).replace(/ \(deleted\)$/, '');
+            if (executables.includes(name)) return pending;
+          } catch { return pending; }
+        }
+        return snapshot.incomplete ? pending : empty;
+      }
       const target = matches[0];
       const sources = [], files = new Set();
-      let capture = false;
+      let capture = false, unavailable = false;
       for (const fd of [1, 2]) {
         try {
           const descriptor = file(target.pid, `fd/${fd}`);
@@ -105,17 +131,24 @@ function createObserver({ platform = process.platform, procRoot = '/proc', owner
             files.add(id);
             const state = states.find((state) => state.id === id);
             const chunk = await readRegularFile(descriptor, state);
-            if (chunk) sources.push({ id, kind: 'file', ...chunk });
+            if (chunk && chunk.identity === identity(stat)) sources.push({ id, kind: 'file', ...chunk });
+            else unavailable = true;
           } else if (stat.isFIFO() || stat.isSocket()) capture = true;
           else if (stat.isCharacterDevice()) {
             const destination = await fsp.readlink(descriptor);
             if (/^\/dev\/(pts\/|tty)/.test(destination)) capture = true;
           }
-        } catch { /* Unavailable descriptors are not alternate log paths. */ }
+        } catch (error) {
+          if (fd === 1 || !['ENOENT', 'ESRCH'].includes(error.code)) unavailable = true;
+        }
       }
       if (capture) sources.push({ id: `${target.id}/capture`, kind: 'capture' });
-      if ((await processInfo(pid))?.id !== root.id || (await processInfo(target.pid))?.id !== target.id) return empty;
-      return { supported: true, sources };
+      if ((await processInfo(pid, snapshot))?.id !== root.id || (await processInfo(target.pid, snapshot))?.id !== target.id) {
+        return snapshot.incomplete ? pending : empty;
+      }
+      if (!sources.length || unavailable && states.some((state) => state.id?.startsWith(`${target.id}/`) &&
+          !sources.some((source) => source.id === state.id))) return pending;
+      return { supported: true, complete: true, sources };
     },
     dispose() { roots.clear(); },
   };

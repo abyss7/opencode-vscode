@@ -53,6 +53,11 @@ function fixture() {
     assert.equal(url.searchParams.get('location[directory]'), '/work');
     if (url.pathname === '/api/shell') return { data: shells };
     const id = url.pathname.split('/')[3];
+    if (!url.pathname.endsWith('/output')) {
+      const shell = shells.find((shell) => shell.id === id);
+      if (!shell) throw Object.assign(new Error('gone'), { statusCode: 404 });
+      return { data: shell };
+    }
     if (!output.has(id)) throw Object.assign(new Error('gone'), { statusCode: 404 });
     const bytes = Buffer.from(output.get(id));
     const cursor = Number(url.searchParams.get('cursor'));
@@ -156,6 +161,8 @@ function fixture() {
   let phase = 'build', bytes = Buffer.from('preparing ñ\n[7/192] CXX build'), position = 0;
   redirected.api.permissionProfiles = async (method, input, directory) => {
     assert.equal(method, 'progress'); assert.equal(directory, '/work'); assert.equal(input.pid, 500);
+    if (phase === 'rpc-gap') throw Object.assign(new Error('Plugin reloading'), { statusCode: 404 });
+    if (phase === 'incomplete') return { supported: true, complete: false, sources: [] };
     if (phase === 'tests') return { supported: true, sources: [] };
     const state = input.states.find((state) => state.id === '501:birth/file/1:2');
     const cursor = phase === 'reset' ? 0 : state?.cursor || 0;
@@ -168,6 +175,18 @@ function fixture() {
   while (position < bytes.length) fileResult = await redirected.service.refresh('session', '/work', messages(part('redirected', script)));
   assert.equal(fileResult.items[0].completed, 7);
   assert.equal(fileResult.items[0].total, 192);
+  const sourceCursor = redirected.service.entries.get('redirected').sources.get('501:birth/file/1:2').cursor;
+  for (const gap of ['rpc-gap', 'incomplete']) {
+    phase = gap;
+    fileResult = await redirected.service.refresh('session', '/work', messages(part('redirected', script)));
+    assert.equal(fileResult.items[0].completed, 7, `${gap} must retain the displayed progress`);
+    assert.equal(redirected.service.entries.get('redirected').sources.get('501:birth/file/1:2').cursor, sourceCursor);
+  }
+  phase = 'build';
+  fileResult = await redirected.service.refresh('session', '/work', [], [{ toolCallId: 'redirected', status: 'running' }]);
+  assert.equal(fileResult.items[0].completed, 7, 'active background ownership survives a transcript snapshot gap');
+  assert.equal(redirected.service.entries.get('redirected').sources.get('501:birth/file/1:2').cursor, sourceCursor,
+    'history recovery must not replay the file from byte zero');
   bytes = Buffer.from('[1/3] next'); phase = 'reset';
   fileResult = await redirected.service.refresh('session', '/work', messages(part('redirected', script)));
   assert.equal(fileResult.items[0].completed, 1);

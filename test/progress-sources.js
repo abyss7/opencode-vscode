@@ -77,6 +77,20 @@ async function main() {
     result = await observer.observe(input);
     assert.equal(result.sources[0].data, '', 'unchanged file must not be replayed');
 
+    await fs.rename(log, `${log}.unavailable`);
+    result = await observer.observe(input);
+    assert.equal(result.complete, false, 'unreadable descriptors of a live producer are not an exit');
+    await fs.rename(`${log}.unavailable`, log);
+    result = await observer.observe(input);
+    assert.equal(result.complete, true);
+    assert.equal(result.sources[0].cursor, input.states[0].cursor);
+    assert.equal(result.sources[0].data, '', 'recovery keeps the original cursor');
+
+    await fs.writeFile(path.join(procRoot, '500/task/500/children'), '');
+    result = await observer.observe(input);
+    assert.equal(result.complete, false, 'discovery gaps cannot invalidate a directly verified live producer');
+    await fs.writeFile(path.join(procRoot, '500/task/500/children'), '501');
+
     // Process completion, not outer-shell completion, removes the source.
     await fs.rename(path.join(procRoot, '501/stat'), path.join(procRoot, '501/stat.saved'));
     assert.deepEqual((await observer.observe(input)).sources, []);
@@ -92,7 +106,9 @@ async function main() {
 
     await fakeProcess(502, 500, 'ninja');
     await fs.writeFile(path.join(procRoot, '500/task/500/children'), '501 502');
-    assert.deepEqual((await observer.observe(input)).sources, [], 'concurrent matching processes are ambiguous');
+    result = await observer.observe(input);
+    assert.deepEqual(result.sources, [], 'concurrent matching processes are ambiguous');
+    assert.equal(result.complete, false, 'ambiguity is not confirmed completion of the previous producer');
     await fs.writeFile(path.join(procRoot, '500/task/500/children'), '501');
 
     // A pipe is classified, never opened/read by the observer.

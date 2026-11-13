@@ -58,3 +58,15 @@ descriptor discovery is currently Linux-only; VS Code terminal/task APIs do not
 observe external OpenCode processes. Other platforms/older plugin versions retain
 capture progress only for a single direct, unredirected adapted invocation.
 Compound redirected scripts never fall back to parsing their `head` output.
+
+## Observation continuity
+
+An incomplete source snapshot (`complete: false`) is not an execution exit.
+Descriptor/discovery gaps, ambiguous concurrent matches and temporary RPC reloads
+retain the previous progress, byte cursor and decoder. A previously seen producer
+is checked directly before a missing discovery result can invalidate it. A complete
+empty snapshot still removes progress after confirmed process exit.
+
+Known active background shells retain their adapter binding across temporary
+transcript/compaction snapshot gaps. Recovery resumes at the existing byte cursor;
+it does not replay the log from zero or switch to parsing a `head` excerpt.
