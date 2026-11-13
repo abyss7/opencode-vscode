@@ -872,6 +872,9 @@ class SessionPanel {
       }),
     ]);
     if (this._disposed) return;
+    const commands = serverCommands.some((item) => item && item.name === 'compact')
+      ? serverCommands
+      : [...serverCommands, { name: 'compact', description: 'Compact the session' }];
     this._post({ type: 'slashItems', skills, commands });
   }
 
@@ -1818,7 +1821,7 @@ class SessionPanel {
       return { action: subagentAction(action), tokens, result };
     } catch (error) {
       this.deps.log(`Failed to load sub-agent stats for ${childId}: ${error.message}`);
-      return { action: '', tokens: 0 };
+      return { action: '', tokens: 0, result: '' };
     }
   }
 
@@ -1830,13 +1833,7 @@ class SessionPanel {
       try {
         const info = await this.deps.api.getSession(id);
         if (!info || this._disposed) return;
-        if (info.title) {
-          this._sessionTitle = info.title;
-          if (info.title !== this.panel.title) {
-            this.panel.title = info.title;
-            this._post({ type: 'sessionInfo', title: info.title });
-          }
-        }
+        if (info.title) this.applyTitle(info.title);
         if (info.model) this._setModelRef(info.model);
         this.deps.onSessionChanged();
       } catch (error) {
