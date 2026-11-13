@@ -497,15 +497,27 @@ function activate(context) {
   }
 
   async function moveSessionToFolder(session, folderId) {
+    const target = String(folderId || '');
+    const wasArchived = provider.isArchived(session.id);
+    const willArchive = target === 'archived';
     try {
-      const moved = await provider.moveSession(session.id, folderId);
-      if (!moved) return;
+      if (!wasArchived && willArchive) {
+        if (!provider.hasFolder(target)) return;
+        const cwd = session.location?.directory || getCwd();
+        if (!cwd) return;
+        await beginArchive(session.id, cwd);
+      } else {
+        if (wasArchived) archiveFinalizations.delete(session.id);
+        const moved = await provider.moveSession(session.id, target);
+        if (!moved) return;
+        if (wasArchived) await setArchivedState(session.id, false);
+      }
     } catch (error) {
       log(`Failed to move session ${session.id}: ${error.stack || error.message}`);
       vscode.window.showErrorMessage(`Failed to move session: ${error.message}`);
       return;
     }
-    log(`Moved session ${session.id} to ${folderId}`);
+    log(`Moved session ${session.id} to ${target}`);
     await refreshSessions();
   }
 
