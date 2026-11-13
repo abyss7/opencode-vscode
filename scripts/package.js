@@ -33,7 +33,7 @@ function isExcluded(relative, patterns) {
       return relative === directory || relative.startsWith(`${directory}${path.sep}`);
     }
     if (pattern.startsWith('*')) return name.endsWith(pattern.slice(1));
-    return relative === pattern;
+    return relative === pattern || (!pattern.includes('/') && !pattern.includes('\\') && name === pattern);
   });
 }
 

@@ -1,6 +1,8 @@
 .git/**
 .github/**
 .vscode/**
+.vscodeignore
+.claude/**
 .gitignore
 test/**
 node_modules/**
@@ -8,5 +10,7 @@ test-results/**
 package-lock.json
 scripts/**
 install.sh
+opencode.json
+opencode.jsonc
 *.vsix
 .DS_Store

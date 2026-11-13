@@ -35,4 +35,4 @@ ln -s "${SOURCE_DIR}" "${TARGET}"
 echo "Extension installed:"
 echo "  ${TARGET} -> ${SOURCE_DIR}"
 echo
-echo "Now run "Developer: Reload Window" in VS Code."
+echo 'Now run "Developer: Reload Window" in VS Code.'
