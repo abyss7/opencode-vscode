@@ -14,10 +14,24 @@ async function main() {
     fs.mkdirSync(plugin);
     fs.copyFileSync(path.join(__dirname, '../src/permission-profiles.js'), path.join(plugin, 'engine.cjs'));
     fs.copyFileSync(path.join(__dirname, '../plugins/permission-profiles/session-temp.cjs'), path.join(plugin, 'session-temp.cjs'));
-    const { createManager, resolveBase } = require(path.join(plugin, 'session-temp.cjs'));
+    const { createManager, resolveBase, defaultStateBase } = require(path.join(plugin, 'session-temp.cjs'));
     const manager = createManager(temp);
-    assert.equal(createManager().directory('ses_default'), path.join(fs.realpathSync(os.tmpdir()), 'opencode', 'sessions', 'ses_default'));
-    assert.equal(resolveBase(''), fs.realpathSync(os.tmpdir()));
+    const originalXdgState = process.env.XDG_STATE_HOME;
+    try {
+      delete process.env.XDG_STATE_HOME;
+      if (process.platform === 'linux') {
+        assert.equal(defaultStateBase(), path.join(os.homedir(), '.local', 'state'));
+      }
+      assert.notEqual(resolveBase(''), fs.realpathSync(os.tmpdir()), 'session scratch files live in persistent user state, not /tmp');
+      assert.equal(createManager().directory('ses_default'), path.join(resolveBase(''), 'opencode', 'sessions', 'ses_default'));
+      const xdgState = path.join(temp, 'xdg-state');
+      process.env.XDG_STATE_HOME = xdgState;
+      assert.equal(resolveBase(''), xdgState);
+      assert.equal(createManager().directory('ses_default'), path.join(xdgState, 'opencode', 'sessions', 'ses_default'));
+    } finally {
+      if (originalXdgState === undefined) delete process.env.XDG_STATE_HOME;
+      else process.env.XDG_STATE_HOME = originalXdgState;
+    }
     assert.equal(resolveBase('~/scratch'), path.join(fs.realpathSync(os.homedir()), 'scratch'));
     assert.throws(() => resolveBase('relative'), /absolute path/);
     assert.throws(() => resolveBase(false), /must be a string/);

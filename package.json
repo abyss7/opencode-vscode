@@ -608,7 +608,7 @@
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "markdownDescription": "Host base directory for session temporary files. Empty uses the host's system temporary directory (`TMPDIR` on Linux). Set an absolute path or `~/...` to override it. Session files go under `<base>/opencode/sessions/<sessionID>/`. Changes apply on the next turn."
+          "markdownDescription": "Host base directory for session temporary files. Empty uses the user's persistent state directory (`$XDG_STATE_HOME` or `~/.local/state` on Linux, `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows). Set an absolute path or `~/...` to override it. Session files go under `<base>/opencode/sessions/<sessionID>/`. Changes apply on the next turn."
         },
         "opencodeSessions.smartTimeoutSeconds": {
           "type": "number",

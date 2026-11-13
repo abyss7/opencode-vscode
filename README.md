@@ -379,11 +379,13 @@ Explicit permission denies still apply. Turn it off to use the normal permission
 changes apply on the next turn.
 
 The host plugin gives each managed session, including child sessions, its own
-`<base>/opencode/sessions/<sessionID>/` directory. The base defaults to the host's
-system temporary directory (`TMPDIR` on Linux). Set
+`<base>/opencode/sessions/<sessionID>/` directory. The base defaults to the user's
+persistent state directory (`$XDG_STATE_HOME` or `~/.local/state` on Linux,
+`~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows), so scratch
+files survive idle cleanup and do not consume RAM-backed `/tmp`. Set
 `opencodeSessions.sessionTempBaseDirectory` to an absolute path or `~/...` to override
-it; empty restores the system default. For example, `/place/vartmp` produces
-`/place/vartmp/opencode/sessions/<sessionID>/`. Changes apply on the next turn.
+it; empty restores the default. For example, `~/scratch` produces
+`~/scratch/opencode/sessions/<sessionID>/`. Changes apply on the next turn.
 The agent receives the path in its context. Shell `TMPDIR`, `TMP`, and `TEMP` point there, and
 `OUT` points to its `out/` subdirectory. Existing scratch files are not moved.
 Other sessions' paths retain their normal permissions. Shell commands still require

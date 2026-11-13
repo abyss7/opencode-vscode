@@ -67,7 +67,18 @@ function createBridge(root, handlers) {
       if (closed) throw new Error('Permission bridge is closed');
       if (process.platform === 'win32') address = `\\\\.\\pipe\\opencode-permissions-${id}`;
       else {
-        const base = fs.existsSync('/place/vartmp/opencode') ? '/place/vartmp/opencode' : os.tmpdir();
+        const stateDir = process.env.XDG_STATE_HOME && path.isAbsolute(process.env.XDG_STATE_HOME)
+          ? path.join(process.env.XDG_STATE_HOME, 'opencode')
+          : process.platform === 'darwin'
+            ? path.join(os.homedir(), 'Library', 'Application Support', 'opencode')
+            : path.join(os.homedir(), '.local', 'state', 'opencode');
+        let base = os.tmpdir();
+        if (Buffer.byteLength(path.join(stateDir, 'oc-permissions-XXXXXX', 'rpc.sock')) < 100) {
+          try {
+            fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+            base = stateDir;
+          } catch { /* Fall back to the system temporary directory. */ }
+        }
         directory = fs.mkdtempSync(path.join(base, 'oc-permissions-'));
         fs.chmodSync(directory, 0o700);
         address = path.join(directory, 'rpc.sock');

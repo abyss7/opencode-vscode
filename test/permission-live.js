@@ -14,8 +14,7 @@ const { VERSION } = require('../src/permission-profiles');
 
 async function main() {
   if (process.env.OPENCODE_PERMISSION_LIVE !== '1') throw new Error('Set OPENCODE_PERMISSION_LIVE=1 only after approving this live test.');
-  const base = fs.existsSync('/place/vartmp/opencode') ? '/place/vartmp/opencode' : os.tmpdir();
-  const cwd = fs.mkdtempSync(path.join(base, 'permission-live-'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'permission-live-'));
   const command = process.env.OPENCODE_COMMAND || 'opencode';
   const api = new OpenCodeApi({ command });
   const service = new PermissionService({ vscode: {}, api, command, log: () => {} });

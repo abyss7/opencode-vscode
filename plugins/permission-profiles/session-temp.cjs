@@ -6,9 +6,22 @@ const path = require('node:path');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { canonical } = require('./engine.cjs');
 
+function defaultStateBase() {
+  if (process.env.XDG_STATE_HOME && path.isAbsolute(process.env.XDG_STATE_HOME)) {
+    return process.env.XDG_STATE_HOME;
+  }
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support');
+  }
+  if (process.platform === 'win32') {
+    return process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+  }
+  return path.join(os.homedir(), '.local', 'state');
+}
+
 function resolveBase(value = '') {
   if (typeof value !== 'string') throw new Error('Session temporary base directory must be a string');
-  if (!value) return canonical(os.tmpdir());
+  if (!value) return canonical(defaultStateBase());
   const expanded = value.replace(/^~(?=[\\/]|$)/, () => os.homedir());
   if (!path.isAbsolute(expanded)) throw new Error('Session temporary base directory must be an absolute path');
   return canonical(expanded);
@@ -80,4 +93,4 @@ function createManager(baseDirectory = '') {
   return { directory, ensure, contains, register };
 }
 
-module.exports = { createManager, resolveBase };
+module.exports = { createManager, resolveBase, defaultStateBase };
