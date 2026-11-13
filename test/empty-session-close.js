@@ -50,5 +50,23 @@ function panel() {
   blank._disposed = true;
   assert.equal(blank.deleteIfEmptyOnClose, true, 'blank input leaves the session empty');
 
+  const slashPosted = [];
+  const slashPanel = panel();
+  slashPanel.cwd = '/tmp';
+  slashPanel.deps = {
+    api: {
+      listSkills: async () => [{ id: 'handoff', name: 'handoff', description: 'Notes' }],
+      listCommands: async () => [{ name: 'review', description: 'Review changes' }],
+    },
+    log() {},
+  };
+  slashPanel._post = (msg) => slashPosted.push(msg);
+  await slashPanel._loadSlashItems();
+  assert.deepEqual(
+    slashPosted[0]?.commands.map((c) => c.name),
+    ['review', 'compact'],
+    'built-in /compact is appended when GET /api/command omits it',
+  );
+
   console.log('EMPTY SESSION CLOSE OK');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -861,7 +861,7 @@ class SessionPanel {
 
   async _loadSlashItems() {
     if (this._disposed) return;
-    const [skills, commands] = await Promise.all([
+    const [skills, serverCommands] = await Promise.all([
       this.deps.api.listSkills(this.cwd).catch((error) => {
         this.deps.log(`Failed to load skills: ${error.message}`);
         return [];

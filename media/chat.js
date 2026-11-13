@@ -751,6 +751,7 @@
   function startLiveClock() {
     if (state.liveClock) return;
     state.liveClock = setInterval(renderLiveElapsed, 1000);
+    state.liveClock.unref?.();
   }
 
   function stopLiveClock() {
