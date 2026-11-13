@@ -22,7 +22,8 @@ function createTranscriptViewport(container, onChange = () => {}) {
       return bounds.height > 0 && bounds.bottom > top;
     });
     // Keep a paragraph/row stable even when an image above it changes size
-    // inside the same message. Paths also survive streamed Markdown rerenders.
+    // inside the same message. Identity and paths also survive streamed
+    // Markdown rerenders.
     const node = root && [...root.querySelectorAll('p, pre, summary, tr, img, .diagram-preview')].find(child => {
       const bounds = child.getBoundingClientRect();
       return bounds.height > 0 && bounds.bottom > top;
@@ -34,12 +35,49 @@ function createTranscriptViewport(container, onChange = () => {}) {
     return { root, node, path };
   }
 
+  function identity(node) {
+    const text = (node?.textContent || '').trim();
+    return text ? { tag: node.tagName, text: text.slice(0, 64) } : null;
+  }
+
+  // Positional paths alone mis-resolve when a structural edit inserts or
+  // removes an element above the reading position inside the same root — an
+  // answer outline, a permission card, streamed Markdown gaining a heading.
+  // The path then lands on a neighbouring node and the viewport drifts to
+  // it. Re-find the anchor by content, keeping the node nearest to where the
+  // path points, before falling back to the whole root.
+  function resolveAnchor(root, reading, liveNode) {
+    if (liveNode && root.contains(liveNode)) return liveNode;
+    let candidate = (reading.path || []).reduce((node, index) => node?.children[index], root);
+    const record = reading.identity;
+    if (record && (!candidate || candidate.tagName !== record.tag ||
+        (candidate.textContent || '').trim().slice(0, 64) !== record.text)) {
+      const matches = [...root.querySelectorAll(record.tag)]
+        .filter(node => (node.textContent || '').trim().slice(0, 64) === record.text);
+      if (matches.length) {
+        candidate = matches.length === 1 || !candidate ? matches[0] : nearestMatch(matches, candidate);
+      }
+    }
+    return candidate?.getBoundingClientRect().height > 0 ? candidate : root;
+  }
+
+  function nearestMatch(matches, candidate) {
+    // Elements inserted above the reading position push the recorded path onto
+    // an earlier node, so prefer the first match at or after the candidate.
+    for (const match of matches) {
+      if (candidate.compareDocumentPosition(match) & Node.DOCUMENT_POSITION_FOLLOWING) return match;
+    }
+    return matches[matches.length - 1];
+  }
+
   function capture(anchor) {
     const top = container.getBoundingClientRect().top;
     if (!anchor && following) return { bottom: true, top: container.scrollTop };
     anchor ||= visibleAnchor();
     return { bottom: following, top: container.scrollTop, anchor: anchor.root?.dataset.anchorId,
-      path: anchor.path, offset: anchor.node ? anchor.node.getBoundingClientRect().top - top : 0,
+      rootPath: anchor.root ? [...container.children].indexOf(anchor.root) : null,
+      path: anchor.path, identity: identity(anchor.node),
+      offset: anchor.node ? anchor.node.getBoundingClientRect().top - top : 0,
       rootOffset: anchor.root ? anchor.root.getBoundingClientRect().top - top : 0 };
   }
 
@@ -61,10 +99,11 @@ function createTranscriptViewport(container, onChange = () => {}) {
     if (following) write(container.scrollHeight);
     else if (reading) {
       const root = readingRoot?.parentElement === container ? readingRoot :
-        reading.anchor && [...container.children].find(node => node.dataset.anchorId === reading.anchor);
-      const candidate = root && (root.contains(readingNode) ? readingNode :
-        (reading.path || []).reduce((node, index) => node?.children[index], root));
-      const anchor = candidate?.getBoundingClientRect().height > 0 ? candidate : root;
+        reading.anchor && [...container.children].find(node => node.dataset.anchorId === reading.anchor) ||
+        (reading.rootPath !== null && reading.rootPath !== undefined && Number.isInteger(reading.rootPath) ?
+          container.children[reading.rootPath] : null);
+      const candidate = root && resolveAnchor(root, reading, readingNode);
+      const anchor = candidate && candidate !== root ? candidate : root;
       const offset = anchor === candidate ? reading.offset : reading.rootOffset ?? reading.offset;
       write(anchor ? container.scrollTop + anchor.getBoundingClientRect().top -
         container.getBoundingClientRect().top - offset : reading.top);
