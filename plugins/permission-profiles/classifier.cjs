@@ -42,6 +42,16 @@ function toolEvidence(messages) {
   return { activity, omitted };
 }
 
+function selectClassifierModel(agent, requestModel, models) {
+  if (agent?.model) return agent.model;
+  if (!requestModel) return undefined;
+  const base = { providerID: requestModel.providerID, id: requestModel.id };
+  const list = Array.isArray(models?.data) ? models.data : Array.isArray(models) ? models : [];
+  const record = list.find((item) => item?.providerID === base.providerID && item?.id === base.id);
+  const variants = (record?.variants || []).map((v) => typeof v === 'string' ? v : v?.id);
+  return variants.includes('low') ? { ...base, variant: 'low' } : base;
+}
+
 async function classify(ctx, request, { timeoutMs = 30000 } = {}) {
   const controller = new AbortController();
   let timer;
@@ -56,14 +66,15 @@ async function classify(ctx, request, { timeoutMs = 30000 } = {}) {
   });
   const work = (async () => {
     const options = { signal: controller.signal };
-    const [agentResult, contextResult] = await Promise.all([
+    const [agentResult, contextResult, modelsResult] = await Promise.all([
       ctx.agent.get({ agentID: CLASSIFIER }, options),
       ctx.session.context({ sessionID: request.sessionID }, options),
+      ctx.model?.list ? ctx.model.list(undefined, options).catch(() => []) : [],
     ]);
     stage = 'reading classifier instructions';
     const agent = agentResult?.data || agentResult;
     if (!agent?.system?.trim()) throw new Error('Classifier instructions are missing');
-    model = agent.model || request.model;
+    model = selectClassifierModel(agent, request.model, modelsResult);
     stage = 'reading user intent';
     const messages = contextResult?.data || contextResult;
     if (!Array.isArray(messages)) throw new Error('Session context is unavailable');

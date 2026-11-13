@@ -75,8 +75,13 @@ async function main() {
   assert.doesNotMatch(malformed.reason, /private response contents/);
   ctx.agent.get = async () => ({ data: { system: 'Classifier policy' } });
   response = '{"decision":"allow","reason":"OK"}';
-  await classify(ctx, request);
+  await classify(ctx, { ...request, model: { providerID: 'test', id: 'main', variant: 'max' } });
   assert.equal(invocation.model.id, 'main', 'unset reviewer model uses the session model');
+  assert.equal(invocation.model.variant, undefined, 'session reasoning effort is not inherited by default');
+  ctx.model = { list: async () => ({ data: [{ providerID: 'test', id: 'main', variants: ['low', 'high'] }] }) };
+  await classify(ctx, { ...request, model: { providerID: 'test', id: 'main', variant: 'high' } });
+  assert.equal(invocation.model.variant, 'low', 'classifier prefers low effort when supported by the session model');
+  delete ctx.model;
   invocation = null;
   const long = await classify(ctx, { ...request, input: { command: 'x'.repeat(33000) } });
   assert.equal(long.effect, 'deny');
