@@ -69,4 +69,7 @@ test('Markdown artifacts keep code copy and verified file links working', async 
   await page.locator('#artifacts .code-copy').click();
   await expect(page.locator('#artifacts .code-copy')).toHaveText('Copied');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('const x = 1;');
+  await expect(page.locator('#artifacts .artifact-content')).toHaveClass(/\bmd\b/);
+  await page.locator('#artifacts').getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.locator('#artifacts .artifact-content')).not.toHaveClass(/\bmd\b/);
 });

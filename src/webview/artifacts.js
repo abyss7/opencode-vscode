@@ -79,9 +79,9 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, onAsk, pref
       focusWithoutScroll(entry.reference.querySelector('button'));
     }));
     if (value.source?.path) links.append(button('Open source file', () => post({ type: 'openFile', path: value.source.path, line: Number(value.source.line) || 1 })));
+    content.classList.toggle('md', !sourceMode && (value.kind === 'markdown' || value.kind === 'mermaid'));
     if (sourceMode) content.append(node('pre', 'artifact-source', entry.source));
     else if (value.kind === 'markdown' || value.kind === 'mermaid') {
-      content.classList.add('md');
       // Choose a fence longer than any in the source.
       const fence = '`'.repeat(Math.max(3, ...(value.content.match(/`+/g) || []).map((s) => s.length + 1)));
       content.innerHTML = renderMarkdown(value.kind === 'mermaid' ? `${fence}mermaid\n${value.content}\n${fence}` : value.content);
