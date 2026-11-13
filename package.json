@@ -82,6 +82,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "opencode.openSession",
+        "title": "Open Session",
+        "category": "OpenCode"
+      },
+      {
         "command": "opencode.refreshSessions",
         "title": "Refresh Sessions",
         "category": "OpenCode",
@@ -158,6 +163,10 @@
     ],
     "menus": {
       "commandPalette": [
+        {
+          "command": "opencode.openSession",
+          "when": "false"
+        },
         {
           "command": "opencode.deleteSession",
           "when": "false"
@@ -240,83 +249,6 @@
           "command": "opencode.deleteFolder",
           "when": "webviewId == opencode.sessions && sidebarKind == folder && sidebarCustom",
           "group": "2_delete@1"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "opencode.archiveSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session",
-          "group": "inline@1"
-        },
-        {
-          "command": "opencode.deleteSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session",
-          "group": "inline@2"
-        },
-        {
-          "command": "opencode.restoreSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session.archived",
-          "group": "inline@1"
-        },
-        {
-          "command": "opencode.deleteSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session.archived",
-          "group": "inline@2"
-        },
-        {
-          "command": "opencode.deleteSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session.subagent",
-          "group": "inline@1"
-        },
-        {
-          "command": "opencode.deleteFolder",
-          "when": "view == opencode.sessions && viewItem == opencode.folder",
-          "group": "inline@1"
-        },
-        {
-          "command": "opencode.moveSessionTo",
-          "when": "view == opencode.sessions && viewItem == opencode.session",
-          "group": "1_manage@1"
-        },
-        {
-          "command": "opencode.moveSessionTo",
-          "when": "view == opencode.sessions && viewItem == opencode.session.archived",
-          "group": "1_manage@1"
-        },
-        {
-          "command": "opencode.renameSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session",
-          "group": "1_manage@2"
-        },
-        {
-          "command": "opencode.renameSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session.archived",
-          "group": "1_manage@2"
-        },
-        {
-          "command": "opencode.archiveSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session",
-          "group": "1_manage@3"
-        },
-        {
-          "command": "opencode.restoreSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session.archived",
-          "group": "1_manage@3"
-        },
-        {
-          "command": "opencode.deleteSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session",
-          "group": "2_delete@1"
-        },
-        {
-          "command": "opencode.deleteSession",
-          "when": "view == opencode.sessions && viewItem == opencode.session.archived",
-          "group": "2_delete@1"
-        },
-        {
-          "command": "opencode.deleteFolder",
-          "when": "view == opencode.sessions && viewItem == opencode.folder",
-          "group": "1_delete@1"
         }
       ]
     },
