@@ -13,6 +13,44 @@ const { CommandProgress } = require('./command-progress');
 const messageID = () => `msg_${randomUUID().replaceAll('-', '')}`;
 const unwrap = (value) => value?.data ?? value;
 
+function promptFileAttachment(file) {
+  if (!file || typeof file !== 'object') return null;
+  const uri = typeof file.uri === 'string' && file.uri
+    ? file.uri
+    : file.source?.type === 'uri' && typeof file.source.uri === 'string' && file.source.uri
+      ? file.source.uri
+      : typeof file.mime === 'string' && file.mime && typeof file.data === 'string' && file.data
+        ? `data:${file.mime};base64,${file.data}`
+        : '';
+  if (!uri) return null;
+  const out = { uri };
+  if (file.source && typeof file.source === 'object') out.source = file.source;
+  if (typeof file.name === 'string') out.name = file.name;
+  if (typeof file.description === 'string') out.description = file.description;
+  if (file.mention && typeof file.mention === 'object') out.mention = file.mention;
+  return out;
+}
+
+function promptSkillAttachment(skill) {
+  if (!skill || typeof skill !== 'object') return null;
+  const id = typeof skill.id === 'string' && skill.id
+    ? skill.id
+    : typeof skill.name === 'string' && skill.name
+      ? skill.name
+      : '';
+  if (!id) return null;
+  const out = { id };
+  if (skill.mention && typeof skill.mention === 'object') out.mention = skill.mention;
+  return out;
+}
+
+function promptAgentAttachment(agent) {
+  if (!agent || typeof agent !== 'object' || typeof agent.name !== 'string' || !agent.name) return null;
+  const out = { name: agent.name };
+  if (agent.mention && typeof agent.mention === 'object') out.mention = agent.mention;
+  return out;
+}
+
 function toolUpdate(part) {
   const state = part.state || {};
   const content = (state.content || []).flatMap((item) => {
@@ -476,10 +514,15 @@ class SessionClient extends EventEmitter {
   async resend(id, payload) {
     // Native admission reconciles the same ID with queued or delivered work.
     // Cancelled inbox entries are removed, so that ID can be admitted again.
-    const { text, files, agents, skills, metadata } = payload;
+    // Inbox items store parsed attachments (`{ data, mime, source }`, `{ id, name, text }`),
+    // whereas `POST /prompt` requires `PromptInput` (`{ uri }`, `{ id }`).
+    const files = Array.isArray(payload.files) ? payload.files.map(promptFileAttachment).filter(Boolean) : [];
+    const agents = Array.isArray(payload.agents) ? payload.agents.map(promptAgentAttachment).filter(Boolean) : [];
+    const skills = Array.isArray(payload.skills) ? payload.skills.map(promptSkillAttachment).filter(Boolean) : [];
+    const { text, metadata } = payload;
     return this.submit({ id, type: 'user', time: { created: Date.now() }, payload: {
-      text, ...(files?.length ? { files } : {}), ...(agents?.length ? { agents } : {}),
-      ...(skills?.length ? { skills } : {}), ...(metadata ? { metadata } : {}),
+      text, ...(files.length ? { files } : {}), ...(agents.length ? { agents } : {}),
+      ...(skills.length ? { skills } : {}), ...(metadata ? { metadata } : {}),
     } });
   }
 

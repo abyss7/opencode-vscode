@@ -43,7 +43,7 @@ const { withClientContext } = require('../src/client-context');
   Object.assign(panel, { _client: client, sessionId: 'ses_test', deps: { log() {} }, _post: (event) => updates.push(event) });
   client.on('submission', (event) => updates.push(event));
   const original = { id: 'msg_retry', payload: { text: withClientContext('Original message', { id: 'selection' }),
-    files: [{ uri: 'data:image/png;base64,AA==' }], agents: [{ name: 'build' }], skills: [{ name: 'example' }],
+    files: [{ uri: 'data:image/png;base64,AA==' }], agents: [{ name: 'build' }], skills: [{ id: 'example' }],
     metadata: { custom: true },
   } };
   await panel._onMessage({ type: 'resend', item: original });
@@ -65,6 +65,31 @@ const { withClientContext } = require('../src/client-context');
   assert.equal(sent.at(-1).body.text, withClientContext('Local draft', { id: 'local-selection' }));
   await panel._onMessage({ type: 'resend', item: { id: 'msg_image', payload: { files: original.payload.files } } });
   assert.deepEqual(sent.at(-1).body.files, original.payload.files, 'image-only retry survives the host prompt guard');
+
+  // Server inbox items return parsed Prompt.FileAttachment ({ data, mime, source })
+  // and Prompt.SkillAttachment ({ id, name, text }), whereas POST /prompt strictly
+  // requires PromptInput.FileAttachment ({ uri }) and PromptInput.SkillAttachment ({ id }).
+  const serverQueued = {
+    id: 'msg_server_inbox',
+    payload: {
+      text: withClientContext('Queued with screenshot', { id: 'sel' }),
+      files: [{ data: 'AA==', mime: 'image/png', source: { type: 'inline' }, name: 'shot.png' }],
+      skills: [{ id: 'opencode', name: 'OpenCode', text: 'full skill content', mention: { start: 0, end: 9, text: '@opencode' } }],
+      agents: [{ name: 'build', extra: 'ignored' }],
+    },
+  };
+  await panel._onMessage({ type: 'resend', item: serverQueued });
+  assert.deepEqual(sent.at(-1), {
+    path: '/api/session/ses_test/prompt',
+    body: {
+      id: 'msg_server_inbox',
+      delivery: 'queue',
+      text: serverQueued.payload.text,
+      files: [{ uri: 'data:image/png;base64,AA==', source: { type: 'inline' }, name: 'shot.png' }],
+      skills: [{ id: 'opencode', mention: { start: 0, end: 9, text: '@opencode' } }],
+      agents: [{ name: 'build' }],
+    },
+  });
   panel.deps.permissions = {};
   panel._permissionsBeforePrompt = async () => false;
   const count = sent.length;
