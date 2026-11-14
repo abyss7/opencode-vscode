@@ -329,6 +329,24 @@ select {
   box-shadow: -16px 0 var(--vscode-editor-background), 16px 0 var(--vscode-editor-background);
 }
 .sticky-prompt button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -2px; }
+/* The pinned prompt is an overhang too: the transcript sinks into its shadow
+   the same way it sinks under the plates. The button lives inside a 0-height
+   container, so the shadow starts slightly inside the pill (2.15em tracks the
+   button height across font sizes) and no gap opens at the pill's border. */
+.sticky-prompt::after {
+  content: "";
+  position: absolute;
+  top: calc(100% + 2.15em);
+  left: -16px;
+  right: -16px;
+  height: 14px;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.22), transparent 65%),
+    linear-gradient(to bottom, var(--vscode-editor-background), transparent);
+}
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .sticky-prompt::after { display: none; }
 
 .disclosure-collapse {
   display: flex;
@@ -1491,11 +1509,10 @@ button.delivery-indicator:focus-visible {
 
 #workspace { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
 
-/* Thin progressive blur where scrolling content slides under the header and
-   composer plates. Two masked backdrop-filter strips ramp the blur radius from
-   zero on the content side to full at the plate edge, so text dissolves for a
-   few pixels before disappearing. Height stays below the scroll padding
-   (.messages has 16px top / 32px bottom), so the first and last lines render
+/* Content sinks into the shadow of the overhanging header and composer
+   plates: it blurs softly, dissolves into the plate color and gathers a dark
+   lip right at the edge. Strip heights stay within the scroll padding budget
+   (.messages pads 16px top / 32px bottom), so the first and last lines render
    sharp when scrolled to the ends. pointer-events keeps the strips invisible
    to the pointer; z-index sits above sticky content but below popovers. */
 .edge-fade {
@@ -1503,11 +1520,22 @@ button.delivery-indicator:focus-visible {
   left: 0;
   right: 0;
   z-index: 5;
-  height: 12px;
   pointer-events: none;
 }
-.edge-fade[data-edge="top"] { top: 0; }
-.edge-fade[data-edge="bottom"] { bottom: 0; }
+.edge-fade[data-edge="top"] {
+  top: 0;
+  height: 16px;
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.22), transparent 65%),
+    linear-gradient(to bottom, var(--vscode-editor-background), transparent);
+}
+.edge-fade[data-edge="bottom"] {
+  bottom: 0;
+  height: 20px;
+  background:
+    linear-gradient(to top, rgba(0, 0, 0, 0.22), transparent 65%),
+    linear-gradient(to top, var(--vscode-editor-background), transparent);
+}
 .edge-fade::before,
 .edge-fade::after {
   content: "";
@@ -1521,8 +1549,8 @@ button.delivery-indicator:focus-visible {
 }
 .edge-fade[data-edge="top"]::after {
   backdrop-filter: blur(6px);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 85%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 85%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 25%, transparent 70%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 25%, transparent 70%);
 }
 .edge-fade[data-edge="bottom"]::before {
   backdrop-filter: blur(2px);
@@ -1531,12 +1559,14 @@ button.delivery-indicator:focus-visible {
 }
 .edge-fade[data-edge="bottom"]::after {
   backdrop-filter: blur(6px);
-  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 30%, transparent 85%);
-  mask-image: linear-gradient(to top, #000 0%, #000 30%, transparent 85%);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 25%, transparent 70%);
+  mask-image: linear-gradient(to top, #000 0%, #000 25%, transparent 70%);
 }
 @media (prefers-reduced-transparency: reduce) {
   .edge-fade { display: none; }
 }
+/* High-contrast themes must not dim or dissolve transcript content. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .edge-fade { display: none; }
 #workspace > .messages { min-width: 0; }
 #artifacts { width: 46%; min-width: 300px; min-height: 0; max-width: 700px; overflow: auto; overscroll-behavior: contain; border-left: 1px solid var(--oc-border); background: var(--vscode-editor-background); }
 .artifact-toolbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 5px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--oc-border); background: var(--vscode-editor-background); }
@@ -1810,6 +1840,7 @@ button.delivery-indicator:focus-visible {
   line-height: 1.6;
   white-space: normal;
 }
+.usage-tooltip.plan { white-space: pre; }
 .session-settings { min-width: 0; max-width: 100%; }
 .session-settings-popup {
   position: fixed;
@@ -1952,6 +1983,25 @@ button.delivery-indicator:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* The current model cannot accept image input; the server replaces these
+   attachments with a text placeholder until the session switches models. */
+.attachment-unseen img {
+  opacity: 0.55;
+}
+
+.attachment-unseen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top right,
+    transparent calc(50% - 1px),
+    var(--vscode-editorWarning-foreground, #cca700) 50%,
+    transparent calc(50% + 1px)
+  );
+  pointer-events: none;
 }
 
 .attachment-remove {
