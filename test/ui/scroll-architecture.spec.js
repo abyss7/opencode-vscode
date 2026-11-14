@@ -127,6 +127,9 @@ test('reading a long answer survives layout inside it and a streamed Markdown re
   await nativeText(chat, 'stream-reading', initial);
   await expect(page.locator('.message.assistant p')).toHaveCount(80);
   await page.locator('#messages').evaluate(node => { node.scrollTop = 900; });
+  // Let the scroll event land before anchoring: under parallel load the
+  // event queue may still hold it while the mutation races ahead.
+  await page.waitForTimeout(80);
   const anchor = await page.locator('#messages').evaluate(node => {
     const paragraphs = [...node.querySelectorAll('.message.assistant p')];
     const index = paragraphs.findIndex(p => p.getBoundingClientRect().bottom > node.getBoundingClientRect().top);

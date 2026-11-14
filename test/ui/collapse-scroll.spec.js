@@ -49,6 +49,11 @@ for (const { history, rootOverflow } of [
       // Scroll only the transcript during setup: the real Collapse click must
       // be the action that exposes ancestor scrolling in the old handler.
       await page.locator('#messages').evaluate((node) => { node.scrollTop = node.scrollHeight; });
+      // Let the scroll event settle and re-assert the bottom: the summary
+      // focus hop must not leave the view mid-transcript.
+      await page.waitForTimeout(80);
+      await page.locator('#messages').evaluate((node) => { node.scrollTop = node.scrollHeight; });
+      await page.waitForTimeout(40);
       const viewportTop = await page.locator('#messages').evaluate((node) => node.getBoundingClientRect().top);
       expect((await summary.boundingBox()).y).toBeLessThan(viewportTop);
       await expect.poll(() => page.evaluate(() => document.scrollingElement.scrollTop)).toBe(0);

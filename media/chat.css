@@ -42,6 +42,7 @@ select {
 }
 
 #app {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -215,7 +216,10 @@ select {
   gap: 2px;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 16px 32px;
+  padding: 16px 16px 160px;
+  /* The composer plate overlays the transcript's bottom; stop native
+     focus/scrollIntoView clear of it. */
+  scroll-padding-bottom: 170px;
   min-height: 0;
   overscroll-behavior: contain;
   overflow-anchor: none;
@@ -1518,11 +1522,12 @@ button.delivery-indicator:focus-visible {
 
 /* Content sinks into the shadow of the overhanging header and composer
    plates: it dissolves into the plate color and gathers a dark lip at the
-   edge. Pure gradients — nothing recomposites while scrolling. Strip heights
-   stay within the scroll padding budget (.messages pads 16px top / 32px
-   bottom), so the first and last lines render sharp when scrolled to the
-   ends. pointer-events keeps the strips invisible to the pointer; z-index
-   sits above sticky content but below popovers. */
+   edge. Pure gradients — nothing recomposites while scrolling. The top strip
+   stays within the scroll padding budget (.messages pads 16px top), so the
+   first line renders sharp when scrolled to the start; the bottom plate
+   overlays the transcript (.messages reserves 128px of bottom padding so the
+   newest line can clear it). pointer-events keeps the strips invisible to
+   the pointer; z-index sits above sticky content but below popovers. */
 .edge-fade {
   position: absolute;
   left: 0;
@@ -1550,7 +1555,10 @@ button.delivery-indicator:focus-visible {
 /* High-contrast themes must not dim or dissolve transcript content. */
 :is(.vscode-high-contrast, .vscode-high-contrast-light) .edge-fade { display: none; }
 #workspace > .messages { min-width: 0; }
-#artifacts { width: 46%; min-width: 300px; min-height: 0; max-width: 700px; overflow: auto; overscroll-behavior: contain; border-left: 1px solid var(--oc-border); background: var(--vscode-editor-background); }
+#artifacts { width: 46%; min-width: 300px; min-height: 0; max-width: 700px; overflow: auto; overscroll-behavior: contain; border-left: 1px solid var(--oc-border); background: var(--vscode-editor-background); scroll-padding-bottom: 170px; }
+/* An open artifacts pane keeps a clear floor above the composer plate: its
+   controls stay clickable; only the transcript scrolls under the plate. */
+#workspace:has(#artifacts:not([hidden])) > #artifacts { margin-bottom: 165px; }
 .artifact-toolbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 5px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--oc-border); background: var(--vscode-editor-background); }
 .artifact-toolbar select { max-width: 100%; min-width: 0; color: inherit; background: var(--vscode-input-background); border: 1px solid var(--oc-border); }
 .artifact-toolbar select:first-child { flex: 1; }
@@ -1612,19 +1620,38 @@ button.delivery-indicator:focus-visible {
 /* Composer */
 
 .composer {
-  position: relative;
+  /* The composer overlays the transcript instead of sharing height with it:
+     it grows upward over the text, and the transcript's height and scroll
+     range never depend on it. .messages reserves one compact composer height
+     of bottom padding so the newest line can scroll clear of the plate. */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
   display: flex;
   flex-direction: column;
-  flex: 0 1 auto;
   min-height: 0;
-  max-height: 65%;
+  /* The plate may cover most of a tall pane, but never the last sliver of
+     the workspace: a floor of 150px keeps the artifacts toolbar and the
+     transcript top reachable even in very short shells. */
+  max-height: min(65%, calc(100% - 150px));
   padding: 10px 16px 8px;
   border-top: 1px solid var(--oc-border-soft);
   background: var(--vscode-editor-background);
+  box-shadow: 0 -6px 14px rgba(0, 0, 0, 0.18);
 }
 
 .composer[hidden] {
   display: none;
+}
+
+/* Very short shells cannot afford the overlay: the composer rejoins the flow
+   and shares height with the transcript, as before. */
+@media (max-height: 420px) {
+  .composer { position: static; max-height: 60%; box-shadow: none; }
+  .messages { padding-bottom: 32px; scroll-padding-bottom: 0; }
+  #workspace:has(#artifacts:not([hidden])) > #artifacts { margin-bottom: 0; }
 }
 
 .composer.question-active > :not(.questions) { display: none; }

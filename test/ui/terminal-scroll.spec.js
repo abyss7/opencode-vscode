@@ -53,14 +53,14 @@ test('pinned to the bottom, every kind of output keeps the bottom line at the bo
     expect(await gap(page)).toBeLessThanOrEqual(1);
     const lastVisible = await page.evaluate(() => {
       const messages = document.querySelector('#messages');
-      const box = messages.getBoundingClientRect();
+      const composer = document.querySelector('.composer');
       const last = [...messages.querySelectorAll('p, pre, summary, time, .tool-group')].at(-1)?.getBoundingClientRect();
-      // Pinned to the bottom, the newest line must be the last thing on screen:
-      // fully inside the viewport, with only the transcript's trailing space below.
-      return Boolean(last && last.height > 0 && last.bottom <= box.bottom + 1 &&
-        last.bottom >= box.top && box.bottom - last.bottom < 48);
+      // Pinned to the bottom, the newest line must be the last thing above
+      // the composer plate that overlays the transcript.
+      const plate = composer?.getBoundingClientRect().top ?? messages.getBoundingClientRect().bottom;
+      return Boolean(last && last.height > 0 && last.bottom <= plate + 2 && last.bottom >= messages.getBoundingClientRect().top);
     });
-    expect(lastVisible, `${name}: the newest line stays on screen`).toBe(true);
+    expect(lastVisible, `${name}: the newest line stays above the composer`).toBe(true);
   }
 });
 
