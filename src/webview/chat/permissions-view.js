@@ -538,7 +538,9 @@ function createPermissionsView({
     if (!smartReviewHistory) {
       const details = el('details', 'smart-review-history');
       details.dataset.anchorId = 'smart-review-history';
-      details.appendChild(el('summary', '', 'Unlinked Smart permissions'));
+      const summary = el('summary');
+      summary.appendChild(el('span', 'kind', 'Unlinked Smart permissions'));
+      details.appendChild(summary);
       const body = el('div', 'body');
       details.appendChild(body);
       messagesEl.appendChild(details);

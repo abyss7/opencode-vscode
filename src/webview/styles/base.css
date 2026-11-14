@@ -19,6 +19,10 @@
   --oc-completed: var(--vscode-testing-iconPassed, var(--vscode-charts-green, var(--oc-secondary)));
   --oc-cancelled: var(--vscode-testing-iconSkipped, var(--oc-secondary));
   --oc-failed: var(--vscode-testing-iconFailed, var(--vscode-errorForeground, var(--oc-secondary)));
+  /* Disclosure strip tokens: every collapsible transcript block shares one
+     chevron cell width and one minimum strip height (see steps-and-tools.css). */
+  --oc-chev: 12px;
+  --oc-strip-h: 24px;
 }
 
 * {

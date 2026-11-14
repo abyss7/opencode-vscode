@@ -493,7 +493,7 @@ function createTranscriptRenderer({
     details.className = 'thought streaming';
     details.open = false;
     const summary = document.createElement('summary');
-    const labelEl = el('span', 'thought-label', 'Thinking…');
+    const labelEl = el('span', 'thought-label kind', 'Thinking…');
     const tokensEl = el('span', 'tokens', '');
     summary.appendChild(labelEl);
     summary.appendChild(tokensEl);
@@ -1174,7 +1174,7 @@ function createTranscriptRenderer({
       details.className = 'plan';
       details.open = false;
       const summary = el('summary', 'plan-title');
-      summary.appendChild(el('span', 'plan-label', 'Plan'));
+      summary.appendChild(el('span', 'plan-label kind', 'Plan'));
       const tokensEl = el('span', 'tokens', '');
       summary.appendChild(tokensEl);
       const entries = el('div', 'plan-entries');

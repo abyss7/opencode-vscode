@@ -10,8 +10,9 @@
   background: var(--oc-input-bg);
 }
 
+/* Smart-review history joins the shared disclosure strip anatomy (see
+   steps-and-tools.css): the label fills the .kind slot. */
 .smart-review-history { margin: 6px 2px; color: var(--oc-secondary); font-size: 12px; }
-.smart-review-history > summary { padding: 4px 0; cursor: pointer; }
 .smart-review-history > .body { padding-left: 16px; }
 .tool-entry > .smart-review { margin-block: 6px; }
 
@@ -31,20 +32,10 @@
 .permission-operation { margin-top: 6px; font-weight: 600; }
 .permission-files { margin: 8px 0; padding: 0; list-style: none; overflow-wrap: anywhere; }
 .permission-files > li { margin: 4px 0; }
-.permission-file > summary { padding: 3px 0; cursor: pointer; list-style: none; }
-.permission-file > summary::-webkit-details-marker { display: none; }
-.permission-file > summary::before {
-  display: inline-block;
-  width: 12px;
-  flex: none;
-  margin-right: 6px;
-  content: "›";
-  font-size: 16px;
-  line-height: 1;
-  text-align: center;
-  transition: transform 0.15s;
-}
-.permission-file[open] > summary::before { transform: rotate(90deg); }
+/* The per-file diff disclosure joins the shared strip anatomy: the action
+   chip fills the label slot, the path fills the detail slot. */
+.permission-file > summary > .permission-file-action { grid-column: 2; grid-row: 1; }
+.permission-file > summary > .permission-file-path { grid-column: 3; grid-row: 1; min-width: 0; }
 .permission-file-path { font-family: var(--oc-mono); }
 .permission-file .permission-preview { margin: 6px 0 0 16px; }
 .permission-file .tool-diff { margin: 0; border-radius: 6px; overflow: hidden; }

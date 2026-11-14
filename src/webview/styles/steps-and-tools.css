@@ -1,9 +1,30 @@
 /* ==========================================================================
    Turn Steps, Thoughts, Tool Calls, Progress, Background Runs & Inline Plans
+   --------------------------------------------------------------------------
+   UNIFIED DISCLOSURE STRIP ANATOMY
+   Every collapsible transcript block renders the same summary skeleton:
+
+     <summary>                      — one shared grid row, min-height strip
+       ::before                     — shared chevron (col 1, rotates on [open])
+       .kind                        — label slot      (col 2): "7 steps",
+                                      "Execute", "Thinking…", "PLAN", …
+       .name / .command-progress    — detail slot     (col 3): mono path,
+                                      step metrics, progress bar
+       .tokens                      — estimate slot   (col 4, right-aligned)
+       .status                      — status slot     (col 5): done/failed/
+                                      "in background"
+       .background-stop             — action slot     (col 6): Stop button
+     </summary>
+     <div class="body">…</div>
+
+   Roles keep their unique typography and features (thought is quiet italic
+   text, plan is an uppercase mono card, tool kinds are bold, background adds
+   the Stop button and pulse) — geometry, chevron, height and focus treatment
+   come from the shared rules below. New collapsible blocks must join these
+   selector lists and be added to the taxonomy table in docs/architecture.md.
    ========================================================================== */
 
 #messages > .standalone-task { margin: 10px 0; }
-.tool-group.background-task > summary { grid-template-columns: 12px 144px minmax(0, 1fr) auto auto auto; }
 .tool-group.background-task > summary > .background-stop { grid-column: 6; grid-row: 1; align-self: center; }
 .tool-group .status.background-state[data-running="true"] { color: var(--oc-completed); }
 .btn.icon-btn.background-stop { width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 4px; }
@@ -11,117 +32,30 @@
 .background-stop:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 .background-stop:disabled { opacity: .6; cursor: default; }
 .background-error { color: var(--vscode-errorForeground); font-size: 12px; padding: 4px 0; }
-@media (max-width: 600px) {
-  .tool-group.background-task > summary { grid-template-columns: 12px minmax(0, 1fr) auto auto auto; }
-  .tool-group.background-task > summary > .background-stop { grid-column: 5; }
-  .tool-group.background-task > summary > .name { grid-column: 2 / -1; grid-row: 2; }
-}
 
-/* Thinking */
+/* --- The shared strip: one geometry for every disclosure in the transcript --- */
 
-.thought {
-  margin: 1px 0;
-  color: var(--oc-secondary);
-  font-size: 13px;
-}
-
-.thought summary {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  list-style: none;
-  font-style: italic;
-  opacity: 0.85;
-  user-select: none;
-}
-
-.thought summary::-webkit-details-marker {
-  display: none;
-}
-
-.thought summary::before {
-  display: inline-block;
-  width: 12px;
-  flex: none;
-  content: "›";
-  font-size: 16px;
-  font-style: normal;
-  line-height: 1;
-  text-align: center;
-  transition: transform 0.15s;
-}
-
-.thought[open] summary::before {
-  transform: rotate(90deg);
-}
-
-.thought summary:hover,
-.thought[open] summary {
-  opacity: 1;
-}
-
-.thought .body {
-  margin: 4px 0 4px 16px;
-  color: var(--oc-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.thought.streaming summary::after {
-  margin-left: 4px;
-  content: "…";
-}
-
-.thought.compact > summary { display: none; }
-.thought.compact > .body { margin: 2px 0 2px 16px; white-space: pre; }
-
-/* Turn steps */
-
-.turn-steps {
-  margin: 2px 0;
-}
-
-.turn-steps > summary {
+/* Four base tracks; the status and action slots (columns 5 and 6) are created
+   implicitly by their placement rules below, so strips without addons end
+   exactly at the tokens slot — grid gaps never trail the last used track. */
+:is(.turn-steps, .tool-group, .thought, .plan, .permission-file, .smart-review-history) > summary {
   display: grid;
-  grid-template-columns: 12px 72px minmax(0, 1fr) auto;
-  align-items: baseline;
+  grid-template-columns: var(--oc-chev) var(--oc-kind, max-content) minmax(0, 1fr) auto;
+  align-items: center;
   gap: 4px 8px;
+  min-height: var(--oc-strip-h);
   padding: 3px 0;
-  color: var(--oc-secondary);
   cursor: pointer;
-  font-size: 12px;
   list-style: none;
   user-select: none;
 }
 
-.turn-steps > summary::-webkit-details-marker {
+:is(.turn-steps, .tool-group, .thought, .plan, .permission-file, .smart-review-history) > summary::-webkit-details-marker {
   display: none;
 }
 
-.turn-steps > summary .kind {
-  grid-column: 2;
-  grid-row: 1;
-  min-width: 0;
-  font-weight: 600;
-}
-
-.turn-steps > summary .name {
-  grid-column: 3;
-  grid-row: 1;
-  min-width: 0;
-  font-family: var(--oc-mono);
-  font-size: 11px;
-  opacity: 0.85;
-}
-
-.turn-steps > summary::before,
-.tool-group > summary::before {
-  display: inline-block;
-  flex: none;
+/* One chevron for all strips: a small CSS-drawn corner that rotates on open. */
+:is(.turn-steps, .tool-group, .thought, .plan, .permission-file, .smart-review-history) > summary::before {
   grid-column: 1;
   grid-row: 1;
   align-self: center;
@@ -135,16 +69,95 @@
   transition: transform 0.15s;
 }
 
-.turn-steps[open] > summary::before,
-.tool-group[open] > summary::before {
+:is(.turn-steps, .tool-group, .thought, .plan, .permission-file, .smart-review-history)[open] > summary::before {
   transform: rotate(45deg);
 }
 
-.turn-steps > summary > .tokens { grid-column: 4; grid-row: 1; justify-self: end; }
-.turn-steps > summary > .kind,
-.tool-group > summary > .kind { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.turn-steps > summary > .name:empty,
-.tool-group > summary > .name:empty { display: none; }
+:is(.turn-steps, .tool-group, .thought, .plan, .permission-file, .smart-review-history) > summary:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* Slot placement: every strip fills the same cells regardless of its role. */
+:is(.turn-steps, .tool-group, .thought, .plan, .smart-review-history) > summary > .kind { grid-column: 2; grid-row: 1; min-width: 0; }
+:is(.turn-steps, .tool-group) > summary > .name,
+.tool-group > summary > .command-progress { grid-column: 3; grid-row: 1; }
+:is(.turn-steps, .tool-group, .thought, .plan) > summary > .tokens { grid-column: 4; grid-row: 1; justify-self: end; }
+.tool-group > summary > .status { grid-column: 5; grid-row: 1; }
+
+/* Kind labels may not blow up the row: they shrink with an ellipsis. */
+:is(.turn-steps, .tool-group) > summary > .kind { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Thinking --- */
+
+.thought {
+  margin: 1px 0;
+  color: var(--oc-secondary);
+  font-size: 13px;
+}
+
+/* Unique feature: quiet italic "plain text" label; geometry comes from the
+   shared strip above. */
+.thought > summary {
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.thought > summary:hover,
+.thought[open] > summary {
+  opacity: 1;
+}
+
+.thought > summary > .kind {
+  font-style: italic;
+}
+
+.thought .body {
+  margin: 4px 0 4px 16px;
+  color: var(--oc-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Unique feature: the streaming ellipsis follows the label in the detail slot. */
+.thought.streaming > summary::after {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: start;
+  margin-left: 4px;
+  content: "…";
+}
+
+/* Unique feature: a one-line thought shows its body directly — no strip. */
+.thought.compact > summary { display: none; }
+.thought.compact > .body { margin: 2px 0 2px 16px; white-space: pre; }
+
+/* --- Turn steps --- */
+
+.turn-steps {
+  margin: 2px 0;
+}
+
+.turn-steps > summary {
+  --oc-kind: 72px;
+  color: var(--oc-secondary);
+  font-size: 12px;
+}
+
+.turn-steps > summary .kind {
+  font-weight: 600;
+}
+
+.turn-steps > summary .name {
+  min-width: 0;
+  font-family: var(--oc-mono);
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.turn-steps > summary .name:empty { display: none; }
 .turn-steps > summary .step-metrics,
 .tool-group > summary .step-metrics { display: flex; flex-wrap: wrap; gap: 4px 16px; white-space: normal; overflow: clip; }
 .step-metric { position: relative; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -155,18 +168,6 @@
   width: 16px;
   text-align: center;
   opacity: 0.6;
-}
-
-.tokens {
-  flex: none;
-  margin-left: auto;
-  color: var(--oc-secondary);
-  font-family: var(--oc-mono);
-  font-size: 10px;
-  font-style: normal;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.75;
-  white-space: nowrap;
 }
 
 .turn-steps[open] > .body {
@@ -184,25 +185,14 @@
   border-left: none;
 }
 
-/* Tool calls */
+/* --- Tool calls --- */
 
 .tool-group {
   margin: 1px 0;
 }
 
 .tool-group > summary {
-  display: grid;
-  grid-template-columns: 12px 144px minmax(0, 1fr) auto auto;
-  align-items: baseline;
-  gap: 4px 8px;
-  padding: 4px 0;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-
-.tool-group > summary::-webkit-details-marker {
-  display: none;
+  --oc-kind: 144px;
 }
 
 .tool-group > summary::before {
@@ -228,28 +218,13 @@
   white-space: nowrap;
 }
 
-.tool-group > summary > .kind { grid-column: 2; grid-row: 1; min-width: 0; }
-.tool-group > summary > .name { grid-column: 3; grid-row: 1; }
-.tool-group > summary > .tokens { grid-column: 4; grid-row: 1; justify-self: end; }
-.tool-group > summary > .status { grid-column: 5; grid-row: 1; }
-
-@media (max-width: 600px) {
-  .turn-steps > summary { grid-template-columns: 12px minmax(0, 1fr) auto; }
-  .tool-group > summary { grid-template-columns: 12px minmax(0, 1fr) auto auto; }
-  .turn-steps > summary > .tokens,
-  .tool-group > summary > .tokens { grid-column: 3; }
-  .tool-group > summary > .status { grid-column: 4; }
-  .turn-steps > summary > .name,
-  .tool-group > summary > .name { grid-column: 2 / -1; grid-row: 2; }
-}
+.tool-group > summary > .name:empty { display: none; }
 
 .tool-group > summary:hover .name {
   color: var(--vscode-foreground);
 }
 
-.tool-group.progress-task > summary { align-items: center; }
 .tool-group.progress-task > summary > .name[hidden] { display: none; }
-.tool-group > summary > .command-progress { grid-column: 3; grid-row: 1; }
 .command-progress {
   display: flex;
   align-items: center;
@@ -286,14 +261,6 @@
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-@media (max-width: 600px) {
-  .tool-group.progress-task > summary { grid-template-columns: 12px minmax(0, 80px) minmax(0, 1fr) auto auto; column-gap: 5px; }
-  .tool-group.progress-task.background-task > summary { grid-template-columns: 12px minmax(0, 80px) minmax(0, 1fr) auto auto auto; }
-  .tool-group.progress-task > summary > .tokens { grid-column: 4; }
-  .tool-group.progress-task > summary > .status { grid-column: 5; }
-  .tool-group.progress-task > summary > .background-stop { grid-column: 6; }
-  .command-progress { gap: 5px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .command-progress-fill { transition: none; }
@@ -421,7 +388,10 @@
   white-space: nowrap;
 }
 
-/* Plan */
+/* --- Inline plan --- */
+
+/* Unique feature: the plan keeps its bordered-card look; the strip inside it
+   shares the standard anatomy (chevron + label + tokens). */
 
 .plan {
   margin: 6px 0;
@@ -431,46 +401,24 @@
   background: var(--oc-tool-bg);
 }
 
-.plan-title {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+.plan > summary {
+  padding: 3px 8px;
   color: var(--oc-secondary);
-  cursor: pointer;
   font-family: var(--oc-mono);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.05em;
-  list-style: none;
   opacity: 0.6;
   text-transform: uppercase;
-  user-select: none;
 }
 
-.plan-title::-webkit-details-marker {
-  display: none;
+.plan > summary .kind {
+  font: inherit;
 }
 
-.plan-title::before {
-  display: inline-block;
-  width: 12px;
-  flex: none;
-  content: "›";
-  font-size: 16px;
-  font-weight: 400;
-  line-height: 1;
-  text-align: center;
-  transition: transform 0.15s;
-}
-
-.plan[open] .plan-title {
+.plan[open] > summary {
   border-bottom: 0.5px solid var(--oc-border);
   opacity: 0.8;
-}
-
-.plan[open] .plan-title::before {
-  transform: rotate(90deg);
 }
 
 .plan-entries {
@@ -494,4 +442,24 @@
   color: var(--oc-secondary);
   text-decoration: line-through;
   opacity: 0.75;
+}
+
+/* --- Shared narrow-shell rearrangement: detail wraps under the label --- */
+
+@media (max-width: 600px) {
+  .turn-steps > summary { grid-template-columns: var(--oc-chev) minmax(0, 1fr) auto; }
+  .tool-group.background-task > summary { grid-template-columns: var(--oc-chev) minmax(0, 1fr) auto auto auto; }
+  .turn-steps > summary > .tokens,
+  .tool-group > summary > .tokens { grid-column: 3; }
+  .tool-group > summary > .status { grid-column: 4; }
+  .turn-steps > summary > .name,
+  .tool-group > summary > .name { grid-column: 2 / -1; grid-row: 2; }
+  .tool-group.background-task > summary > .background-stop { grid-column: 5; }
+  .tool-group.background-task > summary > .name { grid-column: 2 / -1; grid-row: 2; }
+  .tool-group.progress-task > summary { grid-template-columns: var(--oc-chev) minmax(0, 80px) minmax(0, 1fr) auto auto; column-gap: 5px; }
+  .tool-group.progress-task.background-task > summary { grid-template-columns: var(--oc-chev) minmax(0, 80px) minmax(0, 1fr) auto auto auto; }
+  .tool-group.progress-task > summary > .tokens { grid-column: 4; }
+  .tool-group.progress-task > summary > .status { grid-column: 5; }
+  .tool-group.progress-task > summary > .background-stop { grid-column: 6; }
+  .command-progress { gap: 5px; }
 }

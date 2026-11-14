@@ -25,7 +25,13 @@ test('permission shows all files and proposed changes before approval', async ({
   await expect(card.locator('.permission-file[open]')).toHaveCount(0);
   await expect(files.first()).toHaveCSS('border-top-width', '0px');
   await expect(files.first().locator('summary')).toHaveCSS('border-top-width', '0px');
-  expect(await files.first().locator('summary').evaluate((node) => getComputedStyle(node, '::before').content)).toBe('"›"');
+  // The file disclosure must share the unified strip chevron — a CSS-drawn
+  // corner, not a per-role text glyph — with every other collapsible block.
+  const chevron = await files.first().locator('summary').evaluate((node) => {
+    const style = getComputedStyle(node, '::before');
+    return { width: style.width, borderRight: style.borderRightStyle };
+  });
+  expect(chevron).toEqual({ width: '6px', borderRight: 'solid' });
   await chat.snapshot('plain-file-list');
   await files.nth(0).locator('summary').click();
   await expect(files.nth(0).locator('.tool-diff')).toBeVisible();
