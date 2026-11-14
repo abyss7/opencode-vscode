@@ -341,7 +341,6 @@ select {
   right: -16px;
   height: 14px;
   pointer-events: none;
-  backdrop-filter: blur(2px);
   background:
     linear-gradient(to bottom, rgba(0, 0, 0, 0.22), transparent 65%),
     linear-gradient(to bottom, var(--vscode-editor-background), transparent);
@@ -1518,11 +1517,12 @@ button.delivery-indicator:focus-visible {
 #workspace { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
 
 /* Content sinks into the shadow of the overhanging header and composer
-   plates: it blurs softly, dissolves into the plate color and gathers a dark
-   lip right at the edge. Strip heights stay within the scroll padding budget
-   (.messages pads 16px top / 32px bottom), so the first and last lines render
-   sharp when scrolled to the ends. pointer-events keeps the strips invisible
-   to the pointer; z-index sits above sticky content but below popovers. */
+   plates: it dissolves into the plate color and gathers a dark lip at the
+   edge. Pure gradients — nothing recomposites while scrolling. Strip heights
+   stay within the scroll padding budget (.messages pads 16px top / 32px
+   bottom), so the first and last lines render sharp when scrolled to the
+   ends. pointer-events keeps the strips invisible to the pointer; z-index
+   sits above sticky content but below popovers. */
 .edge-fade {
   position: absolute;
   left: 0;
@@ -1543,32 +1543,6 @@ button.delivery-indicator:focus-visible {
   background:
     linear-gradient(to top, rgba(0, 0, 0, 0.22), transparent 65%),
     linear-gradient(to top, var(--vscode-editor-background), transparent);
-}
-.edge-fade::before,
-.edge-fade::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
-.edge-fade[data-edge="top"]::before {
-  backdrop-filter: blur(2px);
-  -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
-  mask-image: linear-gradient(to bottom, #000, transparent);
-}
-.edge-fade[data-edge="top"]::after {
-  backdrop-filter: blur(6px);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 25%, transparent 70%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 25%, transparent 70%);
-}
-.edge-fade[data-edge="bottom"]::before {
-  backdrop-filter: blur(2px);
-  -webkit-mask-image: linear-gradient(to top, #000, transparent);
-  mask-image: linear-gradient(to top, #000, transparent);
-}
-.edge-fade[data-edge="bottom"]::after {
-  backdrop-filter: blur(6px);
-  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 25%, transparent 70%);
-  mask-image: linear-gradient(to top, #000 0%, #000 25%, transparent 70%);
 }
 @media (prefers-reduced-transparency: reduce) {
   .edge-fade { display: none; }

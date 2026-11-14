@@ -21,8 +21,6 @@ test('edge fade strips sink content into the shadow of the plates', async ({ pag
       paddings: { top: parseFloat(style.paddingTop), bottom: parseFloat(style.paddingBottom) },
       items: [...workspace.querySelectorAll('.edge-fade')].map((node) => {
         const rect = node.getBoundingClientRect();
-        const before = getComputedStyle(node, '::before');
-        const after = getComputedStyle(node, '::after');
         return {
           edge: node.dataset.edge,
           offset: Math.round(node.dataset.edge === 'top' ? rect.top - bounds.top : bounds.bottom - rect.bottom),
@@ -30,8 +28,8 @@ test('edge fade strips sink content into the shadow of the plates', async ({ pag
           width: rect.width,
           pointerEvents: getComputedStyle(node).pointerEvents,
           fade: getComputedStyle(node).backgroundImage,
-          filters: [before.backdropFilter, after.backdropFilter],
-          masks: [before.webkitMaskImage, after.webkitMaskImage],
+          beforeContent: getComputedStyle(node, '::before').content,
+          afterContent: getComputedStyle(node, '::after').content,
         };
       }),
     };
@@ -48,8 +46,10 @@ test('edge fade strips sink content into the shadow of the plates', async ({ pag
     // Dissolve into the plate color plus a dark lip: two stacked gradients.
     expect(strip.fade).toContain('linear-gradient');
     expect(strip.fade.match(/linear-gradient/g).length).toBeGreaterThan(1);
-    expect(strip.filters.join(' ')).toContain('blur');
-    expect(strip.masks.join(' ')).toContain('linear-gradient');
+    // Smooth darkening only: no blur layers, whose masked edge reads as a
+    // hard boundary over text.
+    expect(strip.beforeContent).toBe('none');
+    expect(strip.afterContent).toBe('none');
   }
 
   // The strips never intercept the pointer: content underneath stays clickable.
@@ -80,11 +80,11 @@ test('a pinned prompt casts the same shadow over the transcript', async ({ page,
     const sticky = document.querySelector('.sticky-prompt');
     const button = sticky.querySelector('button').getBoundingClientRect();
     const style = getComputedStyle(sticky, '::after');
-    const fade = style.backgroundImage;
     return {
       visible: sticky.classList.contains('visible'),
       position: style.position,
-      fade,
+      fade: style.backgroundImage,
+      backdropFilter: style.backdropFilter,
       // The shadow hangs below the pill: its top offset must reach the button.
       top: sticky.getBoundingClientRect().top + parseFloat(style.top),
       buttonBottom: button.bottom,
@@ -95,6 +95,8 @@ test('a pinned prompt casts the same shadow over the transcript', async ({ page,
   expect(shadow.position).toBe('absolute');
   expect(shadow.pointerEvents).toBe('none');
   expect(shadow.fade).toContain('linear-gradient');
+  // Smooth darkening only — no blur under the pill either.
+  expect(shadow.backdropFilter).toBe('none');
   // calc(100% + 2.15em) starts slightly inside the pill so no gap opens.
   expect(shadow.top).toBeLessThanOrEqual(shadow.buttonBottom);
   expect(shadow.buttonBottom - shadow.top).toBeLessThan(6);
