@@ -264,6 +264,9 @@
     state.connected = kind === 'ready' || kind === 'unconfirmed' || kind === 'busy' || kind === 'queued' || kind === 'cancelling';
     if (kind === 'busy' || kind === 'cancelling') state.busy = true;
     if (kind === 'ready' || kind === 'queued' || kind === 'unconfirmed' || kind === 'error' || kind === 'connecting') state.busy = false;
+    // Status alone never settles the streamed steps: "connecting"/"ready" flap
+    // on reconnects and polling while the server keeps working. Only semantic
+    // turn ends do — turnEnd, an error notice, or an idle marker in history.
     stopBtn.disabled = kind === 'cancelling';
     if (!state.busy || state.externalBusy) {
       stopLiveClock();
@@ -687,6 +690,7 @@
     if (state.turnSteps) return state.turnSteps;
     if (state.turnEnded || !state.turnId) beginTurn();
     state.turnSteps = createTurnSteps(state.turnId);
+    setStepsLive(state.turnSteps.details, true);
     syncLiveFallback();
     return state.turnSteps;
   }
@@ -714,6 +718,30 @@
       metaEl,
       tokensEl,
     };
+  }
+
+  /**
+   * The trailing steps of a running turn stream raw: no chevron, nothing to
+   * collapse. The chevron appears — and the steps fold under it — only once
+   * the outcome is known: a final answer, an error, or a stop.
+   */
+  function setStepsLive(details, live) {
+    if (!details) return;
+    details.classList.toggle('live', live);
+    details.open = live;
+    // A block that turns live again must not keep a Collapse button from its
+    // historical open state: without a chevron there is no way to reopen it.
+    if (live) details.querySelector(':scope > .disclosure-collapse')?.remove();
+  }
+
+  /**
+   * No final answer is coming — every streamed block of the turn gets its
+   * chevron back: the tracked tail plus any prefixes left behind when
+   * background work split the stream.
+   */
+  function settleLiveSteps() {
+    if (state.turnSteps) finalizeTurnSteps();
+    for (const block of messagesEl.querySelectorAll('.turn-steps.live')) setStepsLive(block, false);
   }
 
   function currentAttention() {
@@ -883,6 +911,8 @@
   function syncTurnSteps() {
     const steps = state.turnSteps;
     if (!steps) return;
+    // Nothing may fold the streamed block while it has no chevron to reopen.
+    if (steps.details.classList.contains('live')) steps.details.open = true;
     let totalTokens = 0;
     for (const child of steps.body.children) {
       const classes = String(child.className || '').split(/\s+/);
@@ -909,6 +939,7 @@
     const steps = state.turnSteps;
     if (!steps) return;
     syncTurnSteps();
+    setStepsLive(steps.details, false);
     state.turnSteps = null;
   }
 
@@ -1096,7 +1127,8 @@
     finalizeThought();
     finalizeAssistant();
     finalizeToolGroup();
-    finalizeTurnSteps();
+    // A failed prompt or a dead transport means no answer is coming: settle.
+    settleLiveSteps();
     hideEmpty();
     messagesEl.appendChild(el('div', 'error', text));
     // A failed prompt does not mean the transport disconnected: allow a retry.
@@ -1745,6 +1777,10 @@
         tokensEl: after.querySelector('summary > .tokens'),
       } : null;
     }
+    // Both halves belong to the same running turn: the prefix keeps streaming
+    // raw and `after` inherits class and open state from the clone. Toggling
+    // live-ness here would bounce the steps in and out of the chevron every
+    // time a command switches to or returns from background mode.
     for (const item of [block, after].filter(Boolean)) refreshStepBlock(item);
   }
 
@@ -1792,6 +1828,7 @@
         (!state.turnEnded && turn === state.turnId && block === messagesEl.lastElementChild)) {
       state.turnSteps = { details: block, body, titleEl: block.querySelector('summary > .kind'),
         metaEl: block.querySelector('summary > .name'), tokensEl: block.querySelector('summary > .tokens') };
+      setStepsLive(block, true);
     }
     refreshStepBlock(block);
   }
@@ -3773,7 +3810,9 @@
         finalizeAssistant();
         finalizeThought();
         finalizeToolGroup();
-        finalizeTurnSteps();
+        // An idle marker closes the turn in history: settle every streamed
+        // block of it, including prefixes left by background splits.
+        settleLiveSteps();
       }
       let index = 0;
       for (const node of messagesEl.children) {
@@ -3972,7 +4011,10 @@
         finalizeAssistant();
         finalizeThought();
         finalizeToolGroup();
-        finalizeTurnSteps();
+        // Deliberately no finalizeTurnSteps: a block still live after replay
+        // means history has no idle marker and no answer for it — the turn is
+        // running on the server. Collapsing here would fold the tail on every
+        // webview reload and reopen it with the next streamed event.
         if (restoredViewport) {
           const viewport = restoredViewport;
           restoredViewport = null;
@@ -3988,7 +4030,7 @@
         finalizeThought();
         finalizeToolGroup();
         state.busy = false;
-        finalizeTurnSteps();
+        settleLiveSteps();
         if (message.usage) {
           // Turn totals are only exact for a turn rendered as a single block;
           // a turn split by an answer keeps its per-block estimates.
@@ -3998,7 +4040,6 @@
         if (fresh && !state.turnHadText) {
           const steps = blocks.reduce((sum, item) => sum + countBlockSteps(item), 0);
           if (steps > 0) {
-            for (const item of blocks) item.open = true;
             addInfo(
               `No text answer in this turn — ${steps} step${steps === 1 ? '' : 's'} listed above.`
             );
@@ -4351,6 +4392,8 @@
 
   function addCollapseControl(details) {
     if (details.closest('.result-tree')) return;
+    // A live steps block has no chevron to reopen it, so it must not collapse.
+    if (details.matches('.turn-steps.live')) return;
     if (!details.open || !details.querySelector(':scope > summary')) return;
     let button = details.querySelector(':scope > .disclosure-collapse');
     if (!button) {

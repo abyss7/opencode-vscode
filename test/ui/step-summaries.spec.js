@@ -37,6 +37,10 @@ test('summaries preserve steps and count unique files separately from tool total
     expect(meta.x).toBeGreaterThan(title.x + title.width);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  // Without a text answer the turn still settles: the chevron appears and the
+  // steps collapse instead of staying forced open.
+  await expect(page.locator('.turn-steps')).not.toHaveAttribute('open', '');
+  await page.locator('.turn-steps > summary').click();
   await expect(page.locator('.turn-steps')).toHaveAttribute('open', '');
   const group = page.locator('.tool-group > summary');
   await expect(group).toHaveCount(6);
@@ -99,4 +103,77 @@ test('thought-only details keep their step count without category enumeration', 
   await expect(summary(page).locator('.kind')).toHaveText('1 step');
   await expect(summary(page).locator('.name')).toBeHidden();
   await expect(summary(page)).not.toContainText(/thought|other/);
+});
+
+test('trailing steps stream raw without a chevron and collapse once the answer arrives', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await chat.update({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Looking around.' } });
+  await tool(chat, 'read', 'read', { path: 'src/a.js' });
+  const block = page.locator('.turn-steps');
+  // While the turn runs there is no chevron: the steps cannot be collapsed.
+  await expect(block).toHaveClass(/live/);
+  await expect(block).toHaveAttribute('open', '');
+  await expect(block.locator(':scope > summary')).toBeHidden();
+  await expect(block.locator('.tool-group > summary')).toBeVisible();
+  // Streamed steps sit flush like standalone background commands: no rail,
+  // no indent — children align with the block's own left edge.
+  const flush = await block.evaluate((node) => {
+    const body = node.querySelector(':scope > .body');
+    const styles = getComputedStyle(body);
+    const child = body.firstElementChild;
+    return {
+      padding: styles.paddingLeft,
+      border: styles.borderLeftWidth,
+      indent: child.getBoundingClientRect().left - node.getBoundingClientRect().left,
+    };
+  });
+  expect(flush.padding).toBe('0px');
+  expect(flush.border).toBe('0px');
+  expect(Math.abs(flush.indent)).toBeLessThan(1);
+  // No chevron means no Collapse button either: the stream cannot be folded.
+  await expect(block.locator(':scope > .disclosure-collapse')).toHaveCount(0);
+  // The final answer settles the block: the chevron appears and it folds.
+  await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Done.' } });
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await expect(block).not.toHaveClass(/live/);
+  await expect(block.locator(':scope > summary')).toBeVisible();
+  await expect(block).not.toHaveAttribute('open', '');
+  await expect(summary(page).locator('.kind')).toHaveText('2 steps');
+  // Once the chevron exists, expanding brings the Collapse button back.
+  await block.locator(':scope > summary').click();
+  await expect(block).toHaveAttribute('open', '');
+  await expect(block.locator(':scope > .disclosure-collapse')).toBeVisible();
+});
+
+test('a turn that never delivers an answer still reveals the chevron and collapses', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await tool(chat, 'read', 'read', { path: 'src/a.js' });
+  await expect(page.locator('.turn-steps')).toHaveClass(/live/);
+  await chat.send({ type: 'turnEnd', stopReason: 'cancelled' });
+  await expect(page.locator('.turn-steps')).not.toHaveClass(/live/);
+  await expect(page.locator('.turn-steps')).not.toHaveAttribute('open', '');
+  await expect(summary(page).locator('.kind')).toHaveText('1 step');
+  await expect(page.locator('.info').last()).toContainText('No text answer in this turn');
+});
+
+test('transport status blips never fold the streamed steps', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await tool(chat, 'read', 'read', { path: 'src/a.js' });
+  const block = page.locator('.turn-steps');
+  await expect(block).toHaveClass(/live/);
+  // Reconnects and polling must not touch the raw stream: the run continues
+  // on the server, and only semantic turn ends may settle the block.
+  await chat.send({ type: 'status', state: 'connecting', message: 'Reconnecting — server work continues.' });
+  await expect(block).toHaveClass(/live/);
+  await expect(block).toHaveAttribute('open', '');
+  await expect(block.locator(':scope > summary')).toBeHidden();
+  await chat.send({ type: 'status', state: 'ready' });
+  await expect(block).toHaveClass(/live/);
+  await expect(block).toHaveAttribute('open', '');
+  await tool(chat, 'more', 'read', { path: 'src/b.js' });
+  await expect(block.locator('.tool-group > summary')).toHaveCount(2);
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await expect(block).not.toHaveClass(/live/);
+  await expect(block).not.toHaveAttribute('open', '');
+  await expect(summary(page).locator('.kind')).toHaveText('2 steps');
 });

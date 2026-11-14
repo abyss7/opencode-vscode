@@ -58,6 +58,28 @@ test('late background handoff splits Steps without reordering later tools', asyn
   await expect(page.locator('.turn-steps .background-task')).toHaveCount(0);
 });
 
+test('a background split never bounces the running turn into its chevron', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await tool(chat, 'before'); await tool(chat, 'handoff'); await tool(chat, 'after');
+  await chat.update({ sessionUpdate: 'tool_call_update', toolCallId: 'handoff',
+    background: { id: 'sh_handoff', toolCallId: 'handoff' }, status: 'completed' });
+  await runs(chat, ['handoff']);
+  // Both halves of the split keep streaming raw: no chevron appears mid-turn.
+  await expect(page.locator('.turn-steps.live')).toHaveCount(2);
+  await expect(page.locator('.turn-steps.live').first()).toHaveAttribute('open', '');
+  for (const chevron of await page.locator('.turn-steps > summary').all()) {
+    await expect(chevron).toBeHidden();
+  }
+  // The background command finishing rejoins the halves without folding them.
+  await runs(chat, ['handoff', 'exited']);
+  await expect(page.locator('.turn-steps')).toHaveCount(1);
+  await expect(page.locator('.turn-steps.live')).toHaveCount(1);
+  await expect(page.locator('.turn-steps > summary')).toBeHidden();
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await expect(page.locator('.turn-steps.live')).toHaveCount(0);
+  await expect(page.locator('.turn-steps')).not.toHaveAttribute('open', '');
+});
+
 test('whole-turn statistics do not group standalone background work back into Steps', async ({ page, chat }) => {
   await chat.send({ type: 'status', state: 'busy' });
   await tool(chat, 'ordinary'); await tool(chat, 'background', true);
@@ -108,6 +130,10 @@ test('completed background replay is ordinary collapsible work and retains exact
   await expect(card(page, 'old').locator('summary > .kind')).toHaveText('Ran 1 command');
   await expect(card(page, 'old').locator('summary > .status')).toHaveText('done');
   await expect(card(page, 'old').locator('summary > .background-stop')).toHaveCount(0);
+  // The turn settled: the block starts collapsed and behaves as ordinary history.
+  await expect(page.locator('.turn-steps')).not.toHaveAttribute('open', '');
+  await page.locator('.turn-steps > summary').click();
+  await expect(card(page, 'old')).toBeVisible();
   await page.locator('.turn-steps > summary').click();
   await expect(card(page, 'old')).toBeHidden();
   await page.locator('.turn-steps > summary').click();
@@ -227,10 +253,10 @@ test('sidebar background icon pulses, while working remains a spinner', async ({
     .replaceAll('{{styleUri}}', 'https://opencode.test/media/sessions-sidebar.css')
     .replaceAll('{{scrollUri}}', 'https://opencode.test/media/scroll.js')
     .replaceAll('{{scriptUri}}', 'https://opencode.test/media/sessions-sidebar.js')
+    .replaceAll('{{timeUri}}', 'https://opencode.test/media/time.js')
     .replace('<title>', '<link rel="stylesheet" href="/theme.css"><title>');
   await page.route('https://opencode.test/', (route) => route.fulfill({ contentType: 'text/html', body: html }));
   await page.goto('https://opencode.test/');
-    .replaceAll('{{timeUri}}', 'https://opencode.test/media/time.js')
   const item = { kind: 'session', id: 'one', name: 'Background session', icon: 'terminal', children: [], actions: [] };
   await chat.send({ type: 'sessions', items: [item] });
   const icon = page.locator('.tree-icon-background');

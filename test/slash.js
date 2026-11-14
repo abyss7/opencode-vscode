@@ -851,7 +851,8 @@ send({
 });
 send({ type: 'turnEnd', stopReason: 'end_turn' });
 const silentBlock = ids.messages.querySelectorAll('.turn-steps').pop();
-assert.strictEqual(silentBlock.open, true, 'the only chevron is opened when there is no answer');
+assert.strictEqual(silentBlock.classList.contains('live'), false, 'the streamed steps settle when there is no answer');
+assert.strictEqual(silentBlock.open, false, 'the chevron stays collapsed when there is no answer');
 assert.ok(
   ids.messages
     .querySelectorAll('.info')

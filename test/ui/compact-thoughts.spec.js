@@ -30,6 +30,8 @@ test('streaming text becomes collapsible when it grows to multiple lines', async
   await thought(chat, rest);
   await expect(page.locator('.thought')).not.toHaveClass(/compact/);
   await finish(chat);
+  // The turn settled: its steps folded under the chevron — expand to reach the thought.
+  await page.locator('.turn-steps > summary').click();
   await expect(page.locator('.thought > summary')).toBeVisible();
   await expect(page.locator('.thought > .body')).toBeHidden();
   await page.locator('.thought > summary').click();

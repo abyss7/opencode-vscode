@@ -589,10 +589,6 @@ button.delivery-indicator:focus-visible {
   margin: 2px 0;
 }
 
-/* The trailing steps of a running turn stream raw: the chevron appears, and
-   the steps collapse under it, only once the turn's outcome is known. */
-.turn-steps.live > summary { display: none; }
-
 .turn-steps > summary {
   display: grid;
   grid-template-columns: 12px 72px minmax(0, 1fr) auto;
@@ -692,6 +688,18 @@ button.delivery-indicator:focus-visible {
   margin: 2px 0 6px 18px;
   padding-left: 10px;
   border-left: 1px solid var(--oc-border-soft);
+}
+
+/* The trailing steps of a running turn stream raw: the chevron appears, and
+   the steps collapse under it, only once the turn's outcome is known. While
+   live there is nothing to collapse — and no rail either: the steps sit flush
+   in the transcript, visually like standalone background commands. */
+.turn-steps.live > summary { display: none; }
+
+.turn-steps.live > .body {
+  margin: 0;
+  padding-left: 0;
+  border-left: none;
 }
 
 /* Tool calls */

@@ -25,7 +25,8 @@ test('compact latest prompt sticks while the full message remains in the transcr
 test('bottom collapse survives streamed output and returns focus to its summary', async ({ page, chat }) => {
   await chat.update({ sessionUpdate: 'tool_call', toolCallId: 'collapse-tool', title: 'Read output', kind: 'read', status: 'in_progress', content: [{ type: 'content', content: { type: 'text', text: 'First result' } }] });
   const details = page.locator('details.tool-group');
-  await page.locator('details.turn-steps > summary').click();
+  // While the turn runs the steps stream raw: no chevron, already expanded.
+  await expect(page.locator('details.turn-steps > summary')).toBeHidden();
   await details.locator(':scope > summary').click();
   const collapse = details.locator(':scope > .disclosure-collapse');
   await expect(collapse).toBeVisible();
