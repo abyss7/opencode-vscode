@@ -10,6 +10,7 @@ test('queued sessions show a static clock and their queue label', async ({ page,
     .replaceAll('{{cspSource}}', 'https://opencode.test').replaceAll('{{nonce}}', 'test-nonce')
     .replaceAll('{{styleUri}}', 'https://opencode.test/media/sessions-sidebar.css')
     .replaceAll('{{scrollUri}}', 'https://opencode.test/media/scroll.js')
+    .replaceAll('{{timeUri}}', 'https://opencode.test/media/time.js')
     .replaceAll('{{scriptUri}}', 'https://opencode.test/media/sessions-sidebar.js');
   await page.route('https://opencode.test/', route => route.fulfill({ contentType: 'text/html', body: html }));
   await page.goto('https://opencode.test/');
@@ -27,6 +28,7 @@ test('session keyboard navigation and refresh keep the defaults footer fixed', a
     .replaceAll('{{nonce}}', 'test-nonce')
     .replaceAll('{{styleUri}}', 'https://opencode.test/media/sessions-sidebar.css')
     .replaceAll('{{scrollUri}}', 'https://opencode.test/media/scroll.js')
+    .replaceAll('{{timeUri}}', 'https://opencode.test/media/time.js')
     .replaceAll('{{scriptUri}}', 'https://opencode.test/media/sessions-sidebar.js')
     .replace('<title>', '<link rel="stylesheet" href="/theme.css"><title>');
   await page.route('https://opencode.test/', route => route.fulfill({ contentType: 'text/html', body: html }));

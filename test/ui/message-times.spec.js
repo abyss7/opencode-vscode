@@ -12,14 +12,19 @@ test('history timestamps use 24-hour time above messages and independent message
     { id: 'user-old', timestamp: Date.parse('2025-12-20T13:04:05Z') },
     { id: 'answer-yesterday', timestamp: Date.parse('2025-12-31T23:59:58Z') },
   ] });
-  await expect(page.locator('.user .message-time')).toHaveText('12/20/2025 13:04:05');
+  await expect(page.locator('.user .message-time')).toHaveText('20 Dec 2025 13:04:05');
   await expect(page.locator('.assistant .message-time')).toHaveText('yesterday 23:59:58');
-  await expect(page.locator('.assistant .message-time')).toHaveAttribute('title', '12/31/2025, 23:59:58');
+  await expect(page.locator('.assistant .message-time')).toHaveAttribute('title', 'Wed 31 Dec 2025, 23:59:58');
   await expect(page.locator('.assistant .message-time')).toHaveAttribute('datetime', '2025-12-31T23:59:58.000Z');
   await page.clock.setFixedTime(new Date('2026-01-01T00:00:00Z'));
   await chat.update({ sessionUpdate: 'agent_message_chunk', messageId: 'answer-today', content: { type: 'text', text: 'A fresh answer.' } });
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
   await expect(page.locator('.assistant .message-time').last()).toHaveText('today 00:00:00');
+  // Days within the week carry a short weekday instead of a date.
+  await chat.update({ sessionUpdate: 'agent_message_chunk', messageId: 'answer-week', content: { type: 'text', text: 'A weekday answer.' } });
+  await chat.send({ type: 'messageTimes', times: [{ id: 'answer-week', timestamp: Date.parse('2026-01-03T10:00:05Z') }] });
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await expect(page.locator('.assistant .message-time').last()).toHaveText('Sat 10:00:05');
   for (const wrap of await page.locator('.message').all()) {
     const box = await wrap.boundingBox();
     const body = await wrap.locator(':scope > .body').boundingBox();

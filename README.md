@@ -68,7 +68,8 @@ editor tab connected to the shared OpenCode server.
   their full prompt and output, so the conversation stays tidy.
 - Turn counters are rebuilt from the server message history after a turn ends and after a
   reload, so a restored turn keeps the same step and token estimates.
-- The composer shows context usage, cost, remaining budget, and reset time when available.
+- The composer shows context usage, cost, remaining budget, subscription plan windows, and
+  reset time when available.
 - Consecutive tool calls and reasoning chunks are grouped under a single collapsible header.
 - Reasoning, plans, and tool details are collapsed by default; permission prompts stay visible.
 - Model and mode switching (build/plan) via `session/set_config_option`.
@@ -296,6 +297,12 @@ node scripts/generate-configuration.js
 - Typing `/` at the start of the composer suggests only slash commands; `@` suggests only skills,
   including mentions within a message. Other prefixes do not open these lists.
 - Commands come from `GET /api/command`.
+- GLM Coding Plan models (the `zai-coding-plan` provider) bill as a subscription: plan usage
+  windows are read from `GET https://api.z.ai/api/monitor/usage/quota/limit` with the credential
+  stored by OpenCode (`opencode auth export zai-coding-plan`) and rendered as `time ↻ percent`
+  pairs per rolling window, e.g. `1h 47m ↻ 22% · 4d 12h ↻ 13%`; the tooltip carries the credit
+  or token quota behind each percent. When the fetch fails, the line falls back to the plain
+  plan label with a link to the provider usage page.
 - Skills come from `GET /api/skill` scoped to the workspace directory; they are inserted as
   `@skill-id` mentions, which OpenCode resolves into a skill load.
 - Selecting an entry inserts `/name ` or `@skill-id `; arrow keys move the selection, `Enter` or

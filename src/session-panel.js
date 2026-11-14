@@ -45,6 +45,9 @@ function buildHtml(webview, extensionUri) {
     .readFileSync(HTML_PATH, 'utf8')
     .replace(/\{\{cspSource\}\}/g, webview.cspSource)
     .replace(/\{\{nonce\}\}/g, nonce)
+    .replace(/\{\{timeUri\}\}/g, String(webview.asWebviewUri(
+      vscode.Uri.joinPath(extensionUri, 'media', 'time.js')
+    )))
     .replace('{{providerIcons}}', () => fs.readFileSync(
       path.join(__dirname, '..', 'media', 'provider-icons.svg'), 'utf8'
     ))

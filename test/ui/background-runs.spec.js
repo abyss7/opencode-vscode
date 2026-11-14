@@ -230,6 +230,7 @@ test('sidebar background icon pulses, while working remains a spinner', async ({
     .replace('<title>', '<link rel="stylesheet" href="/theme.css"><title>');
   await page.route('https://opencode.test/', (route) => route.fulfill({ contentType: 'text/html', body: html }));
   await page.goto('https://opencode.test/');
+    .replaceAll('{{timeUri}}', 'https://opencode.test/media/time.js')
   const item = { kind: 'session', id: 'one', name: 'Background session', icon: 'terminal', children: [], actions: [] };
   await chat.send({ type: 'sessions', items: [item] });
   const icon = page.locator('.tree-icon-background');

@@ -5,6 +5,7 @@ const {
   getBalance,
   parseCredentialExport,
   parseDeepSeekBalance,
+  parseZaiPlanUsage,
   resetBalanceCache,
 } = require('../src/balance');
 
@@ -41,6 +42,80 @@ const {
 
   assert.strictEqual(parseDeepSeekBalance({ balance_infos: [] }), null);
   assert.strictEqual(parseDeepSeekBalance(null), null);
+
+  const plan = parseZaiPlanUsage({
+    code: 200,
+    data: {
+      level: 'pro',
+      limits: [
+        { type: 'CREDIT_LIMIT', unit: 6, number: 1, usage: 60000, currentValue: 7995, remaining: 52004, percentage: 13, nextResetTime: 1794748133998 },
+        { type: 'CREDIT_LIMIT', unit: 3, number: 5, usage: 12000, currentValue: 2732, remaining: 9267, percentage: 22, nextResetTime: 1794614503943 },
+        { type: 'TIME_LIMIT', unit: 5, number: 1, usage: 4000, currentValue: 1828, percentage: 45 },
+      ],
+    },
+  });
+  assert.strictEqual(plan.provider, 'zai-coding-plan');
+  assert.strictEqual(plan.plan, 'pro');
+  assert.deepStrictEqual(plan.windows, [
+    { kind: 'fiveHour', unit: 'credits', used: 2732, limit: 12000, remaining: 9267, percentage: 22, resetsAt: 1794614503943 },
+    { kind: 'weekly', unit: 'credits', used: 7995, limit: 60000, remaining: 52004, percentage: 13, resetsAt: 1794748133998 },
+  ]);
+
+  // Token plans and the legacy unit-less five-hour row both read as windows.
+  const tokens = parseZaiPlanUsage({
+    data: { limits: [{ type: 'TOKENS_LIMIT', percentage: 44 }] },
+  });
+  assert.deepStrictEqual(tokens.windows, [
+    { kind: 'fiveHour', unit: 'tokens', used: 0, limit: 0, remaining: 0, percentage: 44, resetsAt: 0 },
+  ]);
+
+  // Duplicated and unknown window shapes are skipped, short responses keep
+  // their percentages without absolute counts.
+  assert.deepStrictEqual(
+    parseZaiPlanUsage({
+      data: {
+        limits: [
+          { type: 'TOKENS_LIMIT', unit: 3, percentage: 7 },
+          { type: 'TOKENS_LIMIT', unit: 3, percentage: 9 },
+          { type: 'TOKENS_LIMIT', unit: 9, percentage: 50 },
+          { type: 'TIME_LIMIT', unit: 3, percentage: 5 },
+        ],
+      },
+    }).windows,
+    [{ kind: 'fiveHour', unit: 'tokens', used: 0, limit: 0, remaining: 0, percentage: 7, resetsAt: 0 }]
+  );
+
+  assert.strictEqual(parseZaiPlanUsage({ data: { limits: [] } }), null);
+  assert.strictEqual(parseZaiPlanUsage({ data: { limits: [{ type: 'TIME_LIMIT', percentage: 9 }] } }), null);
+  assert.strictEqual(parseZaiPlanUsage(null), null);
+
+  resetBalanceCache();
+  let planRequests = 0;
+  const planBalance = await getBalance('zai-coding-plan', {
+    force: true,
+    env: {},
+    exec: async (command, args) => {
+      assert.deepStrictEqual(args, ['auth', 'export', 'zai-coding-plan']);
+      return { stdout: '[{"active":true,"value":{"type":"key","key":"plan"}}]' };
+    },
+    request: async (url, headers) => {
+      planRequests += 1;
+      assert.strictEqual(url, 'https://api.z.ai/api/monitor/usage/quota/limit');
+      assert.strictEqual(headers.authorization, 'Bearer plan');
+      return {
+        data: {
+          level: 'max',
+          limits: [
+            { type: 'TOKENS_LIMIT', unit: 3, percentage: 21, nextResetTime: 1 },
+            { type: 'TOKENS_LIMIT', unit: 6, percentage: 4 },
+          ],
+        },
+      };
+    },
+  });
+  assert.strictEqual(planRequests, 1);
+  assert.strictEqual(planBalance.plan, 'max');
+  assert.strictEqual(planBalance.windows.length, 2);
 
   resetBalanceCache();
   assert.strictEqual(await getBalance('unknown'), null);

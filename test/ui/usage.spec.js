@@ -238,3 +238,35 @@ test('switching to API billing restores cost and DeepSeek balance', async ({ pag
   await expect(page.locator('#usage-subscription')).toBeHidden();
   await expect(page.locator('#usage-cost')).toHaveText('cost: $0.1800 · balance: $12.40');
 });
+
+test('GLM Coding Plan windows render as percent and reset pairs', async ({ page, chat }) => {
+  const model = { providerID: 'zai-coding-plan', id: 'glm-4.6' };
+  // The page clock is fixed at 2026-01-01T12:00:00Z by the fixture.
+  const now = Date.parse('2026-01-01T12:00:00Z');
+  await chat.send(
+    { type: 'modelLimit', model, context: 200000, input: 160000, billing: {
+      kind: 'subscription', label: 'GLM Coding Plan', url: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan',
+    } },
+    { type: 'balance', model, balance: { provider: 'zai-coding-plan', plan: 'pro', windows: [
+      { kind: 'fiveHour', unit: 'credits', used: 2732, limit: 12000, percentage: 22, resetsAt: now + (90 * 60 + 30) * 1000 },
+      { kind: 'weekly', unit: 'credits', used: 7995, limit: 60000, percentage: 13, resetsAt: now + (4 * 1440 + 12 * 60 + 30) * 60 * 1000 },
+    ] } }
+  );
+  await expect(page.locator('#usage-subscription')).toHaveText(
+    '1h 30m ↻ 22% · 4d 12h ↻ 13%'
+  );
+  // The plan tooltip is a styled monospace block with the middle dots aligned.
+  await page.locator('#usage-subscription').hover();
+  expect(await page.locator('#usage-plan-tooltip').textContent()).toBe(
+    '5-hour · 2.7k / 12k credits · 22% used · resets 13:30\n' +
+    'weekly · 8k / 60k credits   · 13% used · resets Tue 00:30'
+  );
+  await expect(page.locator('#usage-cost')).toBeHidden();
+  await expect(page.locator('#usage-reset')).toBeHidden();
+
+  // A failed plan fetch falls back to the label line with the usage link.
+  await page.locator('#usage-subscription').hover();
+  await chat.send({ type: 'balance', model, balance: null });
+  await expect(page.locator('#usage-subscription')).toHaveText('GLM Coding Plan · usage ↗');
+  expect(await page.locator('#usage-plan-tooltip').textContent()).toBe('');
+});

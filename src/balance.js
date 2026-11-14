@@ -18,6 +18,12 @@ const PROVIDERS = {
     url: 'https://api.deepseek.com/user/balance',
     parse: parseDeepSeekBalance,
   },
+  'zai-coding-plan': {
+    credential: 'zai-coding-plan',
+    envKey: 'ZHIPU_API_KEY',
+    url: 'https://api.z.ai/api/monitor/usage/quota/limit',
+    parse: parseZaiPlanUsage,
+  },
 };
 
 const cache = new Map();
@@ -97,6 +103,51 @@ function parseDeepSeekBalance(data) {
   return null;
 }
 
+/**
+ * GLM Coding Plan windows from the Z.AI monitor API. `usage` is the window
+ * quota and `currentValue` the consumed part; `unit` 3 is the five-hour
+ * rolling window and `unit` 6 the weekly one, while a `TOKENS_LIMIT` row
+ * without a unit is the legacy shape of the five-hour window. `TIME_LIMIT`
+ * rows (monthly tool quotas) are not part of the model usage line.
+ */
+function parseZaiPlanUsage(data) {
+  const payload = data && typeof data === 'object' ? data.data : null;
+  const level = payload && typeof payload.level === 'string' ? payload.level : '';
+  const limits = payload && Array.isArray(payload.limits) ? payload.limits : [];
+  const windows = [];
+  const seen = new Set();
+  for (const item of limits) {
+    if (!item || typeof item !== 'object') continue;
+    if (item.type !== 'TOKENS_LIMIT' && item.type !== 'CREDIT_LIMIT') continue;
+    const unit = Number(item.unit);
+    if (Number.isFinite(unit) && unit !== 3 && unit !== 6) continue;
+    const kind = unit === 6 ? 'weekly' : 'fiveHour';
+    if (seen.has(kind)) continue;
+    const percentage = Number(item.percentage);
+    if (!Number.isFinite(percentage)) continue;
+    seen.add(kind);
+    windows.push({
+      kind,
+      order: kind === 'weekly' ? 1 : 0,
+      unit: item.type === 'CREDIT_LIMIT' ? 'credits' : 'tokens',
+      used: Number(item.currentValue) || 0,
+      limit: Number(item.usage) || 0,
+      remaining: Number(item.remaining) || 0,
+      percentage: Math.max(0, Math.min(100, Math.round(percentage))),
+      resetsAt: Number(item.nextResetTime) || 0,
+    });
+  }
+  if (windows.length === 0) return null;
+  windows.sort((a, b) => a.order - b.order);
+  for (const window of windows) delete window.order;
+  return {
+    provider: 'zai-coding-plan',
+    plan: level,
+    windows,
+    fetchedAt: Date.now(),
+  };
+}
+
 async function readCredential(command, provider, options) {
   const env = options.env === undefined ? process.env : options.env;
   const fromEnv = provider.envKey && env ? env[provider.envKey] : '';
@@ -174,5 +225,6 @@ module.exports = {
   getBalance,
   parseCredentialExport,
   parseDeepSeekBalance,
+  parseZaiPlanUsage,
   resetBalanceCache,
 };

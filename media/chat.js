@@ -18,6 +18,7 @@
   const activityJump = document.getElementById('activity-jump');
   const usageEl = document.getElementById('usage');
   const usageTooltipEl = el('span', 'usage-tooltip');
+  const planTooltipEl = el('span', 'usage-tooltip plan');
   const usageCostEl = document.getElementById('usage-cost');
   const usageSubscriptionEl = document.getElementById('usage-subscription');
   const usageLinkEl = document.getElementById('usage-link');
@@ -1112,14 +1113,7 @@
   }
 
   function formatMessageTime(timestamp) {
-    const date = new Date(timestamp);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-    const day = date.toDateString() === today.toDateString() ? 'today'
-      : date.toDateString() === yesterday.toDateString() ? 'yesterday'
-        : date.toLocaleDateString();
-    return `${day} ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })}`;
+    return OpenCodeTime.formatTimestamp(timestamp, { seconds: true });
   }
 
   function setMessageTime(wrap, timestamp) {
@@ -1132,7 +1126,7 @@
     time.dataset.timestamp = String(timestamp);
     time.dateTime = new Date(timestamp).toISOString();
     time.textContent = formatMessageTime(timestamp);
-    time.title = new Date(timestamp).toLocaleString(undefined, { hourCycle: 'h23' });
+    time.title = OpenCodeTime.formatFull(timestamp);
   }
 
   function stampMessage(wrap, messageId, timestamp) {
@@ -2849,12 +2843,20 @@
     return total - Math.max(Math.floor(total * 0.15), total >= 32000 ? 16000 : 0);
   }
 
+  function positionTooltipAbove(tooltip, anchor) {
+    if (!anchor || tooltip.hidden) return;
+    const rect = anchor.getBoundingClientRect();
+    const width = tooltip.getBoundingClientRect().width;
+    tooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2))}px`;
+    tooltip.style.top = `${Math.max(8, rect.top - tooltip.offsetHeight - 6)}px`;
+  }
+
   function positionUsageTooltip() {
-    if (!usageEl || usageTooltipEl.hidden) return;
-    const rect = usageEl.getBoundingClientRect();
-    const width = usageTooltipEl.getBoundingClientRect().width;
-    usageTooltipEl.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2))}px`;
-    usageTooltipEl.style.top = `${Math.max(8, rect.top - usageTooltipEl.offsetHeight - 6)}px`;
+    positionTooltipAbove(usageTooltipEl, usageEl);
+  }
+
+  function positionPlanTooltip() {
+    positionTooltipAbove(planTooltipEl, usageSubscriptionEl);
   }
 
   function updateUsageBar() {
@@ -2919,8 +2921,15 @@
     const metered = billing.kind === 'metered';
     if (usageSubscriptionEl) usageSubscriptionEl.hidden = !subscription;
     if (subscription && billing.label && usageSubscriptionEl) {
-      usageSubscriptionEl.firstChild.textContent = `${billing.label} · `;
+      const plan = planUsageParts(state.balance);
+      usageSubscriptionEl.firstChild.textContent = plan.line || `${billing.label} · `;
+      planTooltipEl.textContent = plan.tooltip;
+      positionPlanTooltip();
       usageLinkEl.href = billing.url;
+      // Plan windows replace the label line entirely; without them the usage
+      // link stays the only way to the provider's page.
+      usageLinkEl.hidden = Boolean(plan.line);
+      usageLinkEl.textContent = plan.line ? '' : 'usage ↗';
     }
     const scoped = !!limit.model;
     const split = state.costSplit;
@@ -2998,6 +3007,60 @@
       lines.push(`  · ${item}  ${entries[index].label}`);
     });
     return lines.join('\n');
+  }
+
+  /**
+   * Subscription plan windows condensed for the footer. The circular arrow
+   * separates the time left until a window resets from its spent percent,
+   * e.g. `1h 30m ↻ 22% · 4d 12h ↻ 13%`; windows join through middle dots.
+   * The tooltip lists one window per line in aligned monospace columns: the
+   * credit or token quota behind each percent and the exact reset time.
+   * Providers without plan windows (or a failed fetch) keep the plain label
+   * line with the usage link.
+   */
+  function planUsageParts(balance) {
+    const windows = Array.isArray(balance && balance.windows)
+      ? balance.windows.filter(
+          (item) => item && Number.isFinite(Number(item.percentage))
+        )
+      : [];
+    if (windows.length === 0) return { line: '', tooltip: '' };
+    const resetLeft = (item) =>
+      Number(item.resetsAt) > Date.now()
+        ? formatDuration(item.resetsAt - Date.now())
+        : '';
+    const line = windows
+      .map((item) =>
+        [resetLeft(item), `↻ ${Math.round(Number(item.percentage))}%`]
+          .filter(Boolean)
+          .join(' ')
+      )
+      .join(' · ');
+    const rows = windows.map((item) => ({
+      label: item.kind === 'weekly' ? 'weekly' : '5-hour',
+      quota: Number(item.limit) > 0
+        ? `${formatCompact(item.used)} / ${formatCompact(item.limit)} ${item.unit}`
+        : '',
+      percent: `${Math.round(Number(item.percentage))}% used`,
+      reset: Number(item.resetsAt) > Date.now()
+        ? `resets ${OpenCodeTime.formatTimestamp(item.resetsAt, { today: false })}`
+        : '',
+    }));
+    // Columns present in at least one row stay in every row, so the middle
+    // dots line up vertically even when a row lacks a value.
+    const columns = ['label', 'quota', 'percent', 'reset'].filter(
+      (key) => rows.some((row) => row[key] !== '')
+    );
+    const width = (key) => Math.max(...rows.map((row) => row[key].length));
+    const tooltip = rows
+      .map((row) => columns
+        .map((key, index) =>
+          index === columns.length - 1 ? row[key] : row[key].padEnd(width(key))
+        )
+        .join(' · ')
+        .trimEnd())
+      .join('\n');
+    return { line, tooltip };
   }
 
   /**
@@ -4368,17 +4431,28 @@
   usageTooltipEl.setAttribute('role', 'tooltip');
   usageTooltipEl.hidden = true;
   document.body.appendChild(usageTooltipEl);
+  planTooltipEl.id = 'usage-plan-tooltip';
+  planTooltipEl.setAttribute('role', 'tooltip');
+  planTooltipEl.hidden = true;
+  document.body.appendChild(planTooltipEl);
+  const hideUsageTooltip = () => { usageTooltipEl.hidden = true; };
+  const hidePlanTooltip = () => { planTooltipEl.hidden = true; };
   if (usageEl) {
     usageEl.setAttribute('aria-describedby', usageTooltipEl.id);
     const show = () => { usageTooltipEl.hidden = false; positionUsageTooltip(); };
-    const hide = () => { usageTooltipEl.hidden = true; };
     usageEl.addEventListener('pointerenter', show);
-    usageEl.addEventListener('pointerleave', () => { if (document.activeElement !== usageEl) hide(); });
+    usageEl.addEventListener('pointerleave', () => { if (document.activeElement !== usageEl) hideUsageTooltip(); });
     usageEl.addEventListener('focus', show);
-    usageEl.addEventListener('blur', () => { if (!usageEl.matches(':hover')) hide(); });
-    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') hide(); });
-    document.addEventListener('scroll', hide, true);
-    window.addEventListener('resize', positionUsageTooltip);
+    usageEl.addEventListener('blur', () => { if (!usageEl.matches(':hover')) hideUsageTooltip(); });
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { hideUsageTooltip(); hidePlanTooltip(); } });
+    document.addEventListener('scroll', () => { hideUsageTooltip(); hidePlanTooltip(); }, true);
+    window.addEventListener('resize', () => { positionUsageTooltip(); positionPlanTooltip(); });
+  }
+  if (usageSubscriptionEl) {
+    usageSubscriptionEl.setAttribute('aria-describedby', planTooltipEl.id);
+    const showPlan = () => { planTooltipEl.hidden = false; positionPlanTooltip(); };
+    usageSubscriptionEl.addEventListener('pointerenter', showPlan);
+    usageSubscriptionEl.addEventListener('pointerleave', () => { if (document.activeElement !== usageSubscriptionEl) hidePlanTooltip(); });
   }
 
   resizeInput();

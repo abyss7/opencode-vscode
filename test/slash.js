@@ -260,6 +260,7 @@ global.ResizeObserver = class { observe() {} unobserve() {} };
 global.requestAnimationFrame = () => 1;
 global.getComputedStyle = () => ({ getPropertyValue: () => '', fontFamily: 'monospace' });
 global.OpenCodeRichText = require('../media/rich-text.js');
+global.OpenCodeTime = require('../media/time.js');
 
 require('../media/chat.js');
 

@@ -64,8 +64,8 @@
     if (hours < 24) return `${hours} h ago`;
     const days = Math.floor(hours / 24);
     if (days < 7) return `${days} d ago`;
-    // Use the window's local formatting environment, never the SSH host's locale/timezone.
-    return new Intl.DateTimeFormat().format(timestamp);
+    // One shared date form everywhere: day before month, never the locale.
+    return OpenCodeTime.formatDay(timestamp);
   }
   function render() {
     const top = scroll.scrollTop;

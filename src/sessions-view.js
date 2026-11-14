@@ -3,6 +3,7 @@
 const vscode = require('vscode');
 const { UNGROUPED_ID, ARCHIVED_ID } = require('./session-folders');
 const { sessionActivity } = require('./session-activity');
+const { formatDay } = require('../media/time');
 
 function isBusy(session) {
   return sessionActivity(session) === 'running';
@@ -22,7 +23,8 @@ function formatRelative(timestamp) {
   if (hours < 24) return `${hours} h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} d ago`;
-  return new Date(timestamp).toLocaleDateString();
+  // One shared date form everywhere: day before month, never the locale.
+  return formatDay(timestamp);
 }
 
 function sessionTitle(session) {

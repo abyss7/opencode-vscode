@@ -108,6 +108,7 @@ const test = base.extend({
           .replaceAll('{{richTextStyleUri}}', `${resourceOrigin}/media/rich-text.css`)
           .replaceAll('{{diagramsUri}}', `${resourceOrigin}/media/diagrams.js`)
           .replaceAll('{{modelPickerUri}}', `${resourceOrigin}/media/model-picker.js`)
+          .replaceAll('{{timeUri}}', `${resourceOrigin}/media/time.js`)
           .replaceAll('{{scriptUri}}', `${resourceOrigin}/media/chat.js`)
           .replace('{{providerIcons}}', () => providerIcons)
           .replace('<body>', `<body class="vscode-${testInfo.project.metadata.theme}">`)

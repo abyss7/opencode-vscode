@@ -10,6 +10,7 @@ async function openSidebar(page) {
     .replaceAll('{{nonce}}', 'test-nonce')
     .replaceAll('{{styleUri}}', 'https://opencode.test/media/sessions-sidebar.css')
     .replaceAll('{{scrollUri}}', 'https://opencode.test/media/scroll.js')
+    .replaceAll('{{timeUri}}', 'https://opencode.test/media/time.js')
     .replaceAll('{{scriptUri}}', 'https://opencode.test/media/sessions-sidebar.js')
     .replace('<title>', '<link rel="stylesheet" href="/theme.css"><title>');
   await page.route('https://opencode.test/', (route) => route.fulfill({ contentType: 'text/html', body: html }));
@@ -22,12 +23,12 @@ const folder = (id, name, children = []) => ({ kind: 'folder', id, name, descrip
   icon: 'folder', custom: true, actions: ['deleteFolder'], children });
 
 for (const [locale, timezoneId, expected] of [
-  ['en-US', 'America/Los_Angeles', '10/29/2020'],
-  ['de-DE', 'Europe/Berlin', '30.10.2020'],
+  ['en-US', 'America/Los_Angeles', '29 Oct 2020'],
+  ['de-DE', 'Europe/Berlin', '30 Oct 2020'],
 ]) {
   test.describe(`sidebar dates in ${locale}`, () => {
     test.use({ locale, timezoneId });
-    test('formats timestamps in the window locale and timezone', async ({ page, chat }) => {
+    test('formats timestamps in the window timezone with one fixed date form', async ({ page, chat }) => {
       await openSidebar(page);
       await chat.send({ type: 'sessions', items: [
         { ...session('dated', 'Old session'), timestamp: Date.parse('2020-10-30T00:30:00Z'), description: '' },

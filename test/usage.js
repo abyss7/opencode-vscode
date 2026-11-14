@@ -230,7 +230,10 @@ async function checkSubscription() {
   panel.deps = {
     log: (text) => errors.push(text),
     api: {
-      listModels: async () => [{ providerID: 'openai', id: 'chat', limit: { context: 200000, input: 160000 } }],
+      listModels: async () => [
+        { providerID: 'openai', id: 'chat', limit: { context: 200000, input: 160000 } },
+        { providerID: 'zai-coding-plan', id: 'glm-4.6', limit: { context: 202752 } },
+      ],
       getChatGPTSubscription: async () => true,
     },
   };
@@ -243,6 +246,19 @@ async function checkSubscription() {
   assert.strictEqual(messages.at(-1).subscription, false);
   assert.strictEqual(messages.at(-1).context, 200000, 'billing failure preserves model limits');
   assert.strictEqual(errors.length, 1);
+
+  // The GLM Coding Plan provider bills as a subscription without an OpenAI
+  // connection: the plan usage comes from the balance pipe instead.
+  panel._modelRef = { providerID: 'zai-coding-plan', id: 'glm-4.6' };
+  await panel._refreshModelContext();
+  assert.strictEqual(messages.at(-1).subscription, true);
+  assert.strictEqual(messages.at(-1).context, 202752);
+  assert.deepStrictEqual(messages.at(-1).billing, {
+    kind: 'subscription',
+    label: 'GLM Coding Plan',
+    url: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan',
+  });
+  panel._modelRef = { providerID: 'openai', id: 'chat' };
 
   let resolve;
   panel.deps.api.getChatGPTSubscription = () => new Promise((done) => { resolve = done; });

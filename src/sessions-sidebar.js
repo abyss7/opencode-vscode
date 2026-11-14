@@ -81,6 +81,7 @@ class SessionsSidebar {
       .replaceAll('{{cspSource}}', () => view.webview.cspSource)
       .replaceAll('{{nonce}}', () => nonce)
       .replaceAll('{{styleUri}}', () => resource('sessions-sidebar.css'))
+      .replaceAll('{{timeUri}}', () => resource('time.js'))
       .replaceAll('{{scrollUri}}', () => resource('scroll.js'))
       .replaceAll('{{scriptUri}}', () => resource('sessions-sidebar.js'));
     view.onDidDispose(() => { if (this.view === view) this.view = null; });
