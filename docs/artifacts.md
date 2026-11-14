@@ -34,6 +34,7 @@ All kinds share `schema`, `id`, `version`, `title` and optional `source`:
 | `diff` | `path`, `oldText` (null for creation), `newText` |
 | `image` | `dataUrl`: base64 PNG, JPEG, WebP or GIF |
 | `chart` | `chart`, `xLabel`, `yLabel`, `unit`, `series` |
+| `plan` | `phases`: array of `{id, title, tasks}`; each task is `{id, title, status, note?}` with `status` `todo`/`doing`/`done`/`skipped` |
 
 Use a stable id and increase the positive integer version for each revision. A
 version is immutable; conflicting definitions remain visible as an error and source.
@@ -63,3 +64,20 @@ and an overview marked with the rectangle, scaled down only above 1600 pixels. R
 coordinates and image dimensions always refer to the original. Removing the selection
 also removes its generated attachments. Image questions use the existing image prompt
 path and wait until the current turn ends; textual selections can be queued.
+
+## Plans
+
+Plan artifacts do not use the artifacts panel. They open in their own editor tab
+beside the chat (`opencodeSessions.planTab`: `beside` opens automatically, `manual`
+waits for the button in the transcript). The plan tab group is locked so casual
+editor opens go elsewhere. The tab renders phases, task notes and overall progress;
+tasks can be ticked (or set to doing/skipped) directly.
+
+Ticks are local pending changes, not artifact versions. The next prompt attaches
+them inside the client context as `Plan updates` JSON (`{id, title, version,
+changes:[{taskId, from, to}]}`) and the model acknowledges them by emitting the
+next plan version. New versions absorb matching overlay entries; a version that
+keeps a task's old status leaves the change pending. Closing the tab dismisses a
+plan until its button (or `beside` mode with a re-opened chat) brings it back;
+closing the chat closes and forgets the session's plans. Versions stay selectable
+(read-only) inside the tab, and the plan exports to Markdown or copies as JSON.

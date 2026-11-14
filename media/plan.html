@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}'; img-src {{cspSource}} data:; font-src {{cspSource}};">
+  <link rel="stylesheet" href="{{styleUri}}">
+  <title>Plan</title>
+</head>
+<body>
+  <div id="app" hidden>
+    <header id="plan-header">
+      <div class="plan-heading">
+        <span class="plan-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16"><path d="M2.2 2.2h11.6v1.7H2.2zM2.2 5.4h11.6v1.7H2.2zM2.2 8.6h7.4v1.7H2.2zM2.2 11.8h5.2v1.7H2.2z"/></svg>
+        </span>
+        <div class="plan-heading-text">
+          <h1 id="plan-title"></h1>
+          <p id="plan-meta"></p>
+        </div>
+      </div>
+      <div class="plan-progress">
+        <div class="plan-bar" id="plan-bar" role="progressbar" aria-label="Plan progress"></div>
+        <p id="plan-progress-text"></p>
+      </div>
+      <div id="plan-sync" class="plan-sync" hidden>
+        <span class="sync-dot" aria-hidden="true"></span>
+        <span id="plan-sync-text"></span>
+        <button id="plan-revert" type="button" class="ghost" title="Discard your unsent changes">Revert</button>
+      </div>
+      <div id="plan-old" class="plan-old" hidden></div>
+    </header>
+    <main id="plan-body"></main>
+    <footer id="plan-footer">
+      <label class="version-select">Version
+        <select id="plan-versions" aria-label="Plan version"></select>
+      </label>
+      <span class="spacer"></span>
+      <button id="plan-copy" type="button" class="ghost">Copy JSON</button>
+      <button id="plan-export" type="button" class="ghost">Export Markdown…</button>
+    </footer>
+  </div>
+  <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
+</body>
+</html>

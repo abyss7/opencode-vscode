@@ -120,6 +120,14 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, onAsk, pref
       const raw = reference.querySelector('pre').textContent;
       try {
         const value = parseArtifact(raw);
+        if (value.kind === 'plan') {
+          // Plans get their own editor tab, not the generic artifacts panel.
+          reference.replaceChildren(button(`Open plan · ${value.title} · v${value.version}`, () => {
+            post({ type: 'openPlan', id: value.id });
+          }));
+          post({ type: 'planArtifact', source: raw });
+          return;
+        }
         let revisions = objects.get(value.id);
         if (!revisions) { revisions = new Map(); objects.set(value.id, revisions); }
         const previous = revisions.get(value.version);

@@ -8,6 +8,7 @@ const { SessionsProvider, sessionTitle } = require('./sessions-view');
 const { SessionFolders } = require('./session-folders');
 const { SessionPanel } = require('./session-panel');
 const { SessionEditors } = require('./session-editor');
+const { PlanDocuments } = require('./plan-documents');
 const { SessionContinuation } = require('./session-continuation');
 const { OpenCodeSync } = require('./opencode-sync');
 const { selectDefaultModel } = require('./model-defaults');
@@ -60,7 +61,9 @@ function activate(context) {
   const permissions = new PermissionService({ vscode, api, command: getConfig().command, log });
   const archive = new ArchiveService({ api, command: getConfig().command, log });
   const sync = new OpenCodeSync({ vscode, command: getConfig().command, log });
+  const planDocuments = new PlanDocuments({ vscode, extensionUri: context.extensionUri, log });
   context.subscriptions.push(sync);
+  context.subscriptions.push(planDocuments);
   sync.start().catch((error) => {
     log(`Settings sync failed to start: ${error.stack || error.message}`);
   });
@@ -172,6 +175,7 @@ function activate(context) {
       }
     },
     openSession: (sessionId, cwd) => openSession(sessionId, cwd),
+    planDocuments,
     async onSessionCreated(panel, sessionId, cwd) {
       log(`Session created: ${sessionId} (${cwd})`);
       if (!panel.disposed) {

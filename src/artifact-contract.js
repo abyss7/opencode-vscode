@@ -1,6 +1,8 @@
 'use strict';
 
 // Versioned, declarative presentation data. No executable HTML or scripts.
+const PLAN_STATUSES = new Set(['todo', 'doing', 'done', 'skipped']);
+
 function parseArtifact(source) {
   if (source.length > 16000000) throw new Error('Artifact exceeds 16 MB');
   const value = JSON.parse(source);
@@ -35,9 +37,36 @@ function parseArtifact(source) {
       if (count > 5000) throw new Error('Chart exceeds 5000 points');
       break;
     }
+    case 'plan': {
+      const ids = new Set();
+      const id = (value_, label) => {
+        if (typeof value_ !== 'string' || !/^[\w.-]{1,60}$/.test(value_)) throw new Error(`Expected a ${label} id`);
+        if (ids.has(value_)) throw new Error(`Duplicate ${label} id ${value_}`);
+        ids.add(value_);
+      };
+      if (!Array.isArray(value.phases) || !value.phases.length || value.phases.length > 50) {
+        throw new Error('Expected 1..50 phases');
+      }
+      for (const phase of value.phases) {
+        if (!phase || typeof phase !== 'object') throw new Error('Expected phase objects');
+        id(phase.id, 'phase');
+        if (typeof phase.title !== 'string' || !phase.title.trim()) throw new Error('Expected a phase title');
+        if (!Array.isArray(phase.tasks) || !phase.tasks.length || phase.tasks.length > 100) {
+          throw new Error('Expected 1..100 tasks per phase');
+        }
+        for (const task of phase.tasks) {
+          if (!task || typeof task !== 'object') throw new Error('Expected task objects');
+          id(task.id, 'task');
+          if (typeof task.title !== 'string' || !task.title.trim()) throw new Error('Expected a task title');
+          if (!PLAN_STATUSES.has(task.status)) throw new Error(`Expected a task status ${[...PLAN_STATUSES].join('|')}`);
+          if (task.note != null && typeof task.note !== 'string') throw new Error('Expected an optional string note');
+        }
+      }
+      break;
+    }
     default: throw new Error('Unknown artifact kind');
   }
   return value;
 }
 
-module.exports = { parseArtifact };
+module.exports = { parseArtifact, PLAN_STATUSES };

@@ -173,6 +173,8 @@ class SessionPanel {
     this._costSplitPosted = '';
     this._permissions = new Map();
     this._elicitations = new Map();
+    const plans = this.deps.planDocuments;
+    this._plans = plans && typeof plans.ingest === 'function' && typeof plans.pendingUpdates === 'function' ? plans : null;
     this._metadataTimers = [];
     this._limitsTimer = null;
     this._subagentsTimer = null;
@@ -439,6 +441,12 @@ class SessionPanel {
         break;
       case 'exportArtifact':
         exportArtifact(message).catch((error) => this._post({ type: 'error', message: `Export failed: ${error.message}` }));
+        break;
+      case 'planArtifact':
+        if (typeof message.source === 'string') this._plans?.ingest(this.sessionId, message.source);
+        break;
+      case 'openPlan':
+        this._plans?.reveal(this.sessionId, String(message.id || ''));
         break;
       case 'checkFiles':
         this._checkFiles(Array.isArray(message.files) ? message.files : []);
@@ -727,6 +735,7 @@ class SessionPanel {
     this._sessionTitle = title;
     this.panel.title = title;
     this._post({ type: 'sessionInfo', title, archived: this._archived });
+    this._plans?.setSessionTitle(this.sessionId, title);
     this.deps.onSessionTitle?.(this.sessionId || this.newSessionId, title);
   }
 
@@ -800,7 +809,8 @@ class SessionPanel {
 
     // Server inbox payloads already include the original client/selection
     // context. Locally failed submissions still need it attached once.
-    const promptText = resubmission && visiblePrompt(value) !== value ? value : withClientContext(value, selection);
+    const planUpdates = !resubmission && this._plans ? this._plans.pendingUpdates(this.sessionId) : null;
+    const promptText = resubmission && visiblePrompt(value) !== value ? value : withClientContext(value, selection, planUpdates);
     const textBlock = blocks.find((block) => block.type === 'text');
     if (textBlock) textBlock.text = promptText;
     else blocks.unshift({ type: 'text', text: promptText });
@@ -1205,7 +1215,7 @@ class SessionPanel {
               this.deps.log(`Failed to resolve OpenAI billing: ${error.message}`);
               return false;
             })
-          : false,
+          : Promise.resolve(ref.providerID === 'zai-coding-plan'),
       ]);
       if (
         this._disposed ||
@@ -1234,7 +1244,13 @@ class SessionPanel {
         model: { providerID: ref.providerID, id: ref.id },
         subscription,
         billing: subscription
-          ? { kind: 'subscription', label: 'ChatGPT plan', url: 'https://chatgpt.com/settings/usage' }
+          ? ref.providerID === 'zai-coding-plan'
+            ? {
+                kind: 'subscription',
+                label: 'GLM Coding Plan',
+                url: 'https://z.ai/manage-apikey/coding-plan/personal/my-plan',
+              }
+            : { kind: 'subscription', label: 'ChatGPT plan', url: 'https://chatgpt.com/settings/usage' }
           : { kind: 'metered' },
       });
     } catch (error) {
@@ -1883,6 +1899,7 @@ class SessionPanel {
     this._cleanedUp = true;
     this._disposed = true;
     this.deps.api?.setSessionRunning?.(this.sessionId, this, false);
+    this._plans?.closeSession(this.sessionId);
 
     for (const request of this._client?.shared ? [] : this._permissions.values()) {
       try {

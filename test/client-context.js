@@ -49,9 +49,21 @@ function panel() {
   await instance._prompt('Explain this node', [], selection);
   assert.equal(sent[3][0].text, withClientContext('Explain this node', selection));
   assert.equal(visiblePrompt(sent[3][0].text), 'Explain this node');
+
+  const plans = [{ id: 'setup', title: 'Setup', version: 2, changes: [{ taskId: 'p1t1', from: 'doing', to: 'done' }] }];
+  instance._plans = {
+    pendingUpdates(sessionId) { return sessionId === 'ses_test' ? plans : null; },
+  };
+  await instance._prompt('Continue', []);
+  assert.equal(sent[4][0].text, withClientContext('Continue', null, plans));
+  assert.match(sent[4][0].text, /Plan updates/);
+  assert.match(sent[4][0].text, /"taskId":"p1t1"/);
+  assert.equal(visiblePrompt(sent[4][0].text), 'Continue');
+
+  instance._plans = null;
   instance._busy = false;
   await instance._prompt('Explain this area', [{ data: 'crop', mimeType: 'image/png' }], selection);
-  assert.equal(sent[4][0].text, withClientContext('Explain this area', selection));
-  assert.equal(sent[4][1].data, 'crop');
+  assert.equal(sent[5][0].text, withClientContext('Explain this area', selection));
+  assert.equal(sent[5][1].data, 'crop');
   console.log('CLIENT CONTEXT OK');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
