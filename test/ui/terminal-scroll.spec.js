@@ -90,6 +90,44 @@ test('parked on a chunk, the same updates leave the viewed pixels untouched', as
   }
 });
 
+test('a programmatic scroll that lands on the bottom never engages follow', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await chat.send({ type: 'transcript', messages: [message('m1', longAnswer(6), false)] });
+  await park(page, 900);
+  // Let the reader's wheel gesture age out, then a foreign scroll (focus,
+  // hash, extension request) drops the view on the bottom edge.
+  await page.waitForTimeout(1100);
+  await page.evaluate(() => {
+    const messages = document.querySelector('#messages');
+    messages.scrollTop = messages.scrollHeight - messages.clientHeight;
+  });
+  await page.waitForTimeout(80);
+  await chat.send({ type: 'transcript', messages: [message('m1', longAnswer(6) + 'Tail after foreign scroll.\n\n', false)] });
+  await page.waitForTimeout(150);
+  // No glue: the view stays where the content left it instead of chasing the
+  // new bottom line, because the reader never asked to follow.
+  const frozen = await page.evaluate(() => document.querySelector('#messages').scrollTop);
+  await chat.send({ type: 'transcript', messages: [message('m1', longAnswer(6) + 'Tail after foreign scroll.\n\nMore.\n\n', false)] });
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => document.querySelector('#messages').scrollTop)).toBe(frozen);
+});
+
+test('replacing the read content never teleports the viewport', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await chat.send({ type: 'transcript', messages: [message('m1', longAnswer(6), true)] });
+  await park(page, 1200);
+  const frozen = await page.evaluate(() => document.querySelector('#messages').scrollTop);
+  // The same message id returns with entirely different, no shorter content:
+  // the anchor's identity is gone, so nothing may claim the reader's offset
+  // and the view must stay byte-for-byte where it was.
+  await chat.send({ type: 'transcript', messages: [message('m1',
+    Array.from({ length: 7 }, (_, i) => `## Другой раздел ${i + 1}\n\nАбзац с другим текстом номер ${i + 1}. ${'Совсем другое содержимое для замены, и его больше. '.repeat(40)}\n\n`).join(''),
+    true)] });
+  await page.waitForTimeout(150);
+  const after = await page.evaluate(() => document.querySelector('#messages').scrollTop);
+  expect(Math.abs(after - frozen)).toBeLessThanOrEqual(1);
+});
+
 test('wheel up freezes the chunk and wheel back down re-engages the bottom', async ({ page, chat }) => {
   await chat.send({ type: 'status', state: 'busy' });
   await chat.send({ type: 'transcript', messages: [message('m1', longAnswer(6), false)] });

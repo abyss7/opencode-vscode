@@ -240,13 +240,15 @@
     transcript.bottom();
   }
 
-  function focusComposer(preserveScroll = false) {
+  function focusComposer() {
     if (state.archived) return;
     if (!questionsEl.hidden) {
       focusLocal(questionsEl.querySelector('.elicitation:not([hidden]) button.allow, .elicitation:not([hidden]) input'), questionsEl);
       return;
     }
-    if (!restoredViewport && (!preserveScroll || transcript.following)) jumpToBottom();
+    // Only an already-following reader is taken to the bottom on focus; a
+    // parked reader must never be moved by a focus request.
+    if (transcript.following) jumpToBottom();
     try {
       focusLocal(inputEl, composerControls);
     } catch {
@@ -3798,7 +3800,7 @@
         if (typeof message.archived === 'boolean') setArchived(message.archived);
         break;
       case 'focus':
-        focusComposer(message.preserveScroll === true);
+        focusComposer();
         break;
       case 'config':
         setConfigOptions(message.configOptions);

@@ -11,6 +11,7 @@ function createTranscriptViewport(container, onChange = () => {}) {
   let readingRoot = null;
   let expectedTop = null;
   let navigating = false;
+  let lastGesture = 0;
   let settleTimer;
   let frame;
   const observed = new Set();
@@ -40,25 +41,30 @@ function createTranscriptViewport(container, onChange = () => {}) {
     return text ? { tag: node.tagName, text: text.slice(0, 64) } : null;
   }
 
-  // Positional paths alone mis-resolve when a structural edit inserts or
-  // removes an element above the reading position inside the same root — an
-  // answer outline, a permission card, streamed Markdown gaining a heading.
-  // The path then lands on a neighbouring node and the viewport drifts to
-  // it. Re-find the anchor by content, keeping the node nearest to where the
-  // path points, before falling back to the whole root.
+  // Resolve the anchor a captured viewport refers to. The recorded positional
+  // path mis-resolves whenever a structural edit inserts or removes an element
+  // above the reading position inside the same root — an answer outline, a
+  // permission card, a collapsed or merged Steps block, streamed Markdown
+  // gaining a heading. Only a node whose content confirms the captured
+  // identity may receive the reader's paragraph offset; anything else falls
+  // back to the root (which keeps the whole message stable and can only ever
+  // misplace it by one block, never teleport the view elsewhere).
   function resolveAnchor(root, reading, liveNode) {
-    if (liveNode && root.contains(liveNode)) return liveNode;
-    let candidate = (reading.path || []).reduce((node, index) => node?.children[index], root);
     const record = reading.identity;
-    if (record && (!candidate || candidate.tagName !== record.tag ||
-        (candidate.textContent || '').trim().slice(0, 64) !== record.text)) {
+    if (liveNode && root.contains(liveNode) && liveNode.getBoundingClientRect().height > 0) return liveNode;
+    let candidate = (reading.path || []).reduce((node, index) => node?.children[index], root);
+    const confirms = (node) => node && node.getBoundingClientRect().height > 0 && (!record ||
+      (node.tagName === record.tag && (node.textContent || '').trim().slice(0, 64) === record.text));
+    if (confirms(candidate)) return candidate;
+    if (record) {
       const matches = [...root.querySelectorAll(record.tag)]
-        .filter(node => (node.textContent || '').trim().slice(0, 64) === record.text);
+        .filter((node) => node.getBoundingClientRect().height > 0 &&
+          (node.textContent || '').trim().slice(0, 64) === record.text);
       if (matches.length) {
-        candidate = matches.length === 1 || !candidate ? matches[0] : nearestMatch(matches, candidate);
+        return matches.length === 1 || !candidate ? matches[0] : nearestMatch(matches, candidate);
       }
     }
-    return candidate?.getBoundingClientRect().height > 0 ? candidate : root;
+    return root;
   }
 
   function nearestMatch(matches, candidate) {
@@ -100,13 +106,15 @@ function createTranscriptViewport(container, onChange = () => {}) {
     else if (reading) {
       const root = readingRoot?.parentElement === container ? readingRoot :
         reading.anchor && [...container.children].find(node => node.dataset.anchorId === reading.anchor) ||
-        (reading.rootPath !== null && reading.rootPath !== undefined && Number.isInteger(reading.rootPath) ?
-          container.children[reading.rootPath] : null);
-      const candidate = root && resolveAnchor(root, reading, readingNode);
-      const anchor = candidate && candidate !== root ? candidate : root;
-      const offset = anchor === candidate ? reading.offset : reading.rootOffset ?? reading.offset;
-      write(anchor ? container.scrollTop + anchor.getBoundingClientRect().top -
-        container.getBoundingClientRect().top - offset : reading.top);
+        (Number.isInteger(reading.rootPath) ? container.children[reading.rootPath] : null);
+      // Without a root nothing confirms where the reader stands; the only
+      // scroll that cannot teleport the view is none at all.
+      const anchor = root && resolveAnchor(root, reading, readingNode);
+      if (anchor) {
+        const offset = anchor !== root ? reading.offset : reading.rootOffset ?? reading.offset;
+        write(container.scrollTop + anchor.getBoundingClientRect().top -
+          container.getBoundingClientRect().top - offset);
+      }
     }
     onChange();
   }
@@ -150,6 +158,7 @@ function createTranscriptViewport(container, onChange = () => {}) {
     if (event.type === 'keydown' && !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return;
     if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (event.type === 'wheel' && !event.deltaY) return;
+    lastGesture = event.timeStamp || performance.now();
     navigating = false;
     clearTimeout(settleTimer);
     expectedTop = null;
@@ -166,8 +175,12 @@ function createTranscriptViewport(container, onChange = () => {}) {
   function scrolled() {
     if (expectedTop !== null && Math.abs(container.scrollTop - expectedTop) < 1) return;
     expectedTop = null;
+    const atBottom = container.scrollHeight - container.clientHeight - container.scrollTop <= 2;
     if (navigating) settledNavigation();
-    else following = container.scrollHeight - container.clientHeight - container.scrollTop <= 2;
+    // Only the reader's own recent gesture may engage follow at the bottom
+    // edge. A programmatic or foreign scroll that happens to land there must
+    // never glue the viewport to the transcript on its own.
+    else if (!atBottom || performance.now() - lastGesture < 1000) following = atBottom;
     rememberReading();
     onChange();
   }
