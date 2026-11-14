@@ -1,0 +1,13 @@
+/* ==========================================================================
+   OpenCode Chat Webview Stylesheet Entry Point (`src/webview/styles/chat.css`)
+   Bundled by `scripts/build-ui.js` into `media/chat.css`.
+   Edit the modular stylesheets in `src/webview/styles/`, then run `npm run build:ui`.
+   ========================================================================== */
+
+@import "./base.css";
+@import "./header.css";
+@import "./transcript.css";
+@import "./steps-and-tools.css";
+@import "./permissions.css";
+@import "./markdown-and-visuals.css";
+@import "./composer.css";

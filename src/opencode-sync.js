@@ -1,259 +1,30 @@
 'use strict';
 
+/**
+ * @file Two-way settings synchronizer (`OpenCodeSync`) between OpenCode's
+ * global/project `opencode.json(c)` files and VS Code configuration scopes.
+ *
+ * Pure merge rules live in `./sync/rules.js`; VS Code configuration adapters
+ * live in `./sync/vs-sides.js`.
+ */
+
 const path = require('node:path');
 const { JsoncStore, getPath, deepEqual } = require('./jsonc');
 const configPaths = require('./opencode-config');
-const { modelRefString } = require('./model-ref');
 const generated = require('./generated/opencode-settings.json');
+const {
+  PREFIX,
+  typeMatches,
+  isCompatible,
+  decideSync,
+  normalizeValue,
+  readSettingFromObject,
+  samePath,
+} = require('./sync/rules');
+const { ApiVsSide, FileVsSide } = require('./sync/vs-sides');
 
 const SETTINGS = generated.settings;
-const PREFIX = 'opencode';
 const SYNC_DELAY_MS = 300;
-
-function typeMatches(type, value) {
-  switch (type) {
-    case 'object':
-      return value !== null && typeof value === 'object' && !Array.isArray(value);
-    case 'array':
-      return Array.isArray(value);
-    case 'integer':
-      return typeof value === 'number' && Number.isInteger(value);
-    case 'number':
-      return typeof value === 'number' && Number.isFinite(value);
-    case 'boolean':
-      return typeof value === 'boolean';
-    case 'string':
-      return typeof value === 'string';
-    case 'null':
-      return value === null;
-    default:
-      return true;
-  }
-}
-
-function isCompatible(meta, value) {
-  if (value === undefined) return true;
-
-  const types = Array.isArray(meta.types) ? meta.types : [];
-  if (types.length > 0 && !types.some((type) => typeMatches(type, value))) {
-    return false;
-  }
-
-  if (meta.kind === 'array') {
-    if (!Array.isArray(value)) return false;
-    if (meta.itemType && !value.every((item) => typeMatches(meta.itemType, item))) {
-      return false;
-    }
-  }
-
-  if (meta.kind === 'object') {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
-  }
-
-  if (Array.isArray(meta.enum) && meta.enum.length > 0) {
-    return meta.enum.some((entry) => deepEqual(entry, value));
-  }
-
-  if (typeof value === 'string' && typeof meta.pattern === 'string') {
-    try {
-      if (!new RegExp(meta.pattern).test(value)) return false;
-    } catch {
-      // Ignore an invalid pattern from a future schema.
-    }
-  }
-
-  if (typeof value === 'number') {
-    if (typeof meta.minimum === 'number' && value < meta.minimum) return false;
-    if (typeof meta.maximum === 'number' && value > meta.maximum) return false;
-    if (
-      typeof meta.exclusiveMinimum === 'number' &&
-      value <= meta.exclusiveMinimum
-    ) {
-      return false;
-    }
-  }
-
-  if (Array.isArray(value)) {
-    if (typeof meta.minItems === 'number' && value.length < meta.minItems) return false;
-    if (typeof meta.maxItems === 'number' && value.length > meta.maxItems) return false;
-  }
-
-  return true;
-}
-
-/**
- * Three-way decision for one setting.
- *
- * `opencodeWins` is true: the OpenCode file is the source of truth when both
- * sides changed since the previous reconciliation.
- */
-function decideSync({ open, vs, previous, opencodeWins = true }) {
-  let nextOpen = open;
-  let nextVs = vs;
-
-  if (!previous) {
-    if (open !== undefined && vs === undefined) {
-      nextVs = open;
-    } else if (open === undefined && vs !== undefined) {
-      nextOpen = vs;
-    } else if (open !== undefined && vs !== undefined && !deepEqual(open, vs)) {
-      nextVs = opencodeWins ? open : vs;
-      if (!opencodeWins) nextOpen = vs;
-    }
-    return { nextOpen, nextVs };
-  }
-
-  const openChanged = !deepEqual(open, previous.open);
-  const vsChanged = !deepEqual(vs, previous.vs);
-
-  if (openChanged && vsChanged) {
-    if (!deepEqual(open, vs)) {
-      if (opencodeWins) nextVs = open;
-      else nextOpen = vs;
-    }
-  } else if (openChanged) {
-    nextVs = open;
-  } else if (vsChanged) {
-    nextOpen = vs;
-  } else if (!deepEqual(open, vs)) {
-    // A previous write may have failed. Keep OpenCode authoritative.
-    nextVs = open;
-  }
-
-  return { nextOpen, nextVs };
-}
-
-/**
- * Reduces value shapes that OpenCode and VS Code store differently. The model
- * can live in `opencode.json(c)` as `{ providerID, model, variant }`, while the
- * setting (and its dropdown) only holds `provider/model#variant`.
- */
-function normalizeValue(meta, value) {
-  if (!meta || meta.format !== 'model-ref') return value;
-  if (typeof value === 'string' || value === undefined) return value;
-  const compact = modelRefString(value);
-  return compact === undefined ? value : compact;
-}
-
-function readSettingFromObject(object, meta) {
-  // Machine settings are flat dotted keys; fall back to the legacy nested form.
-  if (Object.prototype.hasOwnProperty.call(object || {}, meta.id)) {
-    return object[meta.id];
-  }
-  const nested = getPath(object, [PREFIX, ...meta.path]);
-  if (nested !== undefined) return nested;
-  return undefined;
-}
-
-function samePath(left, right) {
-  if (!left || !right) return false;
-  const a = path.resolve(left);
-  const b = path.resolve(right);
-  if (process.platform === 'win32') return a.toLowerCase() === b.toLowerCase();
-  return a === b;
-}
-
-class ApiVsSide {
-  constructor(vscode, scopeUri, target, log) {
-    this.vscode = vscode;
-    this.scopeUri = scopeUri;
-    this.target = target;
-    this.log = log;
-  }
-
-  _configuration() {
-    // Setting IDs already include "opencode.". Selecting that section here
-    // would make inspect/update address "opencode.opencode.<setting>".
-    return this.vscode.workspace.getConfiguration(undefined, this.scopeUri);
-  }
-
-  _valueName() {
-    if (this.target === 'global') return 'globalValue';
-    if (this.target === 'workspace') return 'workspaceValue';
-    return 'workspaceFolderValue';
-  }
-
-  async readAll(settings) {
-    const configuration = this._configuration();
-    const key = this._valueName();
-    const values = new Map();
-    for (const meta of settings) {
-      let inspected;
-      try {
-        inspected = configuration.inspect(meta.id);
-      } catch {
-        inspected = undefined;
-      }
-      values.set(meta.id, inspected ? inspected[key] : undefined);
-    }
-    return values;
-  }
-
-  async writeAll(operations) {
-    const configuration = this._configuration();
-    const target =
-      this.target === 'global'
-        ? this.vscode.ConfigurationTarget.Global
-        : this.target === 'workspace'
-          ? this.vscode.ConfigurationTarget.Workspace
-          : this.vscode.ConfigurationTarget.WorkspaceFolder;
-
-    for (const operation of operations) {
-      try {
-        await configuration.update(operation.id, operation.value, target);
-      } catch (error) {
-        this.log(
-          `Failed to update VS Code setting ${operation.id}: ${error.message || error}`
-        );
-      }
-    }
-  }
-}
-
-class FileVsSide {
-  constructor(store, file, log) {
-    this.store = store;
-    this.file = file;
-    this.log = log;
-  }
-
-  async readAll(settings) {
-    const { value } = await this.store.read(this.file);
-    const values = new Map();
-    for (const meta of settings) {
-      values.set(meta.id, readSettingFromObject(value, meta));
-    }
-    return values;
-  }
-
-  async writeAll(operations) {
-    if (operations.length === 0) return;
-    const { value: current } = await this.store.read(this.file);
-    const fileOperations = [];
-    for (const operation of operations) {
-      // VS Code stores machine settings as flat dotted keys
-      // (`"opencode.model": ...`), never as a nested `opencode` object.
-      if (operation.value === undefined) {
-        fileOperations.push({ path: [operation.id], unset: true });
-      } else {
-        fileOperations.push({ path: [operation.id], value: operation.value });
-      }
-      // Drop a legacy nested form left by earlier versions, but only when it
-      // actually exists: unsetting an absent path makes jsonc.modify throw
-      // "Can not delete in empty document".
-      if (getPath(current, [PREFIX, ...operation.path]) !== undefined) {
-        fileOperations.push({ path: [PREFIX, ...operation.path], unset: true });
-      }
-    }
-    try {
-      await this.store.write(this.file, fileOperations, { initial: '{}\n' });
-    } catch (error) {
-      this.log(
-        `Failed to update VS Code machine settings ${this.file}: ${error.message || error}`
-      );
-    }
-  }
-}
 
 class OpenCodeSync {
   constructor(options = {}) {
@@ -336,11 +107,7 @@ class OpenCodeSync {
     }
     this._disposeWatchers();
     for (const disposable of this._disposables) {
-      try {
-        disposable.dispose();
-      } catch {
-        // Ignore.
-      }
+      try { disposable.dispose(); } catch { /* Ignore */ }
     }
     this._disposables = [];
   }
@@ -532,11 +299,7 @@ class OpenCodeSync {
 
   _disposeWatchers() {
     for (const watcher of this._watchers) {
-      try {
-        watcher.dispose();
-      } catch {
-        // Ignore.
-      }
+      try { watcher.dispose(); } catch { /* Ignore */ }
     }
     this._watchers = [];
   }
@@ -573,8 +336,6 @@ class OpenCodeSync {
     const vsOperations = [];
 
     for (const meta of SETTINGS) {
-      // `update`/`enterprise.url` are machine-wide; OpenCode ignores them in
-      // project files and VS Code does not allow them at workspace scope.
       if (meta.scope === 'machine' && scope.kind !== 'global') continue;
       const open = normalizeValue(meta, getPath(openValue, meta.path));
       const vs = normalizeValue(meta, vsValues.get(meta.id));
@@ -582,7 +343,6 @@ class OpenCodeSync {
       const ignored = this._ignored.get(ignoredKey);
 
       if (ignored && deepEqual(ignored.open, open)) {
-        // Keep ignoring an incompatible OpenCode value, but clear its mirror.
         if (vs !== undefined) {
           vsOperations.push({ id: meta.id, path: meta.path, value: undefined });
         }

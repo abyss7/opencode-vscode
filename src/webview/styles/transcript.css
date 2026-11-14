@@ -1,0 +1,358 @@
+/* ==========================================================================
+   Transcript Scrollport, Messages, Sticky Prompt, Delivery Badges & Notices
+   --------------------------------------------------------------------------
+   `overflow-anchor: none` disables native browser scroll anchoring so it
+   never races `TranscriptViewport` (`src/webview/scroll.js`).
+   ========================================================================== */
+
+.messages {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  /* Short transcripts hug the bottom padding and end above the composer
+     plate instead of resting underneath it with nothing to scroll. `safe`
+     keeps long transcripts top-aligned and scrollable: plain flex-end would
+     push the start of the history out of the reachable scroll region. */
+  justify-content: flex-end;
+  justify-content: safe flex-end;
+  gap: 2px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 16px 32px;
+  min-height: 0;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+}
+
+.messages > * {
+  flex-shrink: 0;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
+.empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: auto;
+  color: var(--oc-secondary);
+  text-align: center;
+}
+
+.empty-logo {
+  width: 54px;
+  height: 54px;
+  color: var(--vscode-foreground);
+  opacity: 0.55;
+}
+
+.empty h2 {
+  margin: 10px 0 0;
+  color: var(--vscode-foreground);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.empty p {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+/* Chat messages */
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 2px;
+}
+
+.message:first-child {
+  padding-top: 0;
+}
+
+.message.assistant {
+  align-items: flex-start;
+}
+
+.message.assistant .body {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  color: var(--vscode-foreground);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.message.user {
+  align-items: flex-end;
+  /* Reserve the corner badge's overhang even when no badge is present. */
+  padding-bottom: 11px;
+}
+
+.message.user .body {
+  max-width: 85%;
+  padding: 4px 20px 4px 8px;
+  border: 1px solid var(--oc-border);
+  border-radius: 8px;
+  color: var(--vscode-foreground);
+  background: var(--oc-input-bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sticky-prompt {
+  position: sticky;
+  top: -16px;
+  z-index: 3;
+  height: 0;
+  /* The overlay must not add a flex gap when it moves to a new prompt. */
+  margin-bottom: -2px;
+  visibility: hidden;
+}
+
+.sticky-prompt.visible {
+  visibility: visible;
+}
+
+.sticky-prompt button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--oc-border);
+  color: var(--vscode-foreground);
+  text-align: left;
+  white-space: nowrap;
+  overflow: clip;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  background: var(--vscode-editor-background);
+  box-shadow: -16px 0 var(--vscode-editor-background), 16px 0 var(--vscode-editor-background);
+}
+
+.sticky-prompt button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+/* The pinned prompt casts the same plate overhang shadow onto the transcript. */
+.sticky-prompt::after {
+  content: "";
+  position: absolute;
+  top: calc(100% + 2.15em);
+  left: -16px;
+  right: -16px;
+  height: 14px;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.22), transparent 65%),
+    linear-gradient(to bottom, var(--vscode-editor-background), transparent);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .sticky-prompt::after {
+  display: none;
+}
+
+.disclosure-collapse {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--oc-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.disclosure-collapse::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+  transform: translateY(2px) rotate(45deg);
+}
+
+.disclosure-collapse:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-list-hoverBackground);
+}
+
+.disclosure-collapse:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+details:not([open]) > .disclosure-collapse,
+.thought.compact > .disclosure-collapse {
+  display: none;
+}
+
+.message.user .body:empty {
+  display: none;
+}
+
+/* Delivery state styling on user bubbles */
+.message.user[data-delivery] {
+  --oc-delivery-accent: var(--oc-cancelled);
+  --oc-delivery-border: color-mix(in srgb, var(--oc-delivery-accent) 45%, var(--oc-border));
+  --oc-delivery-bg: var(--oc-input-bg);
+  --oc-delivery-text: var(--vscode-foreground);
+  --oc-delivery-line: solid;
+}
+
+.message.user:is([data-delivery="sending"], [data-delivery="queued"], [data-delivery="unknown"]) {
+  --oc-delivery-accent: var(--vscode-foreground);
+  --oc-delivery-border: var(--oc-border);
+}
+
+.message.user[data-delivery="running"] {
+  --oc-delivery-accent: var(--oc-running);
+  --oc-delivery-border: color-mix(in srgb, var(--oc-delivery-accent) 70%, var(--oc-border));
+  --oc-delivery-bg: color-mix(in srgb, var(--oc-delivery-accent) 8%, var(--oc-input-bg));
+}
+
+.message.user[data-delivery="completed"] {
+  --oc-delivery-accent: var(--oc-completed);
+  --oc-delivery-border: color-mix(in srgb, var(--oc-delivery-accent) 35%, var(--oc-border));
+  --oc-delivery-text: color-mix(in srgb, var(--vscode-foreground) 95%, var(--oc-secondary));
+}
+
+.message.user:is([data-delivery="cancelled"], [data-delivery="interrupted"]) {
+  --oc-delivery-text: var(--oc-secondary);
+  --oc-delivery-bg: color-mix(in srgb, var(--oc-input-bg) 60%, var(--vscode-editor-background));
+}
+
+.message.user[data-delivery="interrupted"] {
+  --oc-delivery-line: dashed;
+}
+
+.message.user[data-delivery="failed"] {
+  --oc-delivery-accent: var(--oc-failed);
+}
+
+.message.user[data-delivery] .body {
+  color: var(--oc-delivery-text);
+  background: var(--oc-delivery-bg);
+}
+
+.message.user[data-delivery] .body,
+.message.user[data-delivery] .user-images img {
+  border-color: var(--oc-delivery-border);
+  border-style: var(--oc-delivery-line);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) .message.user[data-delivery] {
+  --oc-delivery-border: var(--vscode-contrastBorder, var(--oc-delivery-accent));
+  --oc-delivery-text: var(--vscode-foreground);
+  --oc-delivery-bg: var(--oc-input-bg);
+}
+
+.delivery-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.has-delivery-indicator {
+  position: relative;
+}
+
+.message.user > :is(.body, .user-images) {
+  /* Keep the corner badge and its focus ring inside the message scrollport. */
+  margin-right: 8px;
+}
+
+.delivery-indicator {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border: 1px solid var(--oc-delivery-border);
+  border-radius: 50%;
+  background: var(--vscode-editor-background);
+  color: var(--oc-delivery-accent);
+  cursor: default;
+}
+
+.delivery-indicator svg { width: 100%; height: 100%; pointer-events: none; }
+button.delivery-indicator { cursor: pointer; }
+button.delivery-indicator:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-button-secondaryBackground, var(--oc-input-bg));
+}
+button.delivery-indicator:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.message-time {
+  align-self: flex-end;
+  color: var(--oc-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.user-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 85%;
+}
+
+.user-images img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--oc-border);
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.user-images figure {
+  margin: 4px 0;
+}
+
+/* Info and errors */
+
+.info {
+  padding: 2px 0;
+  color: var(--oc-secondary);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.error {
+  margin: 4px 0;
+  padding: 8px 10px;
+  border: 0.5px solid var(--vscode-errorForeground);
+  border-radius: 6px;
+  color: var(--vscode-errorForeground);
+  background: var(--vscode-inputValidation-errorBackground, rgba(224, 108, 117, 0.1));
+  font-size: 12px;
+  white-space: pre-wrap;
+}

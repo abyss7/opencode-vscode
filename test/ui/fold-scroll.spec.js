@@ -79,3 +79,82 @@ test('a following reader still sees steps fold immediately', async ({ page, chat
   expect(folded.open).toBe(0);
   expect(folded.gap).toBeLessThanOrEqual(1);
 });
+
+test('a reader parked inside streamed steps never has those steps collapsed in their face', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await streamTurn(chat);
+  await page.waitForTimeout(100);
+
+  // Park directly on tool step #12 inside the live `.turn-steps` container.
+  const parked = await page.evaluate(() => {
+    const m = document.querySelector('#messages');
+    const summary = document.querySelectorAll('.tool-group > summary')[11];
+    summary.dataset.testStepAnchor = '1';
+    m.scrollTop += summary.getBoundingClientRect().top - m.getBoundingClientRect().top - 80;
+    m.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    return { top: Math.round(m.scrollTop), y: Math.round(summary.getBoundingClientRect().top) };
+  });
+
+  // Even when a massive final answer arrives below (keeping total scrollHeight huge),
+  // `.turn-steps` must NOT collapse while the reader is anchored inside it.
+  const tallAnswer = Array.from({ length: 60 }, (_, i) => `Paragraph ${i + 1}: ${filler('tall', 10)}`).join('\n\n');
+  await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: tallAnswer } });
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await page.waitForTimeout(200);
+
+  const duringRead = await page.evaluate(() => {
+    const summary = document.querySelector('[data-test-step-anchor="1"]');
+    const block = summary.closest('.turn-steps');
+    return {
+      open: block.open,
+      y: Math.round(summary.getBoundingClientRect().top),
+    };
+  });
+  expect(duringRead.open, 'steps stay open while reader is inside them').toBe(true);
+  expect(Math.abs(duringRead.y - parked.y)).toBeLessThanOrEqual(2);
+
+  // Returning to the bottom applies the deferred fold cleanly.
+  await page.evaluate(() => {
+    const m = document.querySelector('#messages');
+    m.scrollTop = m.scrollHeight - m.clientHeight;
+    m.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }));
+  });
+  await page.waitForTimeout(200);
+  expect(await page.locator('.turn-steps[open]').count()).toBe(0);
+});
+
+test('native server idle snapshot folds streamed steps immediately while following', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  const tools = Array.from({ length: 15 }, (_, i) => ({
+    type: 'tool',
+    id: `nt_${i}`,
+    name: 'read',
+    update: {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: `nt_${i}`,
+      title: `Read ${i}`,
+      kind: 'read',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: 'Line '.repeat(40) } }],
+    },
+  }));
+  await chat.send({
+    type: 'transcript',
+    partial: true,
+    messages: [{ id: 'm_run', type: 'assistant', time: { created: 100 }, content: tools }],
+  });
+  await expect(page.locator('.turn-steps')).toHaveClass(/live/);
+  await expect(page.locator('.turn-steps')).toHaveAttribute('open', '');
+
+  await chat.send({
+    type: 'transcript',
+    messages: [
+      { id: 'm_run', type: 'assistant', time: { created: 100, completed: 200 }, content: tools },
+      { id: 'm_idle', type: 'idle', outcome: 'succeeded' },
+    ],
+    inbox: [],
+    states: [],
+  });
+  await expect(page.locator('.turn-steps')).not.toHaveClass(/live/);
+  await expect(page.locator('.turn-steps')).not.toHaveAttribute('open', '');
+});

@@ -1,0 +1,235 @@
+/* ==========================================================================
+   Permission Approval Cards, Smart Review Badges & Elicitation Question Forms
+   ========================================================================== */
+
+.permission {
+  margin: 6px 0;
+  padding: 8px;
+  border: 1px solid var(--oc-border);
+  border-radius: 8px;
+  background: var(--oc-input-bg);
+}
+
+.smart-review-history { margin: 6px 2px; color: var(--oc-secondary); font-size: 12px; }
+.smart-review-history > summary { padding: 4px 0; cursor: pointer; }
+.smart-review-history > .body { padding-left: 16px; }
+.tool-entry > .smart-review { margin-block: 6px; }
+
+.permission-title {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.permission-tool {
+  color: var(--oc-secondary);
+  font-family: var(--oc-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.permission-operation { margin-top: 6px; font-weight: 600; }
+.permission-files { margin: 8px 0; padding: 0; list-style: none; overflow-wrap: anywhere; }
+.permission-files > li { margin: 4px 0; }
+.permission-file > summary { padding: 3px 0; cursor: pointer; list-style: none; }
+.permission-file > summary::-webkit-details-marker { display: none; }
+.permission-file > summary::before {
+  display: inline-block;
+  width: 12px;
+  flex: none;
+  margin-right: 6px;
+  content: "›";
+  font-size: 16px;
+  line-height: 1;
+  text-align: center;
+  transition: transform 0.15s;
+}
+.permission-file[open] > summary::before { transform: rotate(90deg); }
+.permission-file-path { font-family: var(--oc-mono); }
+.permission-file .permission-preview { margin: 6px 0 0 16px; }
+.permission-file .tool-diff { margin: 0; border-radius: 6px; overflow: hidden; }
+.permission-file .result-toolbar strong { display: none; }
+.permission-file-action, .permission-directory { color: var(--oc-secondary); }
+.permission-directory { overflow-wrap: anywhere; }
+.permission-preview { margin-top: 8px; }
+.permission-preview .result-scroll { max-height: none; overflow-x: auto; }
+.permission-input { margin-top: 8px; }
+.permission-input summary { cursor: pointer; color: var(--oc-secondary); }
+.permission-input pre, .permission-command, .permission-rule-preview {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--oc-mono);
+  font-size: 11px;
+}
+
+.permission-reason { color: var(--oc-secondary); overflow-wrap: anywhere; margin-bottom: 8px; }
+.permission-remember { margin-top: 8px; }
+.permission-remember summary { cursor: pointer; }
+.permission-remember select { display: block; max-width: 100%; margin: 6px 0; }
+.permission-remember button { cursor: pointer; padding: 4px 8px; }
+.permission-save-status[role="alert"] { color: var(--vscode-errorForeground); }
+.permission-rules-link { background: none; border: none; color: var(--vscode-textLink-foreground); cursor: pointer; font-size: 11px; }
+
+.permission-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.permission-actions button {
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--oc-border);
+  color: var(--vscode-foreground);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.permission-actions button.allow {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  box-shadow: none;
+  font-weight: 600;
+}
+
+.permission-actions button.allow:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.permission-actions button.reject {
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+
+.permission-actions button.reject:hover {
+  background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.12));
+}
+
+.permission-actions button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.permission-note {
+  margin-top: 8px;
+  color: var(--oc-secondary);
+  font-size: 11px;
+}
+
+/* Elicitation (agent question) */
+
+.elicitation {
+  margin: 6px 0;
+  padding: 8px;
+  border: 1px solid var(--oc-border);
+  border-radius: 8px;
+  background: var(--oc-input-bg);
+}
+
+.elicitation-message {
+  margin-bottom: 8px;
+  font-weight: 600;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.elicitation-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.elicitation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.elicitation-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.elicitation-question {
+  font-size: inherit;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.elicitation-description {
+  color: var(--oc-secondary);
+  font-size: 11px;
+}
+
+.elicitation-input {
+  padding: 4px 6px;
+  border: 1px solid var(--oc-border);
+  border-radius: 4px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+}
+
+.elicitation-options {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.elicitation-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.elicitation-option:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.elicitation-choice {
+  flex: none;
+  margin: 3px 0 0;
+  accent-color: var(--vscode-focusBorder);
+  cursor: pointer;
+}
+
+.elicitation-radio {
+  display: inline-flex;
+  flex: none;
+  margin-top: 3px;
+  border-radius: 50%;
+}
+
+.elicitation-radio > input {
+  margin: 0;
+  background: transparent;
+  /* Chromium ignores border-radius on native radios. Clip the backing only;
+     draw the focus ring on the round wrapper instead. */
+  clip-path: circle(50%);
+}
+
+.elicitation-radio > input:focus {
+  outline: none;
+}
+
+.elicitation-radio:focus-within {
+  box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+}
+
+.elicitation-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.elicitation-option-label {
+  overflow-wrap: anywhere;
+}

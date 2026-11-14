@@ -1,38 +1,31 @@
 'use strict';
 
-const fs = require('node:fs');
+/**
+ * @file Extension entry point (`activate` / `deactivate`).
+ *
+ * Wires core services (`OpenCodeApi`, `PermissionService`, `ArchiveService`,
+ * `OpenCodeSync`, `PlanDocuments`, `SessionsProvider`, `SessionsSidebar`,
+ * `SessionEditors`), session panel lifecycle, and workspace event listeners.
+ * Interactive command handlers live in `./commands.js`.
+ */
+
 const path = require('node:path');
 const vscode = require('vscode');
 const { OpenCodeApi } = require('./api');
-const { SessionsProvider, sessionTitle } = require('./sessions-view');
+const { SessionsProvider } = require('./sessions-view');
 const { SessionFolders } = require('./session-folders');
 const { SessionPanel } = require('./session-panel');
 const { SessionEditors } = require('./session-editor');
 const { PlanDocuments } = require('./plan-documents');
 const { SessionContinuation } = require('./session-continuation');
 const { OpenCodeSync } = require('./opencode-sync');
-const { selectDefaultModel } = require('./model-defaults');
 const { resolveCommand } = require('./util');
 const { PermissionService } = require('./permission-service');
 const { ArchiveService } = require('./archive-service');
 const { SessionsSidebar } = require('./sessions-sidebar');
-const { agentLabel } = require('./agent-label');
+const { createCommandHandlers } = require('./commands');
 
 const VIEW_ID = 'opencode.sessions';
-
-function isFolderNode(node) {
-  return Boolean(node) && node.kind === 'folder';
-}
-
-function isSessionNode(node) {
-  return Boolean(node) && node.kind !== 'folder' && typeof node.id === 'string';
-}
-
-function sessionFrom(item) {
-  if (!item) return null;
-  if (item.session && item.session.id) return item.session;
-  return isSessionNode(item) ? item : null;
-}
 
 function activate(context) {
   const output = vscode.window.createOutputChannel('OpenCode');
@@ -56,14 +49,16 @@ function activate(context) {
   };
 
   const api = new OpenCodeApi({ command: getConfig().command, log });
-  const continuations = new SessionContinuation(context.globalStorageUri?.fsPath
-    ? path.join(context.globalStorageUri.fsPath, 'continuations') : null);
+  const continuations = new SessionContinuation(
+    context.globalStorageUri?.fsPath
+      ? path.join(context.globalStorageUri.fsPath, 'continuations')
+      : null
+  );
   const permissions = new PermissionService({ vscode, api, command: getConfig().command, log });
   const archive = new ArchiveService({ api, command: getConfig().command, log });
   const sync = new OpenCodeSync({ vscode, command: getConfig().command, log });
   const planDocuments = new PlanDocuments({ vscode, extensionUri: context.extensionUri, log });
-  context.subscriptions.push(sync);
-  context.subscriptions.push(planDocuments);
+  context.subscriptions.push(sync, planDocuments);
   sync.start().catch((error) => {
     log(`Settings sync failed to start: ${error.stack || error.message}`);
   });
@@ -74,62 +69,45 @@ function activate(context) {
   }
 
   function getCwd() {
-    const folders = vscode.workspace.workspaceFolders;
-    if (folders && folders.length > 0) {
+    const foldersList = vscode.workspace.workspaceFolders;
+    if (foldersList && foldersList.length > 0) {
       const activeUri = getActiveFileUri();
-      if (activeUri && folders.length > 1) {
+      if (activeUri && foldersList.length > 1) {
         const folder = vscode.workspace.getWorkspaceFolder(activeUri);
         if (folder) return folder.uri.fsPath;
       }
-      return folders[0].uri.fsPath;
+      return foldersList[0].uri.fsPath;
     }
     const activeUri = getActiveFileUri();
     return activeUri ? path.dirname(activeUri.fsPath) : null;
   }
 
-  const folders = new SessionFolders(context.globalState);
   function defaultAgent(cwd) {
     const uri = cwd ? vscode.Uri.file(cwd) : undefined;
-    return vscode.workspace.getConfiguration('opencodeSessions', uri).get('defaultAgent', '') ||
-      vscode.workspace.getConfiguration('opencode', uri).get('default_agent', 'build') || 'build';
+    return (
+      vscode.workspace.getConfiguration('opencodeSessions', uri).get('defaultAgent', '') ||
+      vscode.workspace.getConfiguration('opencode', uri).get('default_agent', 'build') ||
+      'build'
+    );
   }
-  const provider = new SessionsProvider(api, getCwd, log, folders);
-  const sidebar = new SessionsSidebar({ vscode, extensionUri: context.extensionUri,
-    api, provider, getCwd, defaultAgent, setDefaultAgent, log, moveToFolder: moveSessionToFolder,
-    actions: { openSession, newSession, renameSession, deleteSession, archiveSession,
-      restoreSession, moveSessionTo, deleteFolder, showLog: () => output.show(true) } });
-  context.subscriptions.push(provider,
-    vscode.window.registerWebviewViewProvider(VIEW_ID, sidebar, { webviewOptions: { retainContextWhenHidden: true } }));
 
+  const folders = new SessionFolders(context.globalState);
+  const provider = new SessionsProvider(api, getCwd, log, folders);
   const panels = new Map();
   const allPanels = new Set();
   const archiveFinalizations = new Map();
-  context.subscriptions.push(provider.onDidChangeTreeData(() => {
-    sidebar.view?.webview.postMessage({ type: 'sessions', items: sidebar.tree() });
-    // The list can receive a generated title before (or without) an ACP title event.
-    const pending = [...provider.getChildren()];
-    const seen = new Set();
-    while (pending.length) {
-      const item = pending.pop();
-      if (!item.id || seen.has(item.id)) continue;
-      seen.add(item.id);
-      if (item.kind !== 'folder') {
-        panels.get(item.id)?.applyTitle(item.title);
-        panels.get(item.id)?.setArchived(provider.isArchived(item.id));
-      }
-      pending.push(...provider.getChildren(item));
-    }
-  }));
+  let sidebar = null;
+  let editors = null;
   let refreshTimer = null;
 
   function updateViewDescription() {
     const cwd = getCwd();
-    sidebar.description = cwd ? path.basename(cwd) : undefined;
+    if (sidebar) sidebar.description = cwd ? path.basename(cwd) : undefined;
   }
 
   async function refreshSessions() {
     updateViewDescription();
-    await sidebar.refresh();
+    if (sidebar) await sidebar.refresh();
   }
 
   function scheduleRefresh() {
@@ -158,6 +136,72 @@ function activate(context) {
     }
   }
 
+  async function setArchivedState(sessionId, archived, options = {}) {
+    const panel = panels.get(sessionId);
+    panel?.setArchived(archived);
+    if (typeof options.archiveFinalizing === 'boolean') {
+      panel?.setArchiveFinalizing(options.archiveFinalizing);
+    }
+    await editors.setArchived(sessionId, archived, options);
+  }
+
+  async function setArchiveFinalizing(sessionId, finalizing) {
+    panels.get(sessionId)?.setArchiveFinalizing(finalizing);
+    await editors.setArchiveFinalizing(sessionId, finalizing);
+  }
+
+  function trackArchiveFinalization(sessionId, cwd, completion, notify = true) {
+    const marker = {};
+    archiveFinalizations.set(sessionId, marker);
+    void Promise.resolve(completion).then(
+      async (result) => {
+        if (archiveFinalizations.get(sessionId) !== marker) return;
+        archiveFinalizations.delete(sessionId);
+        await setArchiveFinalizing(sessionId, false);
+        if (result?.state === 'failed') {
+          const detail = result.error || 'Unknown error';
+          log(`Archive finalization failed for ${sessionId}: ${detail}`);
+          if (notify) vscode.window.showWarningMessage(`Session archived, but finalization failed: ${detail}`);
+        }
+        scheduleRefresh();
+      },
+      async (error) => {
+        if (archiveFinalizations.get(sessionId) !== marker) return;
+        archiveFinalizations.delete(sessionId);
+        await setArchiveFinalizing(sessionId, false);
+        log(`Archive finalization failed for ${sessionId}: ${error.stack || error.message}`);
+        if (notify) vscode.window.showWarningMessage(`Session archived, but finalization failed: ${error.message}`);
+      }
+    );
+  }
+
+  async function beginArchive(sessionId, cwd) {
+    const { finalization } = await archive.archive(sessionId, cwd);
+    await setArchivedState(sessionId, true, { archiveFinalizing: true });
+    trackArchiveFinalization(sessionId, cwd, finalization);
+  }
+
+  async function reconcileArchiveFinalization(sessionId, cwd) {
+    if (archiveFinalizations.has(sessionId)) return;
+    try {
+      const state = await archive.getFinalization(sessionId, cwd);
+      if (state?.state === 'pending') {
+        await setArchiveFinalizing(sessionId, true);
+        trackArchiveFinalization(
+          sessionId,
+          cwd,
+          archive.waitForFinalization(sessionId, cwd, state),
+          false
+        );
+      } else {
+        await setArchiveFinalizing(sessionId, false);
+      }
+    } catch (error) {
+      await setArchiveFinalizing(sessionId, false);
+      log(`Cannot read archive finalization for ${sessionId}: ${error.message}`);
+    }
+  }
+
   const deps = {
     extensionUri: context.extensionUri,
     workspaceState: context.workspaceState,
@@ -174,7 +218,7 @@ function activate(context) {
         if (panel !== source) panel.refreshRecentModels();
       }
     },
-    openSession: (sessionId, cwd) => openSession(sessionId, cwd),
+    openSession: (sessionId, cwd) => handlers.openSession(sessionId, cwd),
     planDocuments,
     async onSessionCreated(panel, sessionId, cwd) {
       log(`Session created: ${sessionId} (${cwd})`);
@@ -199,11 +243,16 @@ function activate(context) {
     },
     onSessionTitle(id, title) {
       return editors.setTitle(id, title).catch((error) =>
-        log(`Cannot store session title ${id}: ${error.message}`));
+        log(`Cannot store session title ${id}: ${error.message}`)
+      );
     },
   };
 
-  const editors = new SessionEditors({ vscode, context, api, log,
+  editors = new SessionEditors({
+    vscode,
+    context,
+    api,
+    log,
     createPanel({ panel, title, ...options }) {
       panel.webview.options = {
         enableScripts: true,
@@ -220,402 +269,107 @@ function activate(context) {
     },
   });
 
-  // A restored background editor keeps its opening title snapshot until a
-  // panel exists. Refresh the snapshots once VS Code has restored the editors.
+  // Command handlers must be created AFTER `editors` exists: they receive it
+  // through plain destructuring, which captures the value once (a getter in
+  // the object literal would not help). Everything else they capture is
+  // created or hoisted above this point. Caught by test/extension.js.
+  const handlers = createCommandHandlers({
+    vscode,
+    api,
+    sync,
+    permissions,
+    folders,
+    provider,
+    panels,
+    editors,
+    getCwd,
+    defaultAgent,
+    refreshSessions,
+    beginArchive,
+    setArchivedState,
+    archiveFinalizations,
+    log,
+  });
+
+  sidebar = new SessionsSidebar({
+    vscode,
+    extensionUri: context.extensionUri,
+    api,
+    provider,
+    getCwd,
+    defaultAgent,
+    setDefaultAgent: handlers.setDefaultAgent,
+    log,
+    moveToFolder: handlers.moveSessionToFolder,
+    actions: {
+      openSession: handlers.openSession,
+      newSession: handlers.newSession,
+      renameSession: handlers.renameSession,
+      deleteSession: handlers.deleteSession,
+      archiveSession: handlers.archiveSession,
+      restoreSession: handlers.restoreSession,
+      moveSessionTo: handlers.moveSessionTo,
+      deleteFolder: handlers.deleteFolder,
+      showLog: () => output.show(true),
+    },
+  });
+
+  context.subscriptions.push(
+    provider,
+    vscode.window.registerWebviewViewProvider(VIEW_ID, sidebar, {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
+  );
+
+  context.subscriptions.push(
+    provider.onDidChangeTreeData(() => {
+      sidebar.view?.webview.postMessage({ type: 'sessions', items: sidebar.tree() });
+      // The list can receive a generated title before (or without) an ACP title event.
+      const pending = [...provider.getChildren()];
+      const seen = new Set();
+      while (pending.length) {
+        const item = pending.pop();
+        if (!item.id || seen.has(item.id)) continue;
+        seen.add(item.id);
+        if (item.kind !== 'folder') {
+          panels.get(item.id)?.applyTitle(item.title);
+          panels.get(item.id)?.setArchived(provider.isArchived(item.id));
+        }
+        pending.push(...provider.getChildren(item));
+      }
+    })
+  );
+
+  // Refresh opening title snapshots once VS Code has restored background editors.
   const tabTitleTimer = setTimeout(() => {
     editors.refreshTabTitles().catch((error) =>
-      log(`Cannot refresh session tab titles: ${error.message}`));
+      log(`Cannot refresh session tab titles: ${error.message}`)
+    );
   }, 1000);
   tabTitleTimer.unref?.();
   context.subscriptions.push({ dispose: () => clearTimeout(tabTitleTimer) });
 
-  function openSession(sessionOrItem, cwdHint) {
-    const session =
-      sessionOrItem && sessionOrItem.session ? sessionOrItem.session : sessionOrItem;
-    if (!session) return;
+  const withSidebarContext = (handler) => (item, ...args) =>
+    handler(sidebar.resolveContext(item) || item, ...args);
 
-    const sessionId = typeof session === 'string' ? session : session.id;
-    if (!sessionId) return;
-
-    const existing = panels.get(sessionId);
-    if (existing) {
-      if (session.title) existing.applyTitle(session.title);
-      existing.reveal();
-      return;
-    }
-
-    const cwd =
-      cwdHint ||
-      (session.location && session.location.directory) ||
-      getCwd();
-    if (!cwd) {
-      vscode.window.showWarningMessage('Open a workspace folder first.');
-      return;
-    }
-
-    return editors.open(sessionId, cwd, session.title, { archived: provider.isArchived(sessionId) });
-  }
-
-  async function setArchivedState(sessionId, archived, options = {}) {
-    const panel = panels.get(sessionId);
-    panel?.setArchived(archived);
-    if (typeof options.archiveFinalizing === 'boolean') {
-      panel?.setArchiveFinalizing(options.archiveFinalizing);
-    }
-    await editors.setArchived(sessionId, archived, options);
-  }
-
-  async function setArchiveFinalizing(sessionId, finalizing) {
-    panels.get(sessionId)?.setArchiveFinalizing(finalizing);
-    await editors.setArchiveFinalizing(sessionId, finalizing);
-  }
-
-  function trackArchiveFinalization(sessionId, cwd, completion, notify = true) {
-    const marker = {};
-    archiveFinalizations.set(sessionId, marker);
-    void Promise.resolve(completion).then(async (result) => {
-      if (archiveFinalizations.get(sessionId) !== marker) return;
-      archiveFinalizations.delete(sessionId);
-      await setArchiveFinalizing(sessionId, false);
-      if (result?.state === 'failed') {
-        const detail = result.error || 'Unknown error';
-        log(`Archive finalization failed for ${sessionId}: ${detail}`);
-        if (notify) vscode.window.showWarningMessage(`Session archived, but finalization failed: ${detail}`);
-      }
-      scheduleRefresh();
-    }, async (error) => {
-      if (archiveFinalizations.get(sessionId) !== marker) return;
-      archiveFinalizations.delete(sessionId);
-      await setArchiveFinalizing(sessionId, false);
-      log(`Archive finalization failed for ${sessionId}: ${error.stack || error.message}`);
-      if (notify) vscode.window.showWarningMessage(`Session archived, but finalization failed: ${error.message}`);
-    });
-  }
-
-  async function beginArchive(sessionId, cwd) {
-    const { finalization } = await archive.archive(sessionId, cwd);
-    await setArchivedState(sessionId, true, { archiveFinalizing: true });
-    trackArchiveFinalization(sessionId, cwd, finalization);
-  }
-
-  async function reconcileArchiveFinalization(sessionId, cwd) {
-    if (archiveFinalizations.has(sessionId)) return;
-    try {
-      const state = await archive.getFinalization(sessionId, cwd);
-      if (state?.state === 'pending') {
-        await setArchiveFinalizing(sessionId, true);
-        trackArchiveFinalization(sessionId, cwd,
-          archive.waitForFinalization(sessionId, cwd, state), false);
-      } else {
-        await setArchiveFinalizing(sessionId, false);
-      }
-    } catch (error) {
-      await setArchiveFinalizing(sessionId, false);
-      log(`Cannot read archive finalization for ${sessionId}: ${error.message}`);
-    }
-  }
-
-  async function newSession() {
-    const cwd = getCwd();
-    if (!cwd) {
-      vscode.window.showWarningMessage('Open a workspace folder first.');
-      return;
-    }
-    return editors.open(null, cwd);
-  }
-
-  async function selectDefaultAgent() {
-    const cwd = getCwd();
-    if (!cwd) return;
-    try {
-      const agents = await api.listAgents(cwd);
-      const selected = await vscode.window.showQuickPick(agents
-        .filter((agent) => !agent.hidden && ['primary', 'all'].includes(agent.mode))
-        .map((agent) => ({ label: agentLabel(agent.id, agent.name), agentID: agent.id, description: agent.description,
-          picked: agent.id === defaultAgent(cwd) })),
-      { title: 'Agent for new sessions', placeHolder: 'Existing sessions keep their agent' });
-      if (!selected) return;
-      await setDefaultAgent(selected.agentID);
-      await refreshSessions();
-    } catch (error) {
-      vscode.window.showErrorMessage(`Failed to select agent: ${error.message}`);
-    }
-  }
-
-  async function chooseDefaultModel() {
-    try {
-      await selectDefaultModel({ vscode, api, cwd: getCwd() || undefined, log });
-    } catch (error) {
-      vscode.window.showErrorMessage(`Failed to select model: ${error.message}`);
-    }
-  }
-
-  async function setDefaultAgent(id) {
-    const cwd = getCwd();
-    if (!cwd) throw new Error('Open a workspace folder first.');
-    const agents = await api.listAgents(cwd);
-    if (!agents.some((agent) => agent.id === id && !agent.hidden && ['primary', 'all'].includes(agent.mode))) {
-      throw new Error('This agent is not available for new sessions.');
-    }
-    const uri = vscode.Uri.file(cwd);
-    const target = vscode.workspace.getWorkspaceFolder(uri)
-      ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Global;
-    await vscode.workspace.getConfiguration('opencodeSessions', uri).update('defaultAgent', id, target);
-  }
-
-  async function deleteSession(sessionOrItem) {
-    const session =
-      sessionOrItem && sessionOrItem.session ? sessionOrItem.session : sessionOrItem;
-    if (!session || !session.id) return;
-
-    const title = sessionTitle(session);
-    const answer = await vscode.window.showWarningMessage(
-      `Delete session "${title}"?`,
-      {
-        modal: true,
-        detail: 'The session and all its child sessions will be permanently deleted.',
-      },
-      'Delete'
-    );
-    if (answer !== 'Delete') return;
-
-    const panel = panels.get(session.id);
-    if (panel) panel.dispose();
-
-    try {
-      await api.deleteSession(session.id);
-      log(`Deleted session: ${session.id}`);
-      await refreshSessions();
-    } catch (error) {
-      log(`Failed to delete session ${session.id}: ${error.stack || error.message}`);
-      vscode.window.showErrorMessage(`Failed to delete session: ${error.message}`);
-    }
-  }
-
-  async function newFolder() {
-    const cwd = getCwd();
-    if (!cwd) {
-      vscode.window.showWarningMessage('Open a workspace folder first.');
-      return;
-    }
-    const name = await vscode.window.showInputBox({
-      title: 'New Folder',
-      prompt: 'Folder name for sessions',
-      placeHolder: 'e.g. Frontend',
-      validateInput: (value) => folders.validate(cwd, value),
-    });
-    if (name === undefined) return;
-    try {
-      folders.add(cwd, name);
-    } catch (error) {
-      vscode.window.showErrorMessage(`Failed to create folder: ${error.message}`);
-      return;
-    }
-    await refreshSessions();
-  }
-
-  async function deleteFolder(item) {
-    const cwd = getCwd();
-    if (!cwd) {
-      vscode.window.showWarningMessage('Open a workspace folder first.');
-      return;
-    }
-    const group = item && item.folder ? item.folder : item;
-    if (!isFolderNode(group) || group.system !== 'custom') return;
-
-    const answer = await vscode.window.showWarningMessage(
-      `Delete folder "${group.name}"?`,
-      {
-        modal: true,
-        detail:
-          'Sessions in this folder move to Ungrouped. The sessions themselves are not deleted.',
-      },
-      'Delete'
-    );
-    if (answer !== 'Delete') return;
-
-    folders.remove(cwd, group.id);
-    log(`Deleted session folder: ${group.name}`);
-    await refreshSessions();
-  }
-
-  async function renameSession(item) {
-    const session = sessionFrom(item);
-    if (!session) return;
-    const current = sessionTitle(session);
-
-    const title = await vscode.window.showInputBox({
-      title: 'Rename Session',
-      prompt: 'Session title',
-      value: current,
-      validateInput: (value) =>
-        String(value || '').trim() ? null : 'Title cannot be empty.',
-    });
-    if (title === undefined) return;
-    const value = String(title).trim();
-    if (!value || value === current) return;
-
-    try {
-      await api.updateSession(session.id, { title: value });
-    } catch (error) {
-      log(`Failed to rename session ${session.id}: ${error.stack || error.message}`);
-      vscode.window.showErrorMessage(`Failed to rename session: ${error.message}`);
-      return;
-    }
-
-    log(`Renamed session ${session.id} to "${value}"`);
-    const panel = panels.get(session.id);
-    if (panel) panel.applyTitle(value);
-    await refreshSessions();
-  }
-
-  async function archiveSession(item) {
-    const session = sessionFrom(item);
-    if (!session) return;
-    try {
-      const cwd = session.location?.directory || getCwd();
-      await beginArchive(session.id, cwd);
-    } catch (error) {
-      log(`Failed to archive session ${session.id}: ${error.stack || error.message}`);
-      vscode.window.showErrorMessage(`Failed to archive session: ${error.message}`);
-      return;
-    }
-    log(`Archived session: ${session.id}`);
-    await refreshSessions();
-  }
-
-  async function restoreSession(item) {
-    const session = sessionFrom(item);
-    if (!session) return;
-    try {
-      archiveFinalizations.delete(session.id);
-      await api.updateSession(session.id, { archived: false });
-      await setArchivedState(session.id, false);
-    } catch (error) {
-      log(`Failed to restore session ${session.id}: ${error.stack || error.message}`);
-      vscode.window.showErrorMessage(`Failed to restore session: ${error.message}`);
-      return;
-    }
-    log(`Restored session: ${session.id}`);
-    await refreshSessions();
-  }
-
-  async function moveSessionToFolder(session, folderId) {
-    const target = String(folderId || '');
-    const wasArchived = provider.isArchived(session.id);
-    const willArchive = target === 'archived';
-    try {
-      if (!wasArchived && willArchive) {
-        if (!provider.hasFolder(target)) return;
-        const cwd = session.location?.directory || getCwd();
-        if (!cwd) return;
-        await beginArchive(session.id, cwd);
-      } else {
-        if (wasArchived) archiveFinalizations.delete(session.id);
-        const moved = await provider.moveSession(session.id, target);
-        if (!moved) return;
-        if (wasArchived) await setArchivedState(session.id, false);
-      }
-    } catch (error) {
-      log(`Failed to move session ${session.id}: ${error.stack || error.message}`);
-      vscode.window.showErrorMessage(`Failed to move session: ${error.message}`);
-      return;
-    }
-    log(`Moved session ${session.id} to ${target}`);
-    await refreshSessions();
-  }
-
-  async function moveSessionTo(item) {
-    const session = sessionFrom(item);
-    if (!session) return;
-    const current = provider.folderIdOf(session.id);
-    const choices = provider
-      .folderChoices()
-      .filter((choice) => choice.folderId !== current);
-    if (choices.length === 0) return;
-
-    const picked = await vscode.window.showQuickPick(choices, {
-      title: 'Move to',
-      placeHolder: `Move "${sessionTitle(session)}" to folder`,
-    });
-    if (!picked) return;
-    await moveSessionToFolder(session, picked.folderId);
-  }
-
-  async function openSettings() {
-    await vscode.commands.executeCommand(
-      'workbench.action.openSettings',
-      '@ext:abyss7.opencode-sessions'
-    );
-  }
-
-  function ensureConfigFile(file) {
-    if (fs.existsSync(file)) return;
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(
-      file,
-      '{\n  "$schema": "https://opencode.ai/config.json"\n}\n',
-      'utf8'
-    );
-  }
-
-  async function openConfigFile(file) {
-    if (!file) {
-      vscode.window.showWarningMessage('OpenCode configuration file was not found.');
-      return;
-    }
-    ensureConfigFile(file);
-    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
-    await vscode.window.showTextDocument(document);
-  }
-
-  async function openGlobalConfig() {
-    await sync.start();
-    await openConfigFile(sync.globalConfigFile());
-  }
-
-  async function openProjectConfig() {
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders || folders.length === 0) {
-      vscode.window.showWarningMessage('Open a workspace folder first.');
-      return;
-    }
-    let folder = folders[0];
-    if (folders.length > 1) {
-      const picked = await vscode.window.showQuickPick(
-        folders.map((entry) => ({ label: entry.name, folder: entry })),
-        { placeHolder: 'Select a workspace folder' }
-      );
-      if (!picked) return;
-      folder = picked.folder;
-    }
-    await openConfigFile(sync.projectConfigFile(folder.uri) || path.join(folder.uri.fsPath, 'opencode.jsonc'));
-  }
-
-  const withSidebarContext = (handler) => (item, ...args) => handler(sidebar.resolveContext(item) || item, ...args);
   context.subscriptions.push(
-    vscode.commands.registerCommand('opencode.newSession', newSession),
-    vscode.commands.registerCommand('opencode.selectDefaultAgent', selectDefaultAgent),
-    vscode.commands.registerCommand('opencode.selectDefaultModel', chooseDefaultModel),
+    vscode.commands.registerCommand('opencode.newSession', handlers.newSession),
+    vscode.commands.registerCommand('opencode.selectDefaultAgent', handlers.selectDefaultAgent),
+    vscode.commands.registerCommand('opencode.selectDefaultModel', handlers.chooseDefaultModel),
     vscode.commands.registerCommand('opencode.refreshSessions', refreshSessions),
-    vscode.commands.registerCommand('opencode.openSession', withSidebarContext(openSession)),
-    vscode.commands.registerCommand('opencode.deleteSession', withSidebarContext(deleteSession)),
-    vscode.commands.registerCommand('opencode.newFolder', newFolder),
-    vscode.commands.registerCommand('opencode.deleteFolder', withSidebarContext(deleteFolder)),
-    vscode.commands.registerCommand('opencode.renameSession', withSidebarContext(renameSession)),
-    vscode.commands.registerCommand('opencode.archiveSession', withSidebarContext(archiveSession)),
-    vscode.commands.registerCommand('opencode.restoreSession', withSidebarContext(restoreSession)),
-    vscode.commands.registerCommand('opencode.moveSessionTo', withSidebarContext(moveSessionTo)),
+    vscode.commands.registerCommand('opencode.openSession', withSidebarContext(handlers.openSession)),
+    vscode.commands.registerCommand('opencode.deleteSession', withSidebarContext(handlers.deleteSession)),
+    vscode.commands.registerCommand('opencode.newFolder', handlers.newFolder),
+    vscode.commands.registerCommand('opencode.deleteFolder', withSidebarContext(handlers.deleteFolder)),
+    vscode.commands.registerCommand('opencode.renameSession', withSidebarContext(handlers.renameSession)),
+    vscode.commands.registerCommand('opencode.archiveSession', withSidebarContext(handlers.archiveSession)),
+    vscode.commands.registerCommand('opencode.restoreSession', withSidebarContext(handlers.restoreSession)),
+    vscode.commands.registerCommand('opencode.moveSessionTo', withSidebarContext(handlers.moveSessionTo)),
     vscode.commands.registerCommand('opencode.showLog', () => output.show(true)),
-    vscode.commands.registerCommand('opencode.openSettings', openSettings),
-    vscode.commands.registerCommand('opencode.openGlobalConfig', openGlobalConfig),
-    vscode.commands.registerCommand('opencode.openPermissionRules', async () => {
-      const cwd = getCwd();
-      if (!cwd) { vscode.window.showWarningMessage('Open a workspace folder first.'); return; }
-      try { await permissions.openRules(cwd); }
-      catch (error) { vscode.window.showErrorMessage(`Cannot open permission rules: ${error.message}`); }
-    }),
-    vscode.commands.registerCommand('opencode.openProjectConfig', openProjectConfig)
+    vscode.commands.registerCommand('opencode.openSettings', handlers.openSettings),
+    vscode.commands.registerCommand('opencode.openGlobalConfig', handlers.openGlobalConfig),
+    vscode.commands.registerCommand('opencode.openPermissionRules', handlers.openPermissionRules),
+    vscode.commands.registerCommand('opencode.openProjectConfig', handlers.openProjectConfig)
   );
 
   context.subscriptions.push(

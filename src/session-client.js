@@ -1,5 +1,14 @@
 'use strict';
 
+/**
+ * @file Native server-backed session client (`SessionClient`).
+ *
+ * Subscribes to server SSE events (`ServerEvents`), reconciles authoritative
+ * message/inbox/permission/form snapshots, and manages prompt admission with
+ * idempotent message IDs. Pure payload/schema translation lives in
+ * `./session-protocol.js`.
+ */
+
 const { EventEmitter } = require('node:events');
 const { randomUUID } = require('node:crypto');
 const { ServerEvents } = require('./server-events');
@@ -7,156 +16,20 @@ const { sessionActivity } = require('./session-activity');
 const { nativeDiffs } = require('./native-diffs');
 const { parseModelRef } = require('./usage');
 const { modelRefString } = require('./model-ref');
-const { backgroundRun, active: backgroundActive } = require('./background-runs');
+const { active: backgroundActive } = require('./background-runs');
 const { CommandProgress } = require('./command-progress');
+const {
+  messageID,
+  promptFileAttachment,
+  promptSkillAttachment,
+  promptAgentAttachment,
+  toolKind,
+  toolUpdate,
+  formSchema,
+  formAnswer,
+} = require('./session-protocol');
 
-const messageID = () => `msg_${randomUUID().replaceAll('-', '')}`;
 const unwrap = (value) => value?.data ?? value;
-
-function promptFileAttachment(file) {
-  if (!file || typeof file !== 'object') return null;
-  const uri = typeof file.uri === 'string' && file.uri
-    ? file.uri
-    : file.source?.type === 'uri' && typeof file.source.uri === 'string' && file.source.uri
-      ? file.source.uri
-      : typeof file.mime === 'string' && file.mime && typeof file.data === 'string' && file.data
-        ? `data:${file.mime};base64,${file.data}`
-        : '';
-  if (!uri) return null;
-  const out = { uri };
-  if (file.source && typeof file.source === 'object') out.source = file.source;
-  if (typeof file.name === 'string') out.name = file.name;
-  if (typeof file.description === 'string') out.description = file.description;
-  if (file.mention && typeof file.mention === 'object') out.mention = file.mention;
-  return out;
-}
-
-function promptSkillAttachment(skill) {
-  if (!skill || typeof skill !== 'object') return null;
-  const id = typeof skill.id === 'string' && skill.id
-    ? skill.id
-    : typeof skill.name === 'string' && skill.name
-      ? skill.name
-      : '';
-  if (!id) return null;
-  const out = { id };
-  if (skill.mention && typeof skill.mention === 'object') out.mention = skill.mention;
-  return out;
-}
-
-function promptAgentAttachment(agent) {
-  if (!agent || typeof agent !== 'object' || typeof agent.name !== 'string' || !agent.name) return null;
-  const out = { name: agent.name };
-  if (agent.mention && typeof agent.mention === 'object') out.mention = agent.mention;
-  return out;
-}
-
-function toolUpdate(part) {
-  const state = part.state || {};
-  const content = (state.content || []).flatMap((item) => {
-    if (item.type === 'text') return [{ type: 'content', content: { type: 'text', text: item.text } }];
-    if (item.type === 'file' && /^data:image\//.test(item.uri)) {
-      const match = /^data:([^;]+);base64,(.*)$/s.exec(item.uri);
-      if (match) return [{ type: 'content', content: { type: 'image', mimeType: match[1], data: match[2] } }];
-    }
-    if (item.type === 'file') return [{ type: 'content', content: {
-      type: 'resource_link', uri: item.uri, mimeType: item.mime, name: item.name || 'File',
-    } }];
-    return [];
-  });
-  if (state.error) content.push({ type: 'content', content: {
-    type: 'text', text: state.error.message || JSON.stringify(state.error),
-  } });
-  content.push(...(part.diffs || []));
-  if (!part.diffs?.length) {
-    for (const file of state.metadata?.files || []) {
-      if (typeof file.patch === 'string') content.push({ type: 'content', content: { type: 'text', text: file.patch } });
-    }
-  }
-  return { sessionUpdate: 'tool_call_update', toolCallId: part.id,
-    title: state.metadata?.title || part.name, kind: toolKind(part.name),
-    status: state.status === 'error' ? 'failed' : state.status === 'completed' ? 'completed' : 'in_progress',
-    background: backgroundRun(part),
-    rawInput: state.input, rawOutput: { metadata: state.metadata,
-      ...(state.error ? { error: state.error.message || JSON.stringify(state.error) } : {}) }, content };
-}
-
-function toolKind(name) {
-  if (/read|glob|grep/.test(name)) return 'read';
-  if (/edit|patch|write/.test(name)) return 'edit';
-  if (/shell|bash/.test(name)) return 'execute';
-  if (/fetch|search/.test(name)) return 'fetch';
-  return 'other';
-}
-
-function choiceOptions(options) {
-  return (options || []).map((option) => ({
-    const: option.value, title: option.label,
-    ...(option.description ? { description: option.description } : {}),
-  }));
-}
-
-function stringLimits(field) {
-  const limits = {};
-  if (field.format !== undefined) limits.format = field.format;
-  if (field.minLength !== undefined) limits.minLength = field.minLength;
-  if (field.maxLength !== undefined) limits.maxLength = field.maxLength;
-  if (field.pattern !== undefined) limits.pattern = field.pattern;
-  return limits;
-}
-
-// Mirror OpenCode's ACP elicitation schema: a native form select becomes a
-// oneOf/anyOf list, and `custom` adds the "type your own answer" input that the
-// question tool needs. Hidden and conditional fields cannot be represented.
-function formSchema(fields) {
-  const properties = {};
-  const required = [];
-  for (const field of fields || []) {
-    if (field.type === 'external' || field.hidden) continue;
-    const { key, options, hidden, when, custom, required: isRequired, ...schema } = field;
-    const choices = options?.length ? options : null;
-    if (field.type === 'multiselect') {
-      schema.type = 'array';
-      if (choices) schema.items = { anyOf: choiceOptions(choices) };
-      if (isRequired) schema.minItems = Math.max(field.minItems ?? 0, 1);
-    } else if (field.type === 'string' && choices) {
-      schema.oneOf = choiceOptions(choices);
-    }
-    properties[key] = schema;
-    if (isRequired) required.push(key);
-    // A required choice cannot be satisfied by a free-form answer alone.
-    if (custom && choices && !isRequired && (field.type === 'string' ||
-        field.type === 'multiselect' && field.minItems === undefined && field.maxItems === undefined)) {
-      properties[`${key}_custom`] = { type: 'string', title: 'Custom answer',
-        ...(field.type === 'string' ? stringLimits(field) : {}) };
-    }
-  }
-  return { type: 'object', properties, required };
-}
-
-// The schema sends free-form answers under `<key>_custom`; the server reads
-// them from the field itself. Hidden fields keep their defaults.
-function formAnswer(fields, content) {
-  const answer = { ...(content || {}) };
-  for (const field of fields || []) {
-    if (field.type === 'external') continue;
-    if (field.hidden) {
-      if (field.default === undefined) delete answer[field.key];
-      else answer[field.key] = field.default;
-      continue;
-    }
-    const key = `${field.key}_custom`;
-    if (!(key in answer)) continue;
-    const custom = answer[key];
-    delete answer[key];
-    if (typeof custom !== 'string' || custom.trim() === '') continue;
-    if (field.type === 'string') answer[field.key] = custom;
-    else if (field.type === 'multiselect') {
-      answer[field.key] = [...(Array.isArray(answer[field.key]) ? answer[field.key] : []), custom];
-    }
-  }
-  return answer;
-}
 
 // One server owns prompts, queued work, tools, permissions and cancellation.
 // Events invalidate snapshots; deltas are deliberately not appended on top of
@@ -432,10 +305,8 @@ class SessionClient extends EventEmitter {
   }
 
   /**
-   * A pending permission names the tool call that raised it, but the arguments
-   * live on that call, not in `permission.metadata`: shell, read and grep pass
-   * no metadata at all, so the card would otherwise show no command or context.
-   * Child sessions are not part of this transcript; read their message instead.
+   * Read arguments of the tool call that raised a pending permission request,
+   * including child sessions whose messages live outside this transcript.
    */
   async permissionInput(permission) {
     const source = permission?.source;
@@ -514,7 +385,6 @@ class SessionClient extends EventEmitter {
 
   async resend(id, payload) {
     // Native admission reconciles the same ID with queued or delivered work.
-    // Cancelled inbox entries are removed, so that ID can be admitted again.
     // Inbox items store parsed attachments (`{ data, mime, source }`, `{ id, name, text }`),
     // whereas `POST /prompt` requires `PromptInput` (`{ uri }`, `{ id }`).
     const files = Array.isArray(payload.files) ? payload.files.map(promptFileAttachment).filter(Boolean) : [];
@@ -557,11 +427,8 @@ class SessionClient extends EventEmitter {
     const [info, models, agents] = await Promise.all([
       this.api.getSession(this.sessionId), this.api.listModels(this.cwd), this.api.listAgents(this.cwd),
     ]);
-    // Like ACP's catalog, preserve server ordering: its resolved default is
-    // the first visible primary agent. Session.agent only stores an override.
     const modes = agents.filter((agent) => !agent.hidden && agent.mode !== 'subagent');
     const model = info?.model || await this.api.getDefaultModel(this.cwd);
-    // The switch endpoint may persist "default" explicitly rather than omit it.
     const variant = model?.variant !== 'default' ? model?.variant : undefined;
     this.modelRef = model ? { providerID: model.providerID, id: model.id,
       ...(variant ? { variant } : {}) } : null;
@@ -573,13 +440,8 @@ class SessionClient extends EventEmitter {
       this.models.set(base, item);
       options.push({ value: base, name: `${item.providerID}/${item.name || item.id}` });
     }
-    // An unresolved/unlisted selection must never look like the first catalog item.
     if (!this.models.has(currentValue)) options.unshift({ value: currentValue,
       name: currentValue || 'No default model available' });
-    // The catalog declares each model's input modalities; the server swaps
-    // unsupported attachments for a text placeholder on every request. An
-    // unknown or custom entry may not declare capabilities, so stay permissive
-    // rather than blocking attachments on a guess.
     const inputs = this.models.get(currentValue)?.capabilities?.input;
     const imageSupport = !Array.isArray(inputs) || inputs.includes('image');
     if (imageSupport !== this.imageSupport) {
@@ -587,8 +449,8 @@ class SessionClient extends EventEmitter {
       this.capabilities = { promptCapabilities: { image: imageSupport } };
       this.emit('capabilities', imageSupport);
     }
-    const variants = (this.models.get(currentValue)?.variants || []).flatMap((variant) => {
-      const id = typeof variant === 'string' ? variant : variant.id;
+    const variants = (this.models.get(currentValue)?.variants || []).flatMap((v) => {
+      const id = typeof v === 'string' ? v : v.id;
       return id && id !== 'default' ? [{ value: id, name: id.charAt(0).toUpperCase() + id.slice(1) }] : [];
     });
     if (variant && !variants.some((item) => item.value === variant)) {
@@ -611,7 +473,6 @@ class SessionClient extends EventEmitter {
     if (id === 'model' && this.models.has(value)) {
       const item = this.models.get(value);
       model = { providerID: item.providerID, id: item.id };
-      // ACP keeps effort for the same model, but resets it when switching models.
       if (this.modelRef?.providerID === model.providerID && this.modelRef.id === model.id && this.modelRef.variant) {
         model.variant = this.modelRef.variant;
       }
