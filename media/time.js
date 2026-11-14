@@ -41,12 +41,7 @@
     const now = parse(options.now) || new Date();
     const seconds = options.seconds === true;
     const days = dayDistance(date, now);
-    // `today: false` drops the word for same-day stamps: the clock alone is
-    // enough when the context already says "resets …".
-    if (days === 0) {
-      const time = clock(date, seconds);
-      return options.today === false ? time : `today ${time}`;
-    }
+    if (days === 0) return `today ${clock(date, seconds)}`;
     if (days === -1) return `yesterday ${clock(date, seconds)}`;
     if (days === 1) return `tomorrow ${clock(date, seconds)}`;
     if (Math.abs(days) <= 6) return `${WEEKDAYS[date.getDay()]} ${clock(date, seconds)}`;

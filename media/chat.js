@@ -3075,27 +3075,38 @@
       .join(' · ');
     const rows = windows.map((item) => ({
       label: item.kind === 'weekly' ? 'weekly' : '5-hour',
-      quota: Number(item.limit) > 0
-        ? `${formatCompact(item.used)} / ${formatCompact(item.limit)} ${item.unit}`
-        : '',
+      used: Number(item.limit) > 0 ? formatCompact(item.used) : '',
+      limit: Number(item.limit) > 0 ? `${formatCompact(item.limit)} ${item.unit}` : '',
       percent: `${Math.round(Number(item.percentage))}% used`,
       reset: Number(item.resetsAt) > Date.now()
-        ? `resets ${OpenCodeTime.formatTimestamp(item.resetsAt, { today: false })}`
+        ? `resets ${OpenCodeTime.formatTimestamp(item.resetsAt)}`
         : '',
     }));
     // Columns present in at least one row stay in every row, so the middle
-    // dots line up vertically even when a row lacks a value.
-    const columns = ['label', 'quota', 'percent', 'reset'].filter(
-      (key) => rows.some((row) => row[key] !== '')
-    );
+    // dots line up vertically even when a row lacks a value. The quota splits
+    // into two cells so the slash between used and limit forms its own
+    // column: `2.7k / 12k` over `  8k / 60k`.
+    const hasQuota = rows.some((row) => row.used !== '');
+    const usedWidth = hasQuota ? Math.max(...rows.map((row) => row.used.length)) : 0;
+    const quotaWidth = hasQuota
+      ? Math.max(...rows.map((row) => row.used.length + 3 + row.limit.length))
+      : 0;
     const width = (key) => Math.max(...rows.map((row) => row[key].length));
     const tooltip = rows
-      .map((row) => columns
-        .map((key, index) =>
-          index === columns.length - 1 ? row[key] : row[key].padEnd(width(key))
-        )
-        .join(' · ')
-        .trimEnd())
+      .map((row) => {
+        const quota = row.used === ''
+          ? ' '.repeat(quotaWidth)
+          : `${row.used.padStart(usedWidth)} / ${row.limit}`.padEnd(quotaWidth);
+        return [
+          row.label.padEnd(width('label')),
+          hasQuota ? quota : '',
+          row.percent.padEnd(width('percent')),
+          row.reset,
+        ]
+          .filter((cell) => cell !== '')
+          .join(' · ')
+          .trimEnd();
+      })
       .join('\n');
     return { line, tooltip };
   }

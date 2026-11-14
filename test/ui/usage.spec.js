@@ -255,11 +255,12 @@ test('GLM Coding Plan windows render as percent and reset pairs', async ({ page,
   await expect(page.locator('#usage-subscription')).toHaveText(
     '1h 30m ↻ 22% · 4d 12h ↻ 13%'
   );
-  // The plan tooltip is a styled monospace block with the middle dots aligned.
+  // The plan tooltip is a styled monospace block with the middle dots and the
+  // quota slash aligned in columns.
   await page.locator('#usage-subscription').hover();
   expect(await page.locator('#usage-plan-tooltip').textContent()).toBe(
-    '5-hour · 2.7k / 12k credits · 22% used · resets 13:30\n' +
-    'weekly · 8k / 60k credits   · 13% used · resets Tue 00:30'
+    '5-hour · 2.7k / 12k credits · 22% used · resets today 13:30\n' +
+    'weekly ·   8k / 60k credits · 13% used · resets Tue 00:30'
   );
   await expect(page.locator('#usage-cost')).toBeHidden();
   await expect(page.locator('#usage-reset')).toBeHidden();
