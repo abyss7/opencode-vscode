@@ -2,13 +2,13 @@
 
 const { test, expect } = require('./fixture');
 
-test('edge fade strips sink content into the shadow of the plates', async ({ page, chat }) => {
+test('the top edge fade strip sinks content into the shadow of the plate', async ({ page, chat }) => {
   await chat.update({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'Show me a long answer' } });
   for (let index = 1; index <= 30; index++) {
     await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Line ${index} sinks into the plates' shadow.\n\n` } });
   }
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
-  // Scroll mid-transcript so both strips cover rendered text.
+  // Scroll mid-transcript so the strip covers rendered text.
   await page.locator('#messages').evaluate((node) => { node.scrollTop = Math.round(node.scrollHeight / 2); });
   await page.waitForTimeout(150);
 
@@ -18,7 +18,7 @@ test('edge fade strips sink content into the shadow of the plates', async ({ pag
     const messages = document.getElementById('messages');
     const style = getComputedStyle(messages);
     return {
-      paddings: { top: parseFloat(style.paddingTop), bottom: parseFloat(style.paddingBottom) },
+      paddings: { top: parseFloat(style.paddingTop) },
       items: [...workspace.querySelectorAll('.edge-fade')].map((node) => {
         const rect = node.getBoundingClientRect();
         return {
@@ -35,22 +35,24 @@ test('edge fade strips sink content into the shadow of the plates', async ({ pag
     };
   });
 
-  expect(strips.items).toHaveLength(2);
-  for (const strip of strips.items) {
-    expect(strip.offset).toBe(0);
-    // The immersion never reaches past the scroll padding, so the first and
-    // last lines render sharp when scrolled to the ends.
-    expect(strip.height).toBeLessThanOrEqual(strips.paddings[strip.edge]);
-    expect(strip.width).toBeGreaterThan(300);
-    expect(strip.pointerEvents).toBe('none');
-    // Dissolve into the plate color plus a dark lip: two stacked gradients.
-    expect(strip.fade).toContain('linear-gradient');
-    expect(strip.fade.match(/linear-gradient/g).length).toBeGreaterThan(1);
-    // Smooth darkening only: no blur layers, whose masked edge reads as a
-    // hard boundary over text.
-    expect(strip.beforeContent).toBe('none');
-    expect(strip.afterContent).toBe('none');
-  }
+  // Since the composer became an overlay plate, only the top strip remains:
+  // the bottom fade is the plate's own gradient lip (plate-fade.spec.js).
+  expect(strips.items).toHaveLength(1);
+  const strip = strips.items[0];
+  expect(strip.edge).toBe('top');
+  expect(strip.offset).toBe(0);
+  // The immersion never reaches past the scroll padding, so the first line
+  // renders sharp when scrolled to the start.
+  expect(strip.height).toBeLessThanOrEqual(strips.paddings.top);
+  expect(strip.width).toBeGreaterThan(300);
+  expect(strip.pointerEvents).toBe('none');
+  // Dissolve into the plate color plus a dark lip: two stacked gradients.
+  expect(strip.fade).toContain('linear-gradient');
+  expect(strip.fade.match(/linear-gradient/g).length).toBeGreaterThan(1);
+  // Smooth darkening only: no blur layers, whose masked edge reads as a
+  // hard boundary over text.
+  expect(strip.beforeContent).toBe('none');
+  expect(strip.afterContent).toBe('none');
 
   // The strips never intercept the pointer: content underneath stays clickable.
   const hit = await page.evaluate(() => {
