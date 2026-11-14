@@ -12,6 +12,7 @@ function createTranscriptViewport(container, onChange = () => {}) {
   let expectedTop = null;
   let navigating = false;
   let lastGesture = 0;
+  let lastTop = container.scrollTop;
   let settleTimer;
   let frame;
   const observed = new Set();
@@ -98,6 +99,7 @@ function createTranscriptViewport(container, onChange = () => {}) {
   function write(top) {
     container.scrollTop = top;
     expectedTop = container.scrollTop;
+    lastTop = container.scrollTop;
   }
 
   function update() {
@@ -173,14 +175,33 @@ function createTranscriptViewport(container, onChange = () => {}) {
   }
 
   function scrolled() {
-    if (expectedTop !== null && Math.abs(container.scrollTop - expectedTop) < 1) return;
+    if (expectedTop !== null && Math.abs(container.scrollTop - expectedTop) < 1) {
+      lastTop = container.scrollTop;
+      return;
+    }
+    // The browser forcing the view up after content collapsed: the previous
+    // position no longer fits the document. That is not a scroll anyone
+    // chose — it must neither engage follow nor re-anchor the reading
+    // position; the mutation update that follows restores the captured
+    // anchor. Any other scroll becomes the reader's new truth.
+    const clamped = lastTop > container.scrollHeight - container.clientHeight + 0.5;
+    lastTop = container.scrollTop;
     expectedTop = null;
+    if (clamped) {
+      if (navigating) settledNavigation();
+      onChange();
+      return;
+    }
     const atBottom = container.scrollHeight - container.clientHeight - container.scrollTop <= 2;
+    const fresh = performance.now() - lastGesture < 1000;
     if (navigating) settledNavigation();
-    // Only the reader's own recent gesture may engage follow at the bottom
-    // edge. A programmatic or foreign scroll that happens to land there must
-    // never glue the viewport to the transcript on its own.
-    else if (!atBottom || performance.now() - lastGesture < 1000) following = atBottom;
+    else {
+      // Only the reader's own gesture, or a foreign jump far from the bottom,
+      // changes following. A tiny hop — the browser focusing the summary the
+      // reader just clicked — must not cancel the glue; it re-asserts.
+      const gap = container.scrollHeight - container.clientHeight - container.scrollTop;
+      if (fresh || gap > container.clientHeight * 0.5) following = atBottom;
+    }
     rememberReading();
     onChange();
   }
@@ -204,6 +225,17 @@ function createTranscriptViewport(container, onChange = () => {}) {
     get navigating() { return navigating; },
     pause() { following = false; navigating = false; clearTimeout(settleTimer); rememberReading(); },
     capture, restore, update,
+    // True when collapsing this block would drag a parked reader: the block
+    // sits below their anchor and its lost height no longer fits the
+    // document. Folds above the anchor are compensated and stay immediate.
+    foldingMoves(node) {
+      if (following || navigating || !reading) return false;
+      const line = container.getBoundingClientRect().top + (reading.offset || 0);
+      const rect = node.getBoundingClientRect();
+      if (rect.height <= 0 || rect.bottom <= line) return false;
+      const loss = Math.max(0, rect.height - 40);   // a summary line remains
+      return container.scrollTop > container.scrollHeight - container.clientHeight - loss + 0.5;
+    },
     bottom() { restore({ bottom: true }); },
     dispose() {
       resize.disconnect(); mutations.disconnect(); unregister();

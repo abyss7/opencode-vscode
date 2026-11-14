@@ -168,6 +168,9 @@ test('composer stays in the viewport while transcript scrolls', async ({ page, c
   await expect(page.getByRole('heading', { name: 'Answer 1', exact: true })).toBeInViewport();
   await expect(page.locator('#input')).toBeInViewport();
   await chat.snapshot('scrolled-up');
+  // A focus request must never move a parked reader: the composer takes
+  // focus in place, and the transcript keeps showing Answer 1.
   await chat.send({ type: 'focus' });
-  await expect(page.getByRole('heading', { name: 'Answer 12', exact: true })).toBeInViewport();
+  await expect(page.getByRole('heading', { name: 'Answer 1', exact: true })).toBeInViewport();
+  await expect(page.locator('#input')).toBeFocused();
 });

@@ -58,6 +58,9 @@ test('history reconciliation preserves a scrolled viewport and tool disclosure',
   await chat.send(transcript(messages), { type: 'historyEnd' });
   await page.locator('#messages').evaluate((node) => { node.scrollTop = 350; });
   await expect.poll(() => page.locator('#messages').evaluate((node) => node.scrollTop)).toBe(350);
+  // Let the scroll event land before the next snapshot: the reader has then
+  // demonstrably parked, not merely moved.
+  await page.waitForTimeout(80);
   await chat.send(transcript([answer('New output at the bottom')]));
   expect(await page.locator('#messages').evaluate((node) => Math.abs(node.scrollTop - 350))).toBeLessThan(3);
 });

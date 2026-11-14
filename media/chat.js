@@ -126,6 +126,7 @@
   const transcript = OpenCodeRichText.createTranscriptViewport(messagesEl, () => {
     saveViewport();
     updateStickyVisibility();
+    applyPendingFolds();
   });
   const composerControls = document.getElementById('composer-controls');
   const focusLocal = OpenCodeRichText.focusWithoutScroll;
@@ -723,15 +724,40 @@
   /**
    * The trailing steps of a running turn stream raw: no chevron, nothing to
    * collapse. The chevron appears — and the steps fold under it — only once
-   * the outcome is known: a final answer, an error, or a stop.
+   * the outcome is known: a final answer, an error, or a stop. A parked
+   * reader defers the fold: collapsing thousands of streamed pixels below or
+   * around them physically drags the view (the document no longer fits), and
+   * a terminal never collapses its scrollback under the reader either. The
+   * deferred folds apply as soon as following resumes.
    */
+  const pendingFolds = new Map();   // details block -> open state to apply when following resumes
+  function deferFold(details, open) {
+    pendingFolds.set(details, open);
+  }
   function setStepsLive(details, live) {
     if (!details) return;
+    if (live) pendingFolds.delete(details);
+    else if (transcript.foldingMoves(details)) {
+      deferFold(details, false);
+      return;
+    }
     details.classList.toggle('live', live);
     details.open = live;
     // A block that turns live again must not keep a Collapse button from its
     // historical open state: without a chevron there is no way to reopen it.
     if (live) details.querySelector(':scope > .disclosure-collapse')?.remove();
+  }
+
+  function applyPendingFolds() {
+    if (!transcript.following || !pendingFolds.size) return;
+    const blocks = [...pendingFolds];
+    pendingFolds.clear();
+    for (const [block, open] of blocks) {
+      if (block.isConnected) {
+        block.classList.remove('live');
+        block.open = open;
+      }
+    }
   }
 
   /**
@@ -1428,7 +1454,10 @@
     if (!thought) return;
     updateThoughtCaption(thought, true);
     thought.details.classList.remove('streaming');
-    thought.details.open = thought.compact;
+    // Collapsing a finished thought under a parked reader drags their view
+    // through the missing pixels; defer only when it would actually move them.
+    if (transcript.foldingMoves(thought.details)) deferFold(thought.details, thought.compact);
+    else thought.details.open = thought.compact;
     thought.expanded = false;
     thought.labelEl.textContent = 'Thoughts';
     syncThoughtLayout(thought);
