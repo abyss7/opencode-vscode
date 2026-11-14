@@ -53,6 +53,9 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, onAsk, pref
   }
   function draw() {
     interaction?.dispose();
+    // The pane re-renders wholesale; without restoring the offset the reader
+    // is thrown to the top every time the host pushes an update.
+    const scrollTop = root.scrollTop;
     picker.replaceChildren(...[...objects].map(([id, revisions]) => {
       const option = node('option', '', [...revisions.values()].at(-1).value.title);
       option.value = id;
@@ -109,14 +112,17 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, onAsk, pref
       tools.render(content, { content: [{ type: 'image', mimeType: match[1], data: match[2], name: value.title }] }, post);
     }
     if (!sourceMode && onAsk) interaction = selection.attach(content, value, onAsk);
+    root.scrollTop = scrollTop;
     sync();
   }
   picker.addEventListener('change', () => { selected = picker.value; version = Math.max(...objects.get(selected).keys()); draw(); });
   versions.addEventListener('change', () => { version = Number(versions.value); draw(); });
   toggle.addEventListener('click', () => { opened = !opened; draw(); });
   function ingest(container) {
+    let changed = false;
     for (const reference of container.querySelectorAll('.artifact-reference:not([data-ingested])')) {
       reference.dataset.ingested = 'true';
+      changed = true;
       const raw = reference.querySelector('pre').textContent;
       try {
         const value = parseArtifact(raw);
@@ -143,7 +149,9 @@ function create({ root, toggle, renderMarkdown, hydrate, post, save, onAsk, pref
         reference.querySelector('pre').hidden = false;
       }
     }
-    draw();
+    // Only a real change may redraw the pane; a periodic no-op re-ingest must
+    // not touch — and therefore not scroll — the reader's view.
+    if (changed) draw();
   }
   return {
     ingest,

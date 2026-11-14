@@ -43,6 +43,37 @@
     app.hidden = false;
   }
 
+  /**
+   * The plan re-renders on every host push (a new version, a status tick).
+   * Each render replaces the whole body, so without restoring the position
+   * the reader is thrown to the top mid-session. Tasks and phases carry
+   * stable ids, which makes an exact restore possible even when the plan
+   * grew or shrank between renders.
+   */
+  function capturePosition() {
+    const scroller = document.scrollingElement || document.documentElement;
+    // The root element's own rect scrolls with the page (top = -scrollY);
+    // its client-visible reference line is simply the viewport top.
+    const top = 0;
+    const anchor = [...bodyEl.querySelectorAll('.task, .phase')]
+      .find((node) => node.getBoundingClientRect().bottom > top);
+    return {
+      scroller,
+      top: scroller.scrollTop,
+      key: anchor ? (anchor.dataset.taskId ? `t:${anchor.dataset.taskId}` : `p:${anchor.dataset.phaseId}`) : null,
+      offset: anchor ? anchor.getBoundingClientRect().top - top : 0,
+    };
+  }
+
+  function restorePosition(saved) {
+    if (!saved.key) { saved.scroller.scrollTop = saved.top; return; }
+    const [kind, id] = [saved.key.slice(0, 1), saved.key.slice(2)];
+    const selector = kind === 't' ? `.task[data-task-id="${CSS.escape(id)}"]` : `.phase[data-phase-id="${CSS.escape(id)}"]`;
+    const anchor = bodyEl.querySelector(selector);
+    if (!anchor) { saved.scroller.scrollTop = saved.top; return; }
+    saved.scroller.scrollTop = saved.top + anchor.getBoundingClientRect().top - saved.offset;
+  }
+
   function renderMeta() {
     const revision = current();
     const tasks = allTasks(revision.value);
@@ -95,6 +126,7 @@
     if (dirtyCount) syncTextEl.textContent =
       `${dirtyCount} change${dirtyCount === 1 ? '' : 's'} — sent with your next message`;
 
+    const saved = capturePosition();
     bodyEl.replaceChildren();
     for (const phase of revision.value.phases) {
       const tasks = phase.tasks;
@@ -103,6 +135,7 @@
 
       const card = document.createElement('section');
       card.className = `phase${complete ? ' complete' : ''}`;
+      card.dataset.phaseId = phase.id;
 
       const header = document.createElement('div');
       header.className = 'phase-header';
@@ -127,6 +160,7 @@
       card.append(header, bar, list);
       bodyEl.append(card);
     }
+    restorePosition(saved);
   }
 
   function taskRow(task, readOnly) {
@@ -251,8 +285,11 @@
     const message = event.data;
     if (!message || typeof message.type !== 'string') return;
     if (message.type === 'plan') {
+      // Follow the newest version only while the reader is already on it; a
+      // deliberately inspected older revision stays put across pushes.
+      const followed = viewing === null || (plan && viewing === plan.latest);
       plan = message;
-      viewing = plan.latest;
+      if (followed) viewing = plan.latest;
       render();
     } else if (message.type === 'state' && plan && plan.id === message.id) {
       Object.assign(plan, { overlay: message.overlay, dirty: message.dirty, latest: message.latest });
