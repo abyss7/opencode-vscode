@@ -571,6 +571,10 @@ button.delivery-indicator:focus-visible {
   margin: 2px 0;
 }
 
+/* The trailing steps of a running turn stream raw: the chevron appears, and
+   the steps collapse under it, only once the turn's outcome is known. */
+.turn-steps.live > summary { display: none; }
+
 .turn-steps > summary {
   display: grid;
   grid-template-columns: 12px 72px minmax(0, 1fr) auto;
@@ -1485,7 +1489,54 @@ button.delivery-indicator:focus-visible {
 .result-location { display: flex; gap: 8px; align-items: start; margin: 4px 0; }
 .result-location pre { flex: 1; min-width: 0; }
 
-#workspace { display: flex; flex: 1; min-height: 0; min-width: 0; }
+#workspace { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
+
+/* Thin progressive blur where scrolling content slides under the header and
+   composer plates. Two masked backdrop-filter strips ramp the blur radius from
+   zero on the content side to full at the plate edge, so text dissolves for a
+   few pixels before disappearing. Height stays below the scroll padding
+   (.messages has 16px top / 32px bottom), so the first and last lines render
+   sharp when scrolled to the ends. pointer-events keeps the strips invisible
+   to the pointer; z-index sits above sticky content but below popovers. */
+.edge-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  height: 12px;
+  pointer-events: none;
+}
+.edge-fade[data-edge="top"] { top: 0; }
+.edge-fade[data-edge="bottom"] { bottom: 0; }
+.edge-fade::before,
+.edge-fade::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.edge-fade[data-edge="top"]::before {
+  backdrop-filter: blur(2px);
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
+  mask-image: linear-gradient(to bottom, #000, transparent);
+}
+.edge-fade[data-edge="top"]::after {
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 85%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 85%);
+}
+.edge-fade[data-edge="bottom"]::before {
+  backdrop-filter: blur(2px);
+  -webkit-mask-image: linear-gradient(to top, #000, transparent);
+  mask-image: linear-gradient(to top, #000, transparent);
+}
+.edge-fade[data-edge="bottom"]::after {
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 30%, transparent 85%);
+  mask-image: linear-gradient(to top, #000 0%, #000 30%, transparent 85%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .edge-fade { display: none; }
+}
 #workspace > .messages { min-width: 0; }
 #artifacts { width: 46%; min-width: 300px; min-height: 0; max-width: 700px; overflow: auto; overscroll-behavior: contain; border-left: 1px solid var(--oc-border); background: var(--vscode-editor-background); }
 .artifact-toolbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 5px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--oc-border); background: var(--vscode-editor-background); }
