@@ -46,12 +46,13 @@
 }
 
 /* Very short shells cannot afford the overlay: the composer rejoins the flow
-   and shares height with the transcript, as before. */
+   and shares height with the transcript, as before. The clearance collapses
+   so the bottom edge fade rides the workspace's own bottom edge. */
 @media (max-height: 420px) {
   .composer { position: static; max-height: 60%; box-shadow: none; }
   .messages { padding-bottom: 32px; scroll-padding-bottom: 0; }
   #workspace:has(#artifacts:not([hidden])) > #artifacts { margin-bottom: 0; }
-  #workspace { padding-bottom: 0; }
+  #workspace { --oc-plate-clearance: 0; padding-bottom: 0; }
 }
 
 .composer.question-active > :not(.questions) { display: none; }

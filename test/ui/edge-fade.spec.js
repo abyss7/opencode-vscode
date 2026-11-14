@@ -8,22 +8,33 @@ test('the top edge fade strip sinks content into the shadow of the plate', async
     await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Line ${index} sinks into the plates' shadow.\n\n` } });
   }
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
-  // Scroll mid-transcript so the strip covers rendered text.
-  await page.locator('#messages').evaluate((node) => { node.scrollTop = Math.round(node.scrollHeight / 2); });
+  // Scroll mid-transcript so the strip covers rendered text. The wheel event
+  // hands control to the reader so the transcript controller's follow does
+  // not re-park the view mid-assertion.
+  await page.locator('#messages').evaluate((node) => {
+    node.style.scrollBehavior = 'auto';
+    node.scrollTop = Math.round(node.scrollHeight / 2);
+    node.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+  });
   await page.waitForTimeout(150);
 
   const strips = await page.evaluate(() => {
     const workspace = document.getElementById('workspace');
     const bounds = workspace.getBoundingClientRect();
     const messages = document.getElementById('messages');
+    const messagesRect = messages.getBoundingClientRect();
     const style = getComputedStyle(messages);
     return {
-      paddings: { top: parseFloat(style.paddingTop) },
+      paddings: { top: parseFloat(style.paddingTop), bottom: parseFloat(style.paddingBottom) },
       items: [...workspace.querySelectorAll('.edge-fade')].map((node) => {
         const rect = node.getBoundingClientRect();
         return {
           edge: node.dataset.edge,
-          offset: Math.round(node.dataset.edge === 'top' ? rect.top - bounds.top : bounds.bottom - rect.bottom),
+          // Top strip kisses the workspace top; the bottom strip kisses the
+          // scrollport's clip line — where text is actually cut.
+          clipGap: node.dataset.edge === 'top'
+            ? Math.round(rect.top - bounds.top)
+            : Math.round(messagesRect.bottom - rect.bottom),
           height: rect.height,
           width: rect.width,
           pointerEvents: getComputedStyle(node).pointerEvents,
@@ -35,24 +46,28 @@ test('the top edge fade strip sinks content into the shadow of the plate', async
     };
   });
 
-  // Since the composer became an overlay plate, only the top strip remains:
-  // the bottom fade is the plate's own gradient lip (plate-fade.spec.js).
-  expect(strips.items).toHaveLength(1);
-  const strip = strips.items[0];
-  expect(strip.edge).toBe('top');
-  expect(strip.offset).toBe(0);
-  // The immersion never reaches past the scroll padding, so the first line
-  // renders sharp when scrolled to the start.
-  expect(strip.height).toBeLessThanOrEqual(strips.paddings.top);
-  expect(strip.width).toBeGreaterThan(300);
-  expect(strip.pointerEvents).toBe('none');
-  // Dissolve into the plate color plus a dark lip: two stacked gradients.
-  expect(strip.fade).toContain('linear-gradient');
-  expect(strip.fade.match(/linear-gradient/g).length).toBeGreaterThan(1);
-  // Smooth darkening only: no blur layers, whose masked edge reads as a
-  // hard boundary over text.
-  expect(strip.beforeContent).toBe('none');
-  expect(strip.afterContent).toBe('none');
+  // Two strips: the composer plate is an overlay with its own lip for grown
+  // states (plate-fade.spec.js), but the scrollport's clip line is fixed by
+  // the workspace clearance — the bottom strip rides that line so text sinks
+  // into shadow before the clip cuts it. This is the regression the plate
+  // overlay introduced: the lip floated in the clearance gap below the clip
+  // line and never touched the text.
+  expect(strips.items).toHaveLength(2);
+  for (const strip of strips.items) {
+    expect(strip.clipGap).toBe(0);
+    // The immersion never reaches past the scroll padding, so the first and
+    // last lines render sharp when scrolled to the ends.
+    expect(strip.height).toBeLessThanOrEqual(strips.paddings[strip.edge]);
+    expect(strip.width).toBeGreaterThan(300);
+    expect(strip.pointerEvents).toBe('none');
+    // Dissolve into the plate color plus a dark lip: two stacked gradients.
+    expect(strip.fade).toContain('linear-gradient');
+    expect(strip.fade.match(/linear-gradient/g).length).toBeGreaterThan(1);
+    // Smooth darkening only: no blur layers, whose masked edge reads as a
+    // hard boundary over text.
+    expect(strip.beforeContent).toBe('none');
+    expect(strip.afterContent).toBe('none');
+  };
 
   // The strips never intercept the pointer: content underneath stays clickable.
   const hit = await page.evaluate(() => {
@@ -68,7 +83,48 @@ test('the top edge fade strip sinks content into the shadow of the plate', async
     for (const node of document.querySelectorAll('.edge-fade')) node.style.display = 'none';
   });
   const withoutStrips = await page.screenshot({ animations: 'disabled', caret: 'hide' });
+  await page.evaluate(() => {
+    for (const node of document.querySelectorAll('.edge-fade')) node.style.display = '';
+  });
   expect(withStrips.equals(withoutStrips), 'edge fade strips change rendered pixels').toBe(false);
+
+  // The bottom strip darkens text before the scrollport clips it. Park above
+  // the end with a real wheel gesture — the transcript controller owns
+  // scrollTop and re-glues plain programmatic writes to the bottom.
+  const center = await page.evaluate(() => {
+    const rect = document.getElementById('messages').getBoundingClientRect();
+    return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+  });
+  await page.mouse.move(center.x, center.y);
+  await page.mouse.wheel(0, -120);
+  await page.waitForTimeout(250);
+  // The reader must be parked above the end so text crosses the clip band.
+  const parked = await page.locator('#messages').evaluate((node) => {
+    const max = node.scrollHeight - node.clientHeight;
+    return { top: node.scrollTop, max };
+  });
+  expect(parked.top, 'wheel gesture parks the reader above the end').toBeLessThan(parked.max - 30);
+  const band = await page.evaluate(() => {
+    const messages = document.getElementById('messages').getBoundingClientRect();
+    return { x: messages.x, y: messages.bottom - 20, width: messages.width, height: 20 };
+  });
+  const clipRect = {
+    x: Math.round(band.x), y: Math.round(band.y),
+    width: Math.round(band.width), height: Math.round(band.height),
+  };
+  const readScroll = () => page.locator('#messages').evaluate((node) => node.scrollTop);
+  const withBottom = await page.screenshot({ clip: clipRect, animations: 'disabled', caret: 'hide' });
+  const scrollBefore = await readScroll();
+  await page.evaluate(() => {
+    document.querySelector('.edge-fade[data-edge="bottom"]').style.display = 'none';
+  });
+  const withoutBottom = await page.screenshot({ clip: clipRect, animations: 'disabled', caret: 'hide' });
+  // The comparison is only meaningful if the view stood still between shots.
+  expect(await readScroll(), 'the parked view must not move between shots').toBe(scrollBefore);
+  await page.evaluate(() => {
+    document.querySelector('.edge-fade[data-edge="bottom"]').style.display = '';
+  });
+  expect(withBottom.equals(withoutBottom), 'bottom strip darkens text before the clip line').toBe(false);
 });
 
 test('a pinned prompt casts the same shadow over the transcript', async ({ page, chat }) => {

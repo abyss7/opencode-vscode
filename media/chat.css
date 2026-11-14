@@ -56,7 +56,8 @@ select {
   flex: 1;
   min-height: 0;
   min-width: 0;
-  padding-bottom: 165px;
+  --oc-plate-clearance: 165px;
+  padding-bottom: var(--oc-plate-clearance);
 }
 #workspace > .messages {
   min-width: 0;
@@ -78,6 +79,19 @@ select {
       transparent 65%),
     linear-gradient(
       to bottom,
+      var(--vscode-editor-background),
+      transparent);
+}
+.edge-fade[data-edge=bottom] {
+  bottom: var(--oc-plate-clearance);
+  height: 20px;
+  background:
+    linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.22),
+      transparent 65%),
+    linear-gradient(
+      to top,
       var(--vscode-editor-background),
       transparent);
 }
@@ -2193,6 +2207,7 @@ button.delivery-indicator:focus-visible {
     margin-bottom: 0;
   }
   #workspace {
+    --oc-plate-clearance: 0;
     padding-bottom: 0;
   }
 }

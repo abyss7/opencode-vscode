@@ -76,20 +76,26 @@ select {
   /* A constant clearance for the composer plate: the transcript (and its
      scrollbar) end above the plate instead of running underneath it. The
      inset never changes, so the plate's growth still cannot move the view —
-     the plate simply overlaps more of the cleared strip. */
-  padding-bottom: 165px;
+     the plate simply overlaps more of the cleared strip. The bottom edge
+     fade anchors to this same line (see .edge-fade below): text must sink
+     into shadow before the scrollport clips it, which sits at the clearance
+     line, not at the plate's top edge. */
+  --oc-plate-clearance: 165px;
+  padding-bottom: var(--oc-plate-clearance);
 }
 
 #workspace > .messages {
   min-width: 0;
 }
 
-/* Content sinks into the shadow of the overhanging header plate: it
-   dissolves into the plate color and gathers a dark lip at the edge. Pure
-   gradients — nothing recomposites while scrolling. The top strip stays
-   within the scroll padding budget (.messages pads 16px top), so the first
-   line renders sharp when scrolled to the start. The bottom lip lives on
-   the composer itself (.composer::before) so it travels with the plate.
+/* Content sinks into the shadow of the overhanging plates: it dissolves
+   into the plate color and gathers a dark lip at the edge. Pure gradients —
+   nothing recomposites while scrolling. The top strip stays within the
+   scroll padding budget (.messages pads 16px top), so the first line
+   renders sharp when scrolled to the start. The bottom strip rides the
+   clearance line where the scrollport clips — when the composer plate
+   grows past the clearance it simply covers the strip (z-index 6 > 5), and
+   .composer::before takes over the fade at the plate's own edge.
    pointer-events keeps the strips invisible to the pointer. */
 .edge-fade {
   position: absolute;
@@ -105,6 +111,14 @@ select {
   background:
     linear-gradient(to bottom, rgba(0, 0, 0, 0.22), transparent 65%),
     linear-gradient(to bottom, var(--vscode-editor-background), transparent);
+}
+
+.edge-fade[data-edge="bottom"] {
+  bottom: var(--oc-plate-clearance);
+  height: 20px;
+  background:
+    linear-gradient(to top, rgba(0, 0, 0, 0.22), transparent 65%),
+    linear-gradient(to top, var(--vscode-editor-background), transparent);
 }
 
 
