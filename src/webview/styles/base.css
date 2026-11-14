@@ -73,21 +73,20 @@ select {
      scrollbar) end above the plate instead of running underneath it. The
      inset never changes, so the plate's growth still cannot move the view —
      the plate simply overlaps more of the cleared strip. */
-  padding-bottom: 150px;
+  padding-bottom: 165px;
 }
 
 #workspace > .messages {
   min-width: 0;
 }
 
-/* Content sinks into the shadow of the overhanging header and composer
-   plates: it dissolves into the plate color and gathers a dark lip at the
-   edge. Pure gradients — nothing recomposites while scrolling. The top strip
-   stays within the scroll padding budget (.messages pads 16px top), so the
-   first line renders sharp when scrolled to the start; the bottom plate
-   overlays the transcript (.messages reserves 128px of bottom padding so the
-   newest line can clear it). pointer-events keeps the strips invisible to
-   the pointer; z-index sits above sticky content but below popovers. */
+/* Content sinks into the shadow of the overhanging header plate: it
+   dissolves into the plate color and gathers a dark lip at the edge. Pure
+   gradients — nothing recomposites while scrolling. The top strip stays
+   within the scroll padding budget (.messages pads 16px top), so the first
+   line renders sharp when scrolled to the start. The bottom lip lives on
+   the composer itself (.composer::before) so it travels with the plate.
+   pointer-events keeps the strips invisible to the pointer. */
 .edge-fade {
   position: absolute;
   left: 0;
@@ -104,13 +103,6 @@ select {
     linear-gradient(to bottom, var(--vscode-editor-background), transparent);
 }
 
-.edge-fade[data-edge="bottom"] {
-  bottom: 0;
-  height: 20px;
-  background:
-    linear-gradient(to top, rgba(0, 0, 0, 0.22), transparent 65%),
-    linear-gradient(to top, var(--vscode-editor-background), transparent);
-}
 
 @media (prefers-reduced-transparency: reduce) {
   .edge-fade { display: none; }

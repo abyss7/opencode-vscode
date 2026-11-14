@@ -19,9 +19,18 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 16px 16px 32px;
+  /* The transcript shows no scrollbar: the wheel and the follow/jump
+     navigation carry the orientation, like a terminal viewport. */
+  scrollbar-width: none;
   min-height: 0;
   overscroll-behavior: contain;
   overflow-anchor: none;
+}
+
+/* Chromium parity for scrollbar-width: none. */
+.messages::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .messages > * {

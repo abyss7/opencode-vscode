@@ -29,6 +29,22 @@
   display: none;
 }
 
+/* Text sinks into the plate's overhang: a gradient lip directly above the
+   composer, travelling with it when the plate grows. Replaces the old
+   workspace-bottom edge fade, which the opaque overlay plate now covers. */
+.composer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 20px;
+  pointer-events: none;
+  background:
+    linear-gradient(to top, rgba(0, 0, 0, 0.22), transparent 65%),
+    linear-gradient(to top, var(--vscode-editor-background), transparent);
+}
+
 /* Very short shells cannot afford the overlay: the composer rejoins the flow
    and shares height with the transcript, as before. */
 @media (max-height: 420px) {
