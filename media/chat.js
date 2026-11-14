@@ -355,10 +355,14 @@
     attachmentsEl.hidden = state.images.length === 0;
     for (const image of state.images) {
       const chip = el('div', 'attachment');
+      const unseen = !state.imageSupport;
+      if (unseen) chip.classList.add('attachment-unseen');
       const thumb = document.createElement('img');
       thumb.src = image.dataUrl;
       thumb.alt = image.name || 'image';
-      thumb.title = image.name || 'image';
+      thumb.title = unseen
+        ? `${image.name || 'image'} — the current model cannot see this image`
+        : image.name || 'image';
       const remove = el('button', 'attachment-remove', '×');
       remove.type = 'button';
       remove.title = 'Remove image';
@@ -374,10 +378,15 @@
     }
   }
 
+  function unseenImageNotice() {
+    addInfo('The current model cannot see images; attachments are kept in the session and will be used after switching to a vision model.');
+  }
+
   function selectContext(context, images = []) {
     if (state.archived && context) return;
     state.selection = context;
     state.selectionImages = images;
+    if (images.length > 0 && !state.imageSupport) unseenImageNotice();
     const chip = document.getElementById('selection-context');
     chip.replaceChildren();
     chip.hidden = !context;
@@ -3767,6 +3776,7 @@
       case 'capabilities':
         state.imageSupport = Boolean(message.images);
         state.nativeTransport = message.transport === 'server';
+        renderAttachments();
         break;
       case 'transcript':
         renderTranscript(message);
@@ -4221,10 +4231,7 @@
     }
     if (files.length === 0) return;
     event.preventDefault();
-    if (!state.imageSupport) {
-      addInfo('Image input is not supported by the current agent.');
-      return;
-    }
+    if (!state.imageSupport) unseenImageNotice();
     addImageFiles(files);
   });
 

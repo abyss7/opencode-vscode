@@ -171,6 +171,7 @@ class SessionClient extends EventEmitter {
     this.shared = true;
     this.configOptions = [];
     this.capabilities = { promptCapabilities: { image: true } };
+    this.imageSupport = true;
     this.messages = new Map();
     this.emitted = new Map();
     this.liveText = new Map();
@@ -575,6 +576,17 @@ class SessionClient extends EventEmitter {
     // An unresolved/unlisted selection must never look like the first catalog item.
     if (!this.models.has(currentValue)) options.unshift({ value: currentValue,
       name: currentValue || 'No default model available' });
+    // The catalog declares each model's input modalities; the server swaps
+    // unsupported attachments for a text placeholder on every request. An
+    // unknown or custom entry may not declare capabilities, so stay permissive
+    // rather than blocking attachments on a guess.
+    const inputs = this.models.get(currentValue)?.capabilities?.input;
+    const imageSupport = !Array.isArray(inputs) || inputs.includes('image');
+    if (imageSupport !== this.imageSupport) {
+      this.imageSupport = imageSupport;
+      this.capabilities = { promptCapabilities: { image: imageSupport } };
+      this.emit('capabilities', imageSupport);
+    }
     const variants = (this.models.get(currentValue)?.variants || []).flatMap((variant) => {
       const id = typeof variant === 'string' ? variant : variant.id;
       return id && id !== 'default' ? [{ value: id, name: id.charAt(0).toUpperCase() + id.slice(1) }] : [];

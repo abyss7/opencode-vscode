@@ -91,6 +91,29 @@ const assistant = (content, completed) => ({ id: 'msg_answer', type: 'assistant'
   await config.client.refreshConfig();
   assert.equal(config.client.configOptions[0].currentValue, undefined, 'an unavailable catalog must not invent an agent');
 
+  // Image support follows the current model's declared input modalities; a
+  // change must reach the panel so the composer warning stays in sync.
+  const vision = fixture();
+  vision.api.listModels = async () => [
+    { providerID: 'p', id: 'text-only', name: 'Text', type: 'chat', capabilities: { input: ['text'] } },
+    { providerID: 'p', id: 'vision', name: 'Vision', type: 'chat', capabilities: { input: ['text', 'image'] } },
+    { providerID: 'p', id: 'custom', name: 'Custom', type: 'chat' },
+  ];
+  vision.api.getDefaultModel = async () => null;
+  vision.api.listAgents = async () => [];
+  const seen = [];
+  vision.client.on('capabilities', (images) => seen.push(images));
+  vision.api.getSession = async () => ({ model: { providerID: 'p', id: 'text-only' } });
+  await vision.client.refreshConfig();
+  assert.equal(vision.client.imageSupport, false, 'a text-only model clears image support');
+  vision.api.getSession = async () => ({ model: { providerID: 'p', id: 'vision' } });
+  await vision.client.refreshConfig();
+  assert.equal(vision.client.imageSupport, true, 'a vision model restores image support');
+  vision.api.getSession = async () => ({ model: { providerID: 'p', id: 'custom' } });
+  await vision.client.refreshConfig();
+  assert.equal(vision.client.imageSupport, true, 'a model without declared capabilities stays permissive');
+  assert.deepEqual(seen, [false, true], 'capabilities are emitted once per change, not per refresh');
+
   const { client, data } = fixture();
   data.history = [user('msg_first'), assistant([{ type: 'reasoning', text: '' }, { type: 'text', text: '' }])];
   data.inbox = [{ id: 'msg_next', type: 'user', payload: { text: 'Next' }, time: { created: 3 } }];

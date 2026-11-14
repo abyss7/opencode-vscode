@@ -508,6 +508,9 @@ class SessionPanel {
       this._post({ type: 'config', configOptions: options });
       this._syncModelOptions(options);
     });
+    client.on('capabilities', (images) => {
+      this._post({ type: 'capabilities', transport: 'server', images: Boolean(images) });
+    });
     client.on('exit', (info) => this._onExit(info));
 
     try {
@@ -518,11 +521,7 @@ class SessionPanel {
       this._post({
         type: 'capabilities',
         transport: 'server',
-        images: Boolean(
-          client.capabilities &&
-            client.capabilities.promptCapabilities &&
-            client.capabilities.promptCapabilities.image
-        ),
+        images: client.imageSupport !== false,
       });
 
       if (this.sessionId) {
