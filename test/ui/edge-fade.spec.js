@@ -60,9 +60,9 @@ test('the top edge fade strip sinks content into the shadow of the plate', async
     expect(strip.height).toBeLessThanOrEqual(strips.paddings[strip.edge]);
     expect(strip.width).toBeGreaterThan(300);
     expect(strip.pointerEvents).toBe('none');
-    // Dissolve into the plate color plus a dark lip: two stacked gradients.
+    // The bottom fades only into the theme color, without a detached dark band.
     expect(strip.fade).toContain('linear-gradient');
-    expect(strip.fade.match(/linear-gradient/g).length).toBeGreaterThan(1);
+    expect(strip.fade.match(/linear-gradient/g).length).toBe(strip.edge === 'top' ? 2 : 1);
     // Smooth darkening only: no blur layers, whose masked edge reads as a
     // hard boundary over text.
     expect(strip.beforeContent).toBe('none');

@@ -5,8 +5,8 @@
 .composer {
   /* The composer overlays the transcript instead of sharing height with it:
      it grows upward over the text, and the transcript's height and scroll
-     range never depend on it. .messages reserves one compact composer height
-     of bottom padding so the newest line can scroll clear of the plate. */
+     range never depend on it. The workspace reserves a fixed 165px clearance
+     for the compact plate; growth changes coverage, never transcript geometry. */
   position: absolute;
   left: 0;
   right: 0;
@@ -15,23 +15,20 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* The plate may cover most of a tall pane, but never the last sliver of
-     the workspace: a floor of 150px keeps the artifacts toolbar and the
-     transcript top reachable even in very short shells. */
+  /* Original viewport-relative limit: allow the plate to grow while keeping
+     150px of the workspace reachable. The flex/grid chain shrinks only the
+     textarea when the available height is exhausted. */
   max-height: min(65%, calc(100% - 150px));
   padding: 10px 16px 8px;
-  border-top: 1px solid var(--oc-border-soft);
   background: var(--vscode-editor-background);
-  box-shadow: 0 -6px 14px rgba(0, 0, 0, 0.18);
 }
 
 .composer[hidden] {
   display: none;
 }
 
-/* Text sinks into the plate's overhang: a gradient lip directly above the
-   composer, travelling with it when the plate grows. Replaces the old
-   workspace-bottom edge fade, which the opaque overlay plate now covers. */
+/* The workspace fade stays at the fixed clip line. Once the overlay grows
+   across that line, its own lip takes over at the new visible boundary. */
 .composer::before {
   content: "";
   position: absolute;
@@ -40,9 +37,7 @@
   bottom: 100%;
   height: 20px;
   pointer-events: none;
-  background:
-    linear-gradient(to top, rgba(0, 0, 0, 0.22), transparent 65%),
-    linear-gradient(to top, var(--vscode-editor-background), transparent);
+  background: linear-gradient(to top, var(--vscode-editor-background), transparent);
 }
 
 /* Very short shells cannot afford the overlay: the composer rejoins the flow
@@ -50,16 +45,16 @@
    so the bottom edge fade rides the workspace's own bottom edge. */
 @media (max-height: 420px) {
   .composer { position: static; max-height: 60%; box-shadow: none; }
+  .composer .hint { display: none; }
   .messages { padding-bottom: 32px; scroll-padding-bottom: 0; }
   #workspace:has(#artifacts:not([hidden])) > #artifacts { margin-bottom: 0; }
   #workspace { --oc-plate-clearance: 0; padding-bottom: 0; }
 }
 
-.composer.question-active > :not(.questions) { display: none; }
+#composer.question-active > :not(.questions) { display: none; }
 .questions { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-/* A single fallback viewport keeps all composer controls reachable in short
-   windows or with many attachments/configuration fields. */
-#composer-controls { min-height: 0; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; padding: 2px; }
+/* Controls stay outside the textarea's scrollport, including attachments. */
+#composer-controls { display: flex; flex-direction: column; min-height: 0; padding: 2px; }
 .questions .elicitation { margin: 0; }
 
 .slash-menu {
@@ -152,7 +147,7 @@
 }
 .config-bar[hidden] { display: none; }
 .agent-label { grid-column: 1; grid-row: 1; min-width: 0; justify-self: start; overflow-wrap: anywhere; color: var(--oc-secondary); font: 11px var(--vscode-font-family); }
-.prompt-box { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; min-width: 0; border: 1px solid var(--oc-border); border-radius: 8px; background: var(--vscode-input-background); }
+.prompt-box { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(38px, 1fr) auto; align-items: end; min-width: 0; min-height: 0; border: 1px solid var(--oc-border); border-radius: 8px; background: var(--vscode-input-background); }
 .prompt-box:has(#input:focus) { border-color: var(--vscode-focusBorder); box-shadow: 0 0 0 2px var(--vscode-focusBorder); }
 .prompt-box #input { grid-column: 1 / -1; display: block; border: 0; background: transparent; }
 .prompt-box #input:focus { box-shadow: none; }
@@ -357,7 +352,8 @@
 
 .input-row {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
+  min-height: 0;
   gap: 8px;
   width: 100%;
   max-width: 900px;
@@ -370,7 +366,10 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  min-height: 0;
 }
+
+.input-stack > :not(.prompt-box) { flex-shrink: 0; }
 
 .attachments {
   display: flex;
@@ -440,7 +439,8 @@
   width: 100%;
   flex: none;
   min-height: 38px;
-  max-height: min(200px, 22vh);
+  max-height: 100%;
+  overflow-y: auto;
   overscroll-behavior: contain;
   padding: 8px 10px;
   resize: none;
@@ -588,6 +588,7 @@
 
 .hint {
   display: flex;
+  flex-shrink: 0;
   justify-content: space-between;
   gap: 12px;
   width: 100%;

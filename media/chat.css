@@ -88,10 +88,6 @@ select {
   background:
     linear-gradient(
       to top,
-      rgba(0, 0, 0, 0.22),
-      transparent 65%),
-    linear-gradient(
-      to top,
       var(--vscode-editor-background),
       transparent);
 }
@@ -2168,9 +2164,7 @@ button.delivery-indicator:focus-visible {
   min-height: 0;
   max-height: min(65%, calc(100% - 150px));
   padding: 10px 16px 8px;
-  border-top: 1px solid var(--oc-border-soft);
   background: var(--vscode-editor-background);
-  box-shadow: 0 -6px 14px rgba(0, 0, 0, 0.18);
 }
 .composer[hidden] {
   display: none;
@@ -2186,10 +2180,6 @@ button.delivery-indicator:focus-visible {
   background:
     linear-gradient(
       to top,
-      rgba(0, 0, 0, 0.22),
-      transparent 65%),
-    linear-gradient(
-      to top,
       var(--vscode-editor-background),
       transparent);
 }
@@ -2198,6 +2188,9 @@ button.delivery-indicator:focus-visible {
     position: static;
     max-height: 60%;
     box-shadow: none;
+  }
+  .composer .hint {
+    display: none;
   }
   .messages {
     padding-bottom: 32px;
@@ -2211,7 +2204,7 @@ button.delivery-indicator:focus-visible {
     padding-bottom: 0;
   }
 }
-.composer.question-active > :not(.questions) {
+#composer.question-active > :not(.questions) {
   display: none;
 }
 .questions {
@@ -2220,10 +2213,9 @@ button.delivery-indicator:focus-visible {
   overscroll-behavior: contain;
 }
 #composer-controls {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  max-height: 40vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   padding: 2px;
 }
 .questions .elicitation {
@@ -2324,8 +2316,10 @@ button.delivery-indicator:focus-visible {
 .prompt-box {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(38px, 1fr) auto;
   align-items: end;
   min-width: 0;
+  min-height: 0;
   border: 1px solid var(--oc-border);
   border-radius: 8px;
   background: var(--vscode-input-background);
@@ -2697,7 +2691,8 @@ button.delivery-indicator:focus-visible {
 }
 .input-row {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
+  min-height: 0;
   gap: 8px;
   width: 100%;
   max-width: 900px;
@@ -2709,6 +2704,10 @@ button.delivery-indicator:focus-visible {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  min-height: 0;
+}
+.input-stack > :not(.prompt-box) {
+  flex-shrink: 0;
 }
 .attachments {
   display: flex;
@@ -2770,7 +2769,8 @@ button.delivery-indicator:focus-visible {
   width: 100%;
   flex: none;
   min-height: 38px;
-  max-height: min(200px, 22vh);
+  max-height: 100%;
+  overflow-y: auto;
   overscroll-behavior: contain;
   padding: 8px 10px;
   resize: none;
@@ -2933,6 +2933,7 @@ button.delivery-indicator:focus-visible {
 }
 .hint {
   display: flex;
+  flex-shrink: 0;
   justify-content: space-between;
   gap: 12px;
   width: 100%;

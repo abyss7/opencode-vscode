@@ -3,7 +3,7 @@
    --------------------------------------------------------------------------
    Architectural invariant: `html`, `body`, and `#app` are strictly `overflow: clip`
    and NEVER scroll. Only designated inner viewports (`#messages`, `#artifacts`,
-   `#questions`, `#composer-controls`, `#input`, popovers) may scroll vertically.
+   `#questions`, `#input`, popovers) may scroll vertically.
    ========================================================================== */
 
 :root {
@@ -116,9 +116,7 @@ select {
 .edge-fade[data-edge="bottom"] {
   bottom: var(--oc-plate-clearance);
   height: 20px;
-  background:
-    linear-gradient(to top, rgba(0, 0, 0, 0.22), transparent 65%),
-    linear-gradient(to top, var(--vscode-editor-background), transparent);
+  background: linear-gradient(to top, var(--vscode-editor-background), transparent);
 }
 
 
