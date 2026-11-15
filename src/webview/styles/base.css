@@ -80,17 +80,23 @@ select {
      fade anchors to this same line (see .edge-fade below): text must sink
      into shadow before the scrollport clips it, which sits at the clearance
      line, not at the plate's top edge. */
-  --oc-plate-clearance: 165px;
+  --oc-plate-clearance: 150px;
   padding-bottom: var(--oc-plate-clearance);
+}
+
+/* Match the footer's two-row metadata layout without measuring its changing
+   height. The compact Agent row keeps the same ~20px breathing room. */
+@media (max-width: 700px) {
+  #workspace { --oc-plate-clearance: 170px; }
 }
 
 #workspace > .messages {
   min-width: 0;
 }
 
-/* Content sinks into the shadow of the overhanging plates: it dissolves
-   into the plate color and gathers a dark lip at the edge. Pure gradients —
-   nothing recomposites while scrolling. The top strip stays within the
+/* Content dissolves into the plate color without a separate dark lip.
+   Pure gradients — nothing recomposites while scrolling. The top strip
+   yields to the pinned prompt's own fade and stays within the
    scroll padding budget (.messages pads 16px top), so the first line
    renders sharp when scrolled to the start. The bottom strip rides the
    clearance line where the scrollport clips — when the composer plate
@@ -108,9 +114,12 @@ select {
 .edge-fade[data-edge="top"] {
   top: 0;
   height: 16px;
-  background:
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.22), transparent 65%),
-    linear-gradient(to bottom, var(--vscode-editor-background), transparent);
+  background: linear-gradient(to bottom, var(--vscode-editor-background), transparent);
+}
+
+/* Never fade the pinned prompt itself or stack two fades above the text. */
+#workspace:has(.sticky-prompt.visible) > .edge-fade[data-edge="top"] {
+  display: none;
 }
 
 .edge-fade[data-edge="bottom"] {

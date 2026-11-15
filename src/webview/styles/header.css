@@ -11,8 +11,12 @@
   height: 42px;
   min-height: 42px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--oc-border-soft);
+  border-bottom: 1px solid transparent;
   background: var(--vscode-editor-background);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #header {
+  border-bottom-color: var(--oc-border-soft);
 }
 
 #status {

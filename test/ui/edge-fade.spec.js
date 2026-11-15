@@ -2,8 +2,7 @@
 
 const { test, expect } = require('./fixture');
 
-test('the top edge fade strip sinks content into the shadow of the plate', async ({ page, chat }) => {
-  await chat.update({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'Show me a long answer' } });
+test('the bare header and transcript edges dissolve into the theme background', async ({ page, chat }) => {
   for (let index = 1; index <= 30; index++) {
     await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Line ${index} sinks into the plates' shadow.\n\n` } });
   }
@@ -17,6 +16,8 @@ test('the top edge fade strip sinks content into the shadow of the plate', async
     node.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
   });
   await page.waitForTimeout(150);
+  await expect(page.locator('#header')).toHaveCSS('border-bottom-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('.edge-fade[data-edge="top"]')).toBeVisible();
 
   const strips = await page.evaluate(() => {
     const workspace = document.getElementById('workspace');
@@ -60,9 +61,9 @@ test('the top edge fade strip sinks content into the shadow of the plate', async
     expect(strip.height).toBeLessThanOrEqual(strips.paddings[strip.edge]);
     expect(strip.width).toBeGreaterThan(300);
     expect(strip.pointerEvents).toBe('none');
-    // The bottom fades only into the theme color, without a detached dark band.
+    // Both edges fade only into the theme color, without a detached dark band.
     expect(strip.fade).toContain('linear-gradient');
-    expect(strip.fade.match(/linear-gradient/g).length).toBe(strip.edge === 'top' ? 2 : 1);
+    expect(strip.fade.match(/linear-gradient/g).length).toBe(1);
     // Smooth darkening only: no blur layers, whose masked edge reads as a
     // hard boundary over text.
     expect(strip.beforeContent).toBe('none');
@@ -127,48 +128,107 @@ test('the top edge fade strip sinks content into the shadow of the plate', async
   expect(withBottom.equals(withoutBottom), 'bottom strip darkens text before the clip line').toBe(false);
 });
 
-test('a pinned prompt casts the same shadow over the transcript', async ({ page, chat }) => {
+for (const fontSize of [13, 22]) {
+test(`a pinned prompt owns the top fade and matches the message bubble (${fontSize}px)`, async ({ page, chat }) => {
+  await page.evaluate((size) => document.body.style.setProperty('--vscode-chat-font-size', `${size}px`), fontSize);
   await chat.update({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'Keep this question visible' } });
   await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Long answer.\n\n'.repeat(100) } });
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
   await page.locator('#messages').evaluate((node) => { node.style.scrollBehavior = 'auto'; node.scrollTop = 500; });
   await expect(page.getByRole('button', { name: 'Go to latest prompt' })).toBeVisible();
+  await expect(page.locator('.edge-fade[data-edge="top"]')).toBeHidden();
 
   const shadow = await page.evaluate(() => {
     const sticky = document.querySelector('.sticky-prompt');
     const button = sticky.querySelector('button').getBoundingClientRect();
+    const frame = getComputedStyle(sticky.querySelector('button'));
     const style = getComputedStyle(sticky, '::after');
+    const viewport = document.getElementById('messages').getBoundingClientRect();
     return {
       visible: sticky.classList.contains('visible'),
       position: style.position,
+      display: style.display,
       fade: style.backgroundImage,
       backdropFilter: style.backdropFilter,
-      // The shadow hangs below the pill: its top offset must reach the button.
-      top: sticky.getBoundingClientRect().top + parseFloat(style.top),
-      buttonBottom: button.bottom,
+      height: parseFloat(style.height),
+      marginTop: parseFloat(style.marginTop),
+      marginLeft: parseFloat(style.marginLeft),
+      buttonTop: button.top,
+      viewportTop: viewport.top,
+      width: button.width,
+      viewportWidth: viewport.width,
+      border: frame.borderBottomWidth,
+      align: frame.textAlign,
+      // Compare against the real message, not a separately hardcoded strip
+      // style: all four borders, rounded corners, fill, padding and shadow.
+      appearance: (() => {
+        const original = getComputedStyle(document.querySelector('.message.user .body'));
+        const properties = ['backgroundColor', 'color', 'boxShadow', 'fontFamily', 'fontSize', 'lineHeight',
+          ...['Top', 'Right', 'Bottom', 'Left'].flatMap((side) =>
+            [`padding${side}`, `border${side}Width`, `border${side}Style`, `border${side}Color`]),
+          'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomLeftRadius', 'borderBottomRightRadius'];
+        return {
+          pinned: Object.fromEntries(properties.map((name) => [name, frame[name]])),
+          original: Object.fromEntries(properties.map((name) => [name, original[name]])),
+        };
+      })(),
       pointerEvents: style.pointerEvents,
     };
   });
   expect(shadow.visible).toBe(true);
-  expect(shadow.position).toBe('absolute');
+  // The pseudo-element follows the button in the next grid row, so it cannot
+  // cover the frame or drift away when the font changes its height.
+  expect(shadow.position).toBe('static');
+  expect(shadow.display).toBe('block');
+  expect(shadow.marginTop).toBe(0);
+  expect(shadow.marginLeft).toBe(-16);
+  expect(shadow.height).toBe(16);
   expect(shadow.pointerEvents).toBe('none');
-  expect(shadow.fade).toContain('linear-gradient');
-  // Smooth darkening only — no blur under the pill either.
+  expect(shadow.fade.match(/linear-gradient/g)).toHaveLength(1);
   expect(shadow.backdropFilter).toBe('none');
-  // calc(100% + 2.15em) starts slightly inside the pill so no gap opens.
-  expect(shadow.top).toBeLessThanOrEqual(shadow.buttonBottom);
-  expect(shadow.buttonBottom - shadow.top).toBeLessThan(6);
+  expect(shadow.buttonTop).toBeCloseTo(shadow.viewportTop, 0);
+  expect(shadow.width).toBeCloseTo(shadow.viewportWidth - 32, 0);
+  expect(shadow.border).toBe('1px');
+  expect(shadow.align).toBe('left');
+  expect(shadow.appearance.pinned).toEqual(shadow.appearance.original);
 
-  // The shadow moves with the pinned pill as scrolling continues.
+  // No fading may touch the pinned button, including its border.
+  const button = page.locator('.sticky-prompt button');
+  const withFade = await button.screenshot({ animations: 'disabled', caret: 'hide' });
+  const noFade = await page.addStyleTag({ content: '.sticky-prompt::after { display: none !important; }' });
+  const withoutFade = await button.screenshot({ animations: 'disabled', caret: 'hide' });
+  expect(withFade.equals(withoutFade), 'the pinned frame and text stay untouched by the fade').toBe(true);
+  await noFade.evaluate((node) => node.remove());
+
+  // The prompt stays flush as scrolling continues; returning to the beginning
+  // restores the header fade instead of leaving the transcript without one.
   await page.locator('#messages').evaluate((node) => { node.scrollTop = 900; });
-  await page.waitForTimeout(100);
-  const after = await page.evaluate(() => {
-    const sticky = document.querySelector('.sticky-prompt');
-    return {
-      top: sticky.getBoundingClientRect().top + parseFloat(getComputedStyle(sticky, '::after').top),
-      buttonBottom: sticky.querySelector('button').getBoundingClientRect().bottom,
-    };
+  await expect.poll(async () => (await button.boundingBox()).y).toBeCloseTo(shadow.viewportTop, 0);
+  await expect(page.locator('.edge-fade[data-edge="top"]')).toBeHidden();
+  await page.locator('#messages').evaluate((node) => { node.scrollTop = 0; });
+  await expect(button).toBeHidden();
+  await expect(page.locator('.edge-fade[data-edge="top"]')).toBeVisible();
+});
+}
+
+test('top fades respect high contrast and reduced transparency', async ({ page, chat }) => {
+  await chat.update({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'Keep this question visible' } });
+  await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Long answer.\n\n'.repeat(100) } });
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await expect(page.getByRole('button', { name: 'Go to latest prompt' })).toBeVisible();
+  for (const theme of ['vscode-high-contrast', 'vscode-high-contrast-light']) {
+    await page.evaluate((name) => document.body.classList.add(name), theme);
+    expect(await page.locator('.sticky-prompt').evaluate((node) => getComputedStyle(node, '::after').display)).toBe('none');
+    await page.locator('#messages').evaluate((node) => { node.scrollTop = 0; });
+    await expect(page.locator('.edge-fade[data-edge="top"]')).toBeHidden();
+    await page.evaluate((name) => document.body.classList.remove(name), theme);
+    await page.locator('#messages').evaluate((node) => { node.scrollTop = 500; });
+  }
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-transparency', value: 'reduce' }],
   });
-  expect(after.top).toBeLessThanOrEqual(after.buttonBottom);
-  expect(after.buttonBottom - after.top).toBeLessThan(6);
+  expect(await page.locator('.sticky-prompt').evaluate((node) => getComputedStyle(node, '::after').display)).toBe('none');
+  await page.locator('#messages').evaluate((node) => { node.scrollTop = 0; });
+  await expect(page.locator('.edge-fade[data-edge="top"]')).toBeHidden();
 });

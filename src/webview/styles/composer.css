@@ -5,8 +5,9 @@
 .composer {
   /* The composer overlays the transcript instead of sharing height with it:
      it grows upward over the text, and the transcript's height and scroll
-     range never depend on it. The workspace reserves a fixed 165px clearance
-     for the compact plate; growth changes coverage, never transcript geometry. */
+     range never depend on it. The workspace reserves a fixed clearance for
+     the compact plate (150px, or 170px for two-row metadata on narrow views);
+     growth changes coverage, never transcript geometry. */
   position: absolute;
   left: 0;
   right: 0;
