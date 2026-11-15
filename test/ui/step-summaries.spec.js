@@ -156,6 +156,34 @@ test('a turn that never delivers an answer still reveals the chevron and collaps
   await expect(page.locator('.info').last()).toContainText('No text answer in this turn');
 });
 
+for (const hasCurrentAnswer of [false, true]) {
+  test(`history replay keeps answer detection scoped to the current turn (${hasCurrentAnswer ? 'answered' : 'tool-only'})`, async ({ page, chat }) => {
+    await chat.send({ type: 'historyReset' }, { type: 'status', state: 'busy' });
+    await chat.send({ type: 'transcript', messages: [
+      { id: 'u1', type: 'user', text: 'Earlier question', time: { created: 1000 } },
+      { id: 'a1', type: 'assistant', content: [{ type: 'text', text: 'Earlier answer' }],
+        time: { created: 2000, completed: 3000 } },
+      { id: 'idle1', type: 'idle', time: { created: 3001 } },
+      { id: 'u2', type: 'user', text: 'Current question', time: { created: 4000 } },
+      { id: 'a2', type: 'assistant', content: [
+        { type: 'tool', update: { toolCallId: 'read-current', title: 'Read file', kind: 'read',
+          status: 'completed', rawInput: { path: 'src/a.js' }, content: [] } },
+        ...(hasCurrentAnswer ? [{ type: 'text', text: 'Current answer' }] : []),
+      ], time: { created: 5000, completed: 6000 } },
+    ], inbox: [], states: [] });
+    await chat.send({ type: 'historyEnd' }, { type: 'turnEnd', stopReason: 'end_turn' });
+
+    const notice = page.locator('.info').filter({ hasText: 'No text answer in this turn' });
+    await expect(notice).toHaveCount(hasCurrentAnswer ? 0 : 1);
+    if (!hasCurrentAnswer) await expect(notice).toContainText('1 step listed above');
+    await expect(page.locator('.message.assistant .body')).toHaveText(
+      hasCurrentAnswer ? ['Earlier answer', 'Current answer'] : ['Earlier answer']
+    );
+    await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+    await expect(notice).toHaveCount(hasCurrentAnswer ? 0 : 1);
+  });
+}
+
 test('transport status blips never fold the streamed steps', async ({ page, chat }) => {
   await chat.send({ type: 'status', state: 'busy' });
   await tool(chat, 'read', 'read', { path: 'src/a.js' });

@@ -667,7 +667,8 @@ function createTranscriptRenderer({
         );
       }
       scheduleFileChecks();
-      store.state.turnHadText = true;
+      // The reducer owns turn state: this may be an earlier answer being
+      // rendered after the entire history snapshot has already been reduced.
       finalizeTurnSteps();
     }
     currentAssistant = null;

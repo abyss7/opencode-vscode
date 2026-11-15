@@ -4069,7 +4069,6 @@ ${after}`);
               );
             }
             scheduleFileChecks();
-            store.state.turnHadText = true;
             finalizeTurnSteps();
           }
           currentAssistant = null;
