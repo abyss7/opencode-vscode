@@ -299,6 +299,11 @@ function activate(context) {
     getCwd,
     defaultAgent,
     setDefaultAgent: handlers.setDefaultAgent,
+    getActiveSession() {
+      const tab = vscode.window.tabGroups?.activeTabGroup?.activeTab;
+      return tab?.input?.viewType === 'opencode.sessionEditor'
+        ? editors.sessionId(tab.input.uri) || null : null;
+    },
     log,
     moveToFolder: handlers.moveSessionToFolder,
     actions: {
@@ -321,9 +326,17 @@ function activate(context) {
     })
   );
 
+  const tabs = vscode.window.tabGroups;
+  if (tabs?.onDidChangeTabs) {
+    context.subscriptions.push(tabs.onDidChangeTabs(() => sidebar.syncActiveSession()));
+  }
+  if (tabs?.onDidChangeTabGroups) {
+    context.subscriptions.push(tabs.onDidChangeTabGroups(() => sidebar.syncActiveSession()));
+  }
+
   context.subscriptions.push(
     provider.onDidChangeTreeData(() => {
-      sidebar.view?.webview.postMessage({ type: 'sessions', items: sidebar.tree() });
+      sidebar.postSessions();
       // The list can receive a generated title before (or without) an ACP title event.
       const pending = [...provider.getChildren()];
       const seen = new Set();

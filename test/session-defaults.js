@@ -14,6 +14,7 @@ async function main() {
   assert.equal(normalizeAgentOptions(original)[0].options[0].name, 'Build');
   assert.equal(original[0].options[0].name, 'build', 'display normalization never mutates server configuration');
   let selected = 'build';
+  let activeSession = 'ses_root';
   const sent = [];
   let receive;
   const session = { id: 'ses_root', title: 'Task' };
@@ -24,6 +25,7 @@ async function main() {
     vscode: { Uri: { joinPath: (...parts) => parts.join('/') } },
     extensionUri: path.join(__dirname, '..'), getCwd: () => '/project', defaultAgent: () => selected,
     log: () => {}, setDefaultAgent: async (id) => { selected = id; },
+    getActiveSession: () => activeSession,
     provider: {
       refresh: async () => {},
       getChildren: (node) => !node ? [folder] : node === folder ? [session] : node === session ? [child] : [],
@@ -65,6 +67,20 @@ async function main() {
   await receive({ type: 'selectAgent', agent: 'missing' });
   assert.equal(sent.at(-1).selected, 'plan');
   assert.equal(sent.at(-1).error, 'Unavailable');
+  assert.equal(sent.find((message) => message.type === 'sessions').activeSessionId, session.id,
+    'initial sidebar state includes the already active tab');
+  activeSession = child.id;
+  await provider.syncActiveSession();
+  assert.deepEqual(sent.at(-1), { type: 'activeSession', sessionId: child.id });
+  await provider.postSessions();
+  assert.equal(sent.at(-1).activeSessionId, child.id, 'tree refresh carries the current tab');
+  activeSession = null;
+  await provider.syncActiveSession();
+  assert.deepEqual(sent.at(-1), { type: 'activeSession', sessionId: null }, 'ordinary editors clear the session selection');
+  activeSession = session.id;
+  await receive({ type: 'ready' });
+  assert.equal(sent.filter((message) => message.type === 'sessions').at(-1).activeSessionId, session.id,
+    'a recreated webview recovers the active tab');
   const manifest = require('../package.json');
   assert.deepEqual(manifest.contributes.views.opencode.map(({ id, type }) => ({ id, type })),
     [{ id: 'opencode.sessions', type: 'webview' }], 'the footer belongs to the existing Sessions view, not a second view');

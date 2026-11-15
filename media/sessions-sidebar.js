@@ -9,6 +9,8 @@
   const saved = vscode.getState() || {};
   const expansion = saved.expansion || {};
   let selected = saved.selected;
+  let activeSessionId;
+  let revealActive = false;
   let items = [];
   let nodes = new Map();
   const persist = () => vscode.setState({ expansion, selected, scrollTop: scroll.scrollTop });
@@ -67,9 +69,30 @@
     // One shared date form everywhere: day before month, never the locale.
     return OpenCodeTime.formatDay(timestamp);
   }
-  function render() {
-    const top = scroll.scrollTop;
+  function setActiveSession(id) {
+    const next = id || null;
+    if (activeSessionId === next) return false;
+    activeSessionId = next;
+    selected = next ? `session:${next}` : undefined;
+    revealActive = Boolean(next);
+    return true;
+  }
+  function activePath(list, ancestors = []) {
+    for (const node of list) {
+      const path = [...ancestors, node];
+      if (node.kind === 'session' && node.id === activeSessionId) return path;
+      const found = activePath(node.children || [], path);
+      if (found) return found;
+    }
+  }
+  function render(top = scroll.scrollTop) {
     const focus = document.activeElement.closest?.('.tree-node')?.dataset.key;
+    // A tab can activate before its session arrives in the refreshed tree.
+    const reveal = revealActive && activePath(items);
+    if (reveal) {
+      for (const ancestor of reveal.slice(0, -1)) expansion[key(ancestor)] = true;
+      selected = `session:${activeSessionId}`;
+    }
     // Refresh rebuilds rows, but an existing background run must keep its
     // animation timeline instead of flashing back to full opacity each time.
     const pulseStarts = new Map([...tree.querySelectorAll('.tree-icon-background')].map((svg) =>
@@ -148,6 +171,12 @@
     if (!elements.some((node) => node.tabIndex === 0) && elements[0]) elements[0].tabIndex = 0;
     if (focus) elements.find((node) => node.dataset.key === focus)?.focus({ preventScroll: true });
     scroll.scrollTop = top;
+    if (reveal) {
+      const element = elements.find((node) => node.dataset.key === selected);
+      OpenCodeScroll.scrollToElement(scroll, element.querySelector('.tree-row'), { block: 'nearest' });
+      revealActive = false;
+    }
+    persist();
   }
   function focusNode(element) {
     if (!element) return;
@@ -255,13 +284,17 @@
     vscode.postMessage({ type: 'selectAgent', agent: select.value });
   });
   window.addEventListener('message', ({ data }) => {
+    if (data.type === 'activeSession') {
+      if (setActiveSession(data.sessionId)) render();
+      return;
+    }
     if (data.type === 'sessions') {
       items = data.items || [];
       connectionError(items.find((item) => item.kind === 'error')?.name);
       items = items.filter((item) => item.kind !== 'error');
       const initial = !tree.children.length;
-      render();
-      if (initial) scroll.scrollTop = saved.scrollTop || 0;
+      if (Object.hasOwn(data, 'activeSessionId')) setActiveSession(data.activeSessionId);
+      render(initial ? saved.scrollTop || 0 : undefined);
       return;
     }
     if (data.type === 'connectionError') {

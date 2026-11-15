@@ -12,6 +12,14 @@ class SessionsSidebar {
   get visible() { return Boolean(this.view?.visible); }
   set description(value) { this.descriptionText = value; if (this.view) this.view.description = value; }
 
+  syncActiveSession() {
+    return this.view?.webview.postMessage({ type: 'activeSession', sessionId: this.getActiveSession?.() || null });
+  }
+
+  postSessions(items = this.tree()) {
+    return this.view?.webview.postMessage({ type: 'sessions', items, activeSessionId: this.getActiveSession?.() || null });
+  }
+
   resolveContext(context) {
     if (!context || typeof context.sidebarId !== 'string') return undefined;
     return this.nodes.get(`${context.sidebarKind}:${context.sidebarId}`);
@@ -107,7 +115,7 @@ class SessionsSidebar {
       await this.provider.refresh();
       if (!view || this.view !== view || sequence !== this.sequence) return;
       const items = this.tree();
-      await view.webview.postMessage({ type: 'sessions', items });
+      await this.postSessions(items);
       if (items.some((item) => item.kind === 'error')) return;
       const selected = this.defaultAgent(cwd);
       const agents = cwd ? await this.api.listAgents(cwd) : [];
