@@ -246,11 +246,89 @@
     }
   });
 
+  // src/thought-caption.js
+  var require_thought_caption = __commonJS({
+    "src/thought-caption.js"(exports, module) {
+      "use strict";
+      function shortActivityCaption(value) {
+        if (typeof value !== "string") return "";
+        const text = value.trim().replace(/`([^`\r\n]+)`/g, "$1");
+        if (!text || text.length > 120 || /[\r\n]/.test(text)) return "";
+        if (/^(analysis|reasoning|thoughts?|thinking|plan|summary|working|read|edit|write|run|execute|search|fetch|shell|bash|patch|tool|other)[\s.!:…]*$/i.test(text)) return "";
+        return text;
+      }
+      function scanThoughtCaption(thought, finished) {
+        let caption = "";
+        while (thought.captionOffset < thought.text.length) {
+          const newline = thought.text.indexOf("\n", thought.captionOffset);
+          if (newline < 0 && !finished) break;
+          const end = newline < 0 ? thought.text.length : newline;
+          const line = thought.text.slice(thought.captionOffset, end).replace(/\r$/, "");
+          thought.captionOffset = newline < 0 ? end : end + 1;
+          const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+          if (fence) {
+            if (!thought.captionFence) thought.captionFence = fence[1];
+            else if (fence[1][0] === thought.captionFence[0] && fence[1].length >= thought.captionFence.length && !fence[2].trim()) {
+              thought.captionFence = "";
+            }
+            continue;
+          }
+          if (thought.captionFence || /^( {4}|\t)/.test(line)) continue;
+          const heading = /^\s{0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
+          const bold = /^\s*(?:\*\*([^*]+)\*\*|__([^_]+)__):?\s*$/.exec(line);
+          const candidate = shortActivityCaption(heading?.[1] || bold?.[1] || bold?.[2]);
+          if (candidate) thought.caption = caption = candidate;
+        }
+        if (finished && !thought.caption && !/^(?:\s*[#>*_`~]| {4}|\t)/.test(thought.text)) {
+          caption = shortActivityCaption(thought.text);
+        }
+        return caption;
+      }
+      function sameThought(a, b) {
+        return Boolean(a && b && a.sessionId === b.sessionId && a.turnId === b.turnId && a.id === b.id);
+      }
+      function updateThoughtBlock(previous, input) {
+        const prev = sameThought(previous, input) ? previous : null;
+        const text = input.text || "";
+        const completed = Boolean(input.completed);
+        if (prev && prev.text === text && prev.completed === completed) return prev;
+        const append = prev && !prev.completed && text.startsWith(prev.text);
+        const scan = {
+          text,
+          captionOffset: append ? prev.scan.offset : 0,
+          captionFence: append ? prev.scan.fence : "",
+          caption: append ? prev.scan.caption : ""
+        };
+        const caption = scanThoughtCaption(scan, completed) || scan.caption;
+        return {
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          id: input.id,
+          text,
+          completed,
+          revision: (prev?.revision || 0) + 1,
+          // A replacement invalidates summaries of an older prefix; appends do not.
+          epoch: (prev?.epoch || 0) + (prev && !text.startsWith(prev.text) ? 1 : 0),
+          caption,
+          scan: { offset: scan.captionOffset, fence: scan.captionFence, caption: scan.caption }
+        };
+      }
+      function acceptsSummary(block, summary) {
+        return sameThought(block, summary) && block.epoch === summary.epoch && summary.revision > 0 && summary.revision <= block.revision && Boolean(shortActivityCaption(summary.text));
+      }
+      function thoughtCaption(block, summary) {
+        return block?.caption || (acceptsSummary(block, summary) ? shortActivityCaption(summary.text) : "");
+      }
+      module.exports = { shortActivityCaption, scanThoughtCaption, sameThought, updateThoughtBlock, acceptsSummary, thoughtCaption };
+    }
+  });
+
   // src/webview/chat/tool-metadata.js
   var require_tool_metadata = __commonJS({
     "src/webview/chat/tool-metadata.js"(exports, module) {
       "use strict";
       var { oneLine, prefixLine } = require_format();
+      var { shortActivityCaption, scanThoughtCaption } = require_thought_caption();
       function toolStatusLabel(status) {
         switch (status) {
           case "pending":
@@ -465,44 +543,6 @@ ${after}`);
         const statusMetrics = Object.entries(statuses).filter(([, count]) => count > 0).map(([status, count]) => `${count} ${toolStatusLabel(status)}`);
         return { label: cards.length ? plural(cards.length, "tool call") : "Details", metrics, statusMetrics };
       }
-      function shortActivityCaption(value) {
-        if (typeof value !== "string") return "";
-        const text = value.trim().replace(/`([^`\r\n]+)`/g, "$1");
-        if (!text || text.length > 120 || /[\r\n]/.test(text)) return "";
-        if (/^(analysis|reasoning|thoughts?|thinking|plan|summary|working|read|edit|write|run|execute|search|fetch|shell|bash|patch|tool|other)[\s.!:…]*$/i.test(
-          text
-        )) {
-          return "";
-        }
-        return text;
-      }
-      function scanThoughtCaption(thought, finished) {
-        let caption = "";
-        while (thought.captionOffset < thought.text.length) {
-          const newline = thought.text.indexOf("\n", thought.captionOffset);
-          if (newline < 0 && !finished) break;
-          const end = newline < 0 ? thought.text.length : newline;
-          const line = thought.text.slice(thought.captionOffset, end).replace(/\r$/, "");
-          thought.captionOffset = newline < 0 ? end : end + 1;
-          const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-          if (fence) {
-            if (!thought.captionFence) thought.captionFence = fence[1];
-            else if (fence[1][0] === thought.captionFence[0] && fence[1].length >= thought.captionFence.length && !fence[2].trim()) {
-              thought.captionFence = "";
-            }
-            continue;
-          }
-          if (thought.captionFence || /^( {4}|\t)/.test(line)) continue;
-          const heading = /^\s{0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
-          const bold = /^\s*(?:\*\*([^*]+)\*\*|__([^_]+)__):?\s*$/.exec(line);
-          const candidate = shortActivityCaption(heading?.[1] || bold?.[1] || bold?.[2]);
-          if (candidate) thought.caption = caption = candidate;
-        }
-        if (finished && !thought.caption && !/^(?:\s*[#>*_`~]| {4}|\t)/.test(thought.text)) {
-          caption = shortActivityCaption(thought.text);
-        }
-        return caption;
-      }
       function toolActivityPurpose(activity, kind, labelText, detail) {
         const input = toolInputObject(activity) || {};
         const normalize = (value) => String(value || "").replace(/[`'"…]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -580,9 +620,9 @@ ${after}`);
       var { prefixLine } = require_format();
       var {
         toolTitle,
-        scanThoughtCaption,
         nativeImages
       } = require_tool_metadata();
+      var { updateThoughtBlock, acceptsSummary, sameThought, thoughtCaption } = require_thought_caption();
       var STATUS_LABELS = {
         connecting: "Connecting\u2026",
         ready: "Ready",
@@ -646,7 +686,12 @@ ${after}`);
           turnEnded: false,
           pendingAssistantText: "",
           pendingAssistantId: null,
-          pendingThought: null,
+          thoughtBlocks: /* @__PURE__ */ new Map(),
+          thoughtSummaries: /* @__PURE__ */ new Map(),
+          thoughtTurnId: null,
+          pendingThoughtId: null,
+          pendingThoughtMessageId: null,
+          thoughtSeq: 0,
           userMessageCount: 0,
           commandEchoIndex: -1,
           commandEchoText: "",
@@ -753,7 +798,11 @@ ${after}`);
           state.turnEnded = false;
           state.pendingAssistantText = "";
           state.pendingAssistantId = null;
-          state.pendingThought = null;
+          state.pendingThoughtId = null;
+          state.pendingThoughtMessageId = null;
+          state.thoughtBlocks.clear();
+          state.thoughtSummaries.clear();
+          state.thoughtTurnId = null;
           state.liveStartedAt = null;
           state.liveKey = null;
           state.currentAction = null;
@@ -785,6 +834,7 @@ ${after}`);
             state.activityPurpose = "";
             state.attentionRequests.clear();
           }
+          if (state.busy && state.nativeTransport) syncThoughtCaption();
           syncLiveFallback();
           tx.dirty.header = true;
           tx.dirty.composer = true;
@@ -795,7 +845,11 @@ ${after}`);
           state.artifactSeq = 0;
           state.pendingAssistantText = "";
           state.pendingAssistantId = null;
-          state.pendingThought = null;
+          state.pendingThoughtId = null;
+          state.pendingThoughtMessageId = null;
+          state.thoughtBlocks.clear();
+          state.thoughtSummaries.clear();
+          state.thoughtTurnId = null;
           state.backgroundRuns.clear();
           state.commandProgress.clear();
           state.turnId = null;
@@ -917,11 +971,33 @@ ${after}`);
           state.pendingAssistantText = "";
           state.pendingAssistantId = null;
         }
+        function syncThoughtCaption() {
+          if (!state.busy || state.externalBusy || state.turnEnded) return;
+          let caption = "";
+          for (const block of state.thoughtBlocks.values()) {
+            caption = thoughtCaption(block, state.thoughtSummaries.get(block.id)) || caption;
+          }
+          state.activityThought = caption;
+        }
+        function recordThoughtBlock(block) {
+          state.thoughtTurnId ||= block.turnId;
+          if (state.thoughtTurnId !== block.turnId) return;
+          state.thoughtBlocks.set(block.id, block);
+          syncThoughtCaption();
+        }
+        function applyThoughtSummary(summary, restoring = false) {
+          if (!state.busy && !restoring || state.turnEnded || !summary) return;
+          const latest = [...state.thoughtBlocks.values()].at(-1);
+          const previous = state.thoughtSummaries.get(summary.id);
+          if (!acceptsSummary(latest, summary) || sameThought(previous, summary) && previous.epoch === summary.epoch && previous.revision >= summary.revision) return;
+          state.thoughtSummaries.set(summary.id, summary);
+          syncThoughtCaption();
+        }
         function finalizePendingThoughtState() {
-          if (!state.pendingThought) return;
-          const caption = scanThoughtCaption(state.pendingThought, true);
-          if (caption && state.busy) state.activityThought = caption;
-          state.pendingThought = null;
+          const block = state.thoughtBlocks.get(state.pendingThoughtId);
+          if (block) recordThoughtBlock(updateThoughtBlock(block, { ...block, completed: true }));
+          state.pendingThoughtId = null;
+          state.pendingThoughtMessageId = null;
         }
         function recordUserMessage(tx, text, messageId, images, timestamp) {
           finalizePendingThoughtState();
@@ -929,6 +1005,7 @@ ${after}`);
           const isAppend = Boolean(messageId && state.lastUserMessageId && state.lastUserMessageId === messageId);
           if (!isAppend) {
             beginTurn();
+            state.thoughtTurnId = messageId || state.turnId;
             state.userMessageCount += 1;
             state.lastUserMessageId = messageId || null;
           }
@@ -965,22 +1042,24 @@ ${after}`);
             return;
           }
           finalizePendingAssistantState();
-          if (state.pendingThought && messageId && state.pendingThought.messageId && messageId !== state.pendingThought.messageId) {
+          const pending = state.thoughtBlocks.get(state.pendingThoughtId);
+          if (pending && messageId && state.pendingThoughtMessageId && messageId !== state.pendingThoughtMessageId) {
             finalizePendingThoughtState();
           }
           ensureTurnId();
-          if (!state.pendingThought) {
-            state.pendingThought = {
-              messageId: messageId || null,
-              text: "",
-              captionOffset: 0,
-              captionFence: "",
-              caption: ""
-            };
+          if (!state.pendingThoughtId) {
+            state.pendingThoughtId = `acp-thought-${++state.thoughtSeq}`;
+            state.pendingThoughtMessageId = messageId || null;
           }
-          state.pendingThought.text += content.text;
-          const caption = scanThoughtCaption(state.pendingThought, false);
-          if (caption && state.busy) state.activityThought = caption;
+          const previous = state.thoughtBlocks.get(state.pendingThoughtId);
+          const block = updateThoughtBlock(previous, {
+            sessionId: state.sessionId,
+            turnId: state.thoughtTurnId || state.turnId,
+            id: state.pendingThoughtId,
+            text: (previous?.text || "") + content.text,
+            completed: false
+          });
+          recordThoughtBlock(block);
           state.liveToolId = null;
           setLiveAction("think", "", "thought:" + state.turnId, "Thinking\u2026", "current-thought");
           tx.ops.push({
@@ -1176,33 +1255,26 @@ ${after}`);
                     newlyCompleted
                   });
                   tx.dirty.header = true;
-                } else if (part.type === "reasoning" && part.text) {
+                } else if (part.type === "reasoning") {
                   finalizePendingAssistantState();
                   ensureTurnId();
-                  let thoughtRecord = prev?.thought || null;
-                  const isNew = !thoughtRecord;
-                  if (!thoughtRecord) {
-                    thoughtRecord = {
-                      messageId: key,
-                      text: part.text,
-                      captionOffset: 0,
-                      captionFence: "",
-                      caption: ""
-                    };
-                    state.pendingThought = thoughtRecord;
+                  const block = part.thought || updateThoughtBlock(prev?.thought, {
+                    sessionId: state.sessionId,
+                    turnId: state.thoughtTurnId || state.turnId,
+                    id: key,
+                    text: part.text,
+                    completed: part.streamCompleted || Boolean(message.time?.completed) || index < message.content.length - 1
+                  });
+                  if (!prev) {
                     state.liveToolId = null;
                     setLiveAction("think", "", "thought:" + state.turnId, "Thinking\u2026", "current-thought");
-                  } else if (thoughtRecord.text !== part.text) {
-                    thoughtRecord.text = part.text;
                   }
-                  const caption = scanThoughtCaption(thoughtRecord, Boolean(message.time?.completed));
-                  if (caption && state.busy) state.activityThought = caption;
-                  state.nativeParts.set(key, { type: "reasoning", thought: thoughtRecord });
-                  tx.ops.push({
+                  recordThoughtBlock(block);
+                  state.nativeParts.set(key, { type: "reasoning", thought: block });
+                  if (block.text) tx.ops.push({
                     type: "nativeThought",
                     key,
-                    text: part.text,
-                    isNew,
+                    block,
                     turnId: state.turnId
                   });
                   tx.dirty.header = true;
@@ -1217,11 +1289,16 @@ ${after}`);
             } else if (message.type === "idle") {
               finalizePendingAssistantState();
               finalizePendingThoughtState();
+              state.thoughtBlocks.clear();
+              state.thoughtSummaries.clear();
+              state.thoughtTurnId = null;
+              state.activityThought = "";
               tx.ops.push({ type: "nativeIdle" });
               tx.dirty.header = true;
             }
             tx.ops.push({ type: "endNativeMessage", messageId: message.id });
           }
+          applyThoughtSummary(snapshot.thoughtSummary, true);
           if (snapshot.partial) {
             tx.ops.push({ type: "placeSubmissions" });
             tx.scrollIntent = restoredViewport ? { type: "restore", viewport: restoredViewport } : { type: "follow" };
@@ -1445,6 +1522,10 @@ ${after}`);
               break;
             case "update":
               ingestAcpUpdate(tx, message.update);
+              break;
+            case "thoughtCaption":
+              applyThoughtSummary(message.summary);
+              tx.dirty.header = true;
               break;
             case "permission": {
               finalizePendingAssistantState();
@@ -3955,8 +4036,7 @@ ${after}`);
           thought.details.dataset.tokens = String(thought.tokens);
           syncTurnSteps();
         }
-        function finalizeThought() {
-          const thought = currentThought;
+        function finalizeThought(thought = currentThought) {
           if (!thought) return;
           thought.details.classList.remove("streaming");
           if (!canFold(thought.details)) deferFold(thought.details, thought.compact);
@@ -3964,7 +4044,7 @@ ${after}`);
           thought.expanded = false;
           thought.labelEl.textContent = "Thoughts";
           syncThoughtLayout(thought);
-          currentThought = null;
+          if (currentThought === thought) currentThought = null;
         }
         function addUserImages(wrap, images, messageId) {
           if (!Array.isArray(images) || !images.length) return;
@@ -4784,19 +4864,24 @@ ${after}`);
               appendThoughtChunk(op.text, op.messageId, op.turnId);
               break;
             case "nativeThought": {
+              const { text, completed } = op.block;
               let record = nativeThoughts.get(op.key);
               if (!record) {
-                appendThoughtChunk(op.text, op.key, op.turnId);
+                appendThoughtChunk(text, op.key, op.turnId);
                 record = currentThought;
                 nativeThoughts.set(op.key, record);
-              } else if (record.text !== op.text) {
-                record.text = op.text;
-                record.body.textContent = op.text;
+              } else if (record.text !== text) {
+                record.text = text;
+                record.body.textContent = text;
                 record.tokens = estimateTokens(record.text);
                 record.tokensEl.textContent = formatTokens(record.tokens);
                 record.details.dataset.tokens = String(record.tokens);
                 syncThoughtLayout(record);
                 syncTurnSteps();
+              }
+              if (completed && !record.nativeComplete) {
+                record.nativeComplete = true;
+                finalizeThought(record);
               }
               break;
             }
@@ -4875,7 +4960,7 @@ ${after}`);
               break;
             case "historyEnd":
               finalizeAssistant();
-              finalizeThought();
+              if (!store.state.nativeTransport) finalizeThought();
               finalizeToolGroup();
               break;
             case "turnEnd": {

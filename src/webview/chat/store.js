@@ -16,9 +16,9 @@
 const { prefixLine } = require('./format');
 const {
   toolTitle,
-  scanThoughtCaption,
   nativeImages,
 } = require('./tool-metadata');
+const { updateThoughtBlock, acceptsSummary, sameThought, thoughtCaption } = require('../../thought-caption');
 
 const STATUS_LABELS = {
   connecting: 'Connecting…',
@@ -88,7 +88,12 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
     turnEnded: false,
     pendingAssistantText: '',
     pendingAssistantId: null,
-    pendingThought: null,
+    thoughtBlocks: new Map(),
+    thoughtSummaries: new Map(),
+    thoughtTurnId: null,
+    pendingThoughtId: null,
+    pendingThoughtMessageId: null,
+    thoughtSeq: 0,
     userMessageCount: 0,
     commandEchoIndex: -1,
     commandEchoText: '',
@@ -210,7 +215,11 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
     state.turnEnded = false;
     state.pendingAssistantText = '';
     state.pendingAssistantId = null;
-    state.pendingThought = null;
+    state.pendingThoughtId = null;
+    state.pendingThoughtMessageId = null;
+    state.thoughtBlocks.clear();
+    state.thoughtSummaries.clear();
+    state.thoughtTurnId = null;
     state.liveStartedAt = null;
     state.liveKey = null;
     state.currentAction = null;
@@ -257,6 +266,7 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
       state.activityPurpose = '';
       state.attentionRequests.clear();
     }
+    if (state.busy && state.nativeTransport) syncThoughtCaption();
     syncLiveFallback();
     tx.dirty.header = true;
     tx.dirty.composer = true;
@@ -268,7 +278,11 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
     state.artifactSeq = 0;
     state.pendingAssistantText = '';
     state.pendingAssistantId = null;
-    state.pendingThought = null;
+    state.pendingThoughtId = null;
+    state.pendingThoughtMessageId = null;
+    state.thoughtBlocks.clear();
+    state.thoughtSummaries.clear();
+    state.thoughtTurnId = null;
     state.backgroundRuns.clear();
     state.commandProgress.clear();
     state.turnId = null;
@@ -400,11 +414,38 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
     state.pendingAssistantId = null;
   }
 
+  function syncThoughtCaption() {
+    if (!state.busy || state.externalBusy || state.turnEnded) return;
+    let caption = '';
+    for (const block of state.thoughtBlocks.values()) {
+      caption = thoughtCaption(block, state.thoughtSummaries.get(block.id)) || caption;
+    }
+    state.activityThought = caption;
+  }
+
+  function recordThoughtBlock(block) {
+    state.thoughtTurnId ||= block.turnId;
+    if (state.thoughtTurnId !== block.turnId) return;
+    state.thoughtBlocks.set(block.id, block);
+    syncThoughtCaption();
+  }
+
+  function applyThoughtSummary(summary, restoring = false) {
+    if ((!state.busy && !restoring) || state.turnEnded || !summary) return;
+    const latest = [...state.thoughtBlocks.values()].at(-1);
+    const previous = state.thoughtSummaries.get(summary.id);
+    if (!acceptsSummary(latest, summary) ||
+        (sameThought(previous, summary) && previous.epoch === summary.epoch && previous.revision >= summary.revision)) return;
+    state.thoughtSummaries.set(summary.id, summary);
+    syncThoughtCaption();
+  }
+
+  // Only ACP needs boundary adaptation: native blocks already carry completion.
   function finalizePendingThoughtState() {
-    if (!state.pendingThought) return;
-    const caption = scanThoughtCaption(state.pendingThought, true);
-    if (caption && state.busy) state.activityThought = caption;
-    state.pendingThought = null;
+    const block = state.thoughtBlocks.get(state.pendingThoughtId);
+    if (block) recordThoughtBlock(updateThoughtBlock(block, { ...block, completed: true }));
+    state.pendingThoughtId = null;
+    state.pendingThoughtMessageId = null;
   }
 
   function recordUserMessage(tx, text, messageId, images, timestamp) {
@@ -413,6 +454,7 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
     const isAppend = Boolean(messageId && state.lastUserMessageId && state.lastUserMessageId === messageId);
     if (!isAppend) {
       beginTurn();
+      state.thoughtTurnId = messageId || state.turnId;
       state.userMessageCount += 1;
       state.lastUserMessageId = messageId || null;
     }
@@ -451,22 +493,21 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
       return;
     }
     finalizePendingAssistantState();
-    if (state.pendingThought && messageId && state.pendingThought.messageId && messageId !== state.pendingThought.messageId) {
+    const pending = state.thoughtBlocks.get(state.pendingThoughtId);
+    if (pending && messageId && state.pendingThoughtMessageId && messageId !== state.pendingThoughtMessageId) {
       finalizePendingThoughtState();
     }
     ensureTurnId();
-    if (!state.pendingThought) {
-      state.pendingThought = {
-        messageId: messageId || null,
-        text: '',
-        captionOffset: 0,
-        captionFence: '',
-        caption: '',
-      };
+    if (!state.pendingThoughtId) {
+      state.pendingThoughtId = `acp-thought-${++state.thoughtSeq}`;
+      state.pendingThoughtMessageId = messageId || null;
     }
-    state.pendingThought.text += content.text;
-    const caption = scanThoughtCaption(state.pendingThought, false);
-    if (caption && state.busy) state.activityThought = caption;
+    const previous = state.thoughtBlocks.get(state.pendingThoughtId);
+    const block = updateThoughtBlock(previous, {
+      sessionId: state.sessionId, turnId: state.thoughtTurnId || state.turnId,
+      id: state.pendingThoughtId, text: (previous?.text || '') + content.text, completed: false,
+    });
+    recordThoughtBlock(block);
     state.liveToolId = null;
     setLiveAction('think', '', 'thought:' + state.turnId, 'Thinking…', 'current-thought');
     tx.ops.push({
@@ -673,33 +714,24 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
               newlyCompleted,
             });
             tx.dirty.header = true;
-          } else if (part.type === 'reasoning' && part.text) {
+          } else if (part.type === 'reasoning') {
             finalizePendingAssistantState();
             ensureTurnId();
-            let thoughtRecord = prev?.thought || null;
-            const isNew = !thoughtRecord;
-            if (!thoughtRecord) {
-              thoughtRecord = {
-                messageId: key,
-                text: part.text,
-                captionOffset: 0,
-                captionFence: '',
-                caption: '',
-              };
-              state.pendingThought = thoughtRecord;
+            const block = part.thought || updateThoughtBlock(prev?.thought, {
+              sessionId: state.sessionId, turnId: state.thoughtTurnId || state.turnId,
+              id: key, text: part.text,
+              completed: part.streamCompleted || Boolean(message.time?.completed) || index < message.content.length - 1,
+            });
+            if (!prev) {
               state.liveToolId = null;
               setLiveAction('think', '', 'thought:' + state.turnId, 'Thinking…', 'current-thought');
-            } else if (thoughtRecord.text !== part.text) {
-              thoughtRecord.text = part.text;
             }
-            const caption = scanThoughtCaption(thoughtRecord, Boolean(message.time?.completed));
-            if (caption && state.busy) state.activityThought = caption;
-            state.nativeParts.set(key, { type: 'reasoning', thought: thoughtRecord });
-            tx.ops.push({
+            recordThoughtBlock(block);
+            state.nativeParts.set(key, { type: 'reasoning', thought: block });
+            if (block.text) tx.ops.push({
               type: 'nativeThought',
               key,
-              text: part.text,
-              isNew,
+              block,
               turnId: state.turnId,
             });
             tx.dirty.header = true;
@@ -714,6 +746,10 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
       } else if (message.type === 'idle') {
         finalizePendingAssistantState();
         finalizePendingThoughtState();
+        state.thoughtBlocks.clear();
+        state.thoughtSummaries.clear();
+        state.thoughtTurnId = null;
+        state.activityThought = '';
         tx.ops.push({ type: 'nativeIdle' });
         tx.dirty.header = true;
       }
@@ -721,6 +757,7 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
       tx.ops.push({ type: 'endNativeMessage', messageId: message.id });
     }
 
+    applyThoughtSummary(snapshot.thoughtSummary, true);
     if (snapshot.partial) {
       tx.ops.push({ type: 'placeSubmissions' });
       tx.scrollIntent = restoredViewport
@@ -978,6 +1015,10 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
         break;
       case 'update':
         ingestAcpUpdate(tx, message.update);
+        break;
+      case 'thoughtCaption':
+        applyThoughtSummary(message.summary);
+        tx.dirty.header = true;
         break;
       case 'permission': {
         finalizePendingAssistantState();

@@ -539,8 +539,7 @@ function createTranscriptRenderer({
     syncTurnSteps();
   }
 
-  function finalizeThought() {
-    const thought = currentThought;
+  function finalizeThought(thought = currentThought) {
     if (!thought) return;
     thought.details.classList.remove('streaming');
     if (!canFold(thought.details)) deferFold(thought.details, thought.compact);
@@ -548,7 +547,7 @@ function createTranscriptRenderer({
     thought.expanded = false;
     thought.labelEl.textContent = 'Thoughts';
     syncThoughtLayout(thought);
-    currentThought = null;
+    if (currentThought === thought) currentThought = null;
   }
 
   // --- User & Assistant Messages ---
@@ -1479,19 +1478,24 @@ function createTranscriptRenderer({
         appendThoughtChunk(op.text, op.messageId, op.turnId);
         break;
       case 'nativeThought': {
+        const { text, completed } = op.block;
         let record = nativeThoughts.get(op.key);
         if (!record) {
-          appendThoughtChunk(op.text, op.key, op.turnId);
+          appendThoughtChunk(text, op.key, op.turnId);
           record = currentThought;
           nativeThoughts.set(op.key, record);
-        } else if (record.text !== op.text) {
-          record.text = op.text;
-          record.body.textContent = op.text;
+        } else if (record.text !== text) {
+          record.text = text;
+          record.body.textContent = text;
           record.tokens = estimateTokens(record.text);
           record.tokensEl.textContent = formatTokens(record.tokens);
           record.details.dataset.tokens = String(record.tokens);
           syncThoughtLayout(record);
           syncTurnSteps();
+        }
+        if (completed && !record.nativeComplete) {
+          record.nativeComplete = true;
+          finalizeThought(record);
         }
         break;
       }
@@ -1570,7 +1574,7 @@ function createTranscriptRenderer({
         break;
       case 'historyEnd':
         finalizeAssistant();
-        finalizeThought();
+        if (!store.state.nativeTransport) finalizeThought();
         finalizeToolGroup();
         // Keep any trailing `.turn-steps.live` open: lack of an idle marker in
         // history means the turn is still running on the server.

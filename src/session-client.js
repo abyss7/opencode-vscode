@@ -18,6 +18,9 @@ const { parseModelRef } = require('./usage');
 const { modelRefString } = require('./model-ref');
 const { active: backgroundActive } = require('./background-runs');
 const { CommandProgress } = require('./command-progress');
+const { thoughtTranscript } = require('./thought-transcript');
+const { acceptsSummary } = require('./thought-caption');
+const { ThoughtSummarizer } = require('./thought-summarizer');
 const {
   messageID,
   promptFileAttachment,
@@ -35,7 +38,7 @@ const unwrap = (value) => value?.data ?? value;
 // Events invalidate snapshots; deltas are deliberately not appended on top of
 // snapshots, which avoids duplicate text at the reconnect/snapshot boundary.
 class SessionClient extends EventEmitter {
-  constructor({ api, cwd, log = () => {} }) {
+  constructor({ api, cwd, log = () => {}, summarizeThought = null }) {
     super();
     this.api = api;
     this.cwd = cwd;
@@ -49,6 +52,14 @@ class SessionClient extends EventEmitter {
     this.emitted = new Map();
     this.liveText = new Map();
     this.liveTools = new Map();
+    this.thoughtSummary = null;
+    this.thoughtSummarizer = new ThoughtSummarizer({
+      summarize: summarizeThought,
+      publish: (summary) => {
+        this.thoughtSummary = summary;
+        this.emit('thoughtCaption', summary);
+      },
+    });
     this.commandProgress = new CommandProgress(api);
     this.progressSnapshot = null;
     this.diffs = new Map();
@@ -240,8 +251,15 @@ class SessionClient extends EventEmitter {
         message = { ...source, content: source.content.map((part, index) => {
           const ordinal = Object.hasOwn(ordinals, part.type) ? ordinals[part.type]++ : -1;
           const live = ordinal >= 0 ? this.liveText.get(`${source.id}:${part.type}:${ordinal}`) : undefined;
-          if (live && live.type === part.type && !source.time.completed) return { ...part, text: live.text };
           const prefix = old?.content[index];
+          if (part.type === 'reasoning') {
+            const text = live && !source.time.completed ? live.text :
+              !source.time.completed && prefix?.type === part.type && prefix.text?.startsWith(part.text)
+                ? prefix.text : part.text;
+            return { ...part, text, thought: prefix?.thought,
+              streamCompleted: Boolean(source.time.completed || live?.ended || prefix?.streamCompleted) };
+          }
+          if (live && live.type === part.type && !source.time.completed) return { ...part, text: live.text };
           if (!source.time.completed && prefix?.type === part.type && typeof part.text === 'string' &&
               prefix.text?.startsWith(part.text)) return { ...part, text: prefix.text };
           if (part.type === 'tool' && this.liveTools.has(part.id) && part.state.status === 'running') {
@@ -261,7 +279,9 @@ class SessionClient extends EventEmitter {
       }
       this.messages.set(message.id, message);
     }
-    const messages = [...this.messages.values()];
+    const { messages, latest } = thoughtTranscript([...this.messages.values()], this.sessionId);
+    for (const message of messages) this.messages.set(message.id, message);
+    if (!acceptsSummary(latest, this.thoughtSummary)) this.thoughtSummary = null;
     const pending = Array.isArray(inbox) ? [...inbox] : [];
     const states = new Map();
     let active = [];
@@ -291,10 +311,11 @@ class SessionClient extends EventEmitter {
     if (stale || revision !== this.revision) {
       this.again = true;
       this.full ||= full;
-      this.emit('transcript', { messages: changed, partial: true });
+      this.emit('transcript', { messages: changed, partial: true, thoughtSummary: this.thoughtSummary });
       return;
     }
-    this.emit('transcript', { messages: changed, inbox: pending, states: [...states] });
+    this.thoughtSummarizer.update(sessionActivity(info, pending) === 'running' ? latest : null);
+    this.emit('transcript', { messages: changed, inbox: pending, states: [...states], thoughtSummary: this.thoughtSummary });
     this.refreshBackground();
     await this.syncRequests(permissions || [], forms || []);
     if (this.closed) return;
@@ -553,6 +574,7 @@ class SessionClient extends EventEmitter {
 
   dispose() {
     this.closed = true;
+    this.thoughtSummarizer.dispose();
     clearTimeout(this.timer);
     clearTimeout(this.backgroundTimer);
     this.stream?.dispose();

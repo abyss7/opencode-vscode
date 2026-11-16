@@ -340,6 +340,7 @@ class SessionPanel {
       }),
     }));
     client.on('submission', (submission) => this._post({ type: 'submission', ...submission }));
+    client.on('thoughtCaption', (summary) => this._post({ type: 'thoughtCaption', summary }));
     client.on('activity', (activity) => this._onServerActivity(activity));
     client.on('background', (runs) => {
       const running = runs.some((run) => run.status === 'running' || run.status === 'stopping');

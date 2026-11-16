@@ -9,6 +9,7 @@
  */
 
 const { oneLine, prefixLine } = require('./format');
+const { shortActivityCaption, scanThoughtCaption } = require('../../thought-caption');
 
 function toolStatusLabel(status) {
   switch (status) {
@@ -249,56 +250,6 @@ function summarizeTools(cards, cwd = '') {
     .filter(([, count]) => count > 0)
     .map(([status, count]) => `${count} ${toolStatusLabel(status)}`);
   return { label: cards.length ? plural(cards.length, 'tool call') : 'Details', metrics, statusMetrics };
-}
-
-function shortActivityCaption(value) {
-  if (typeof value !== 'string') return '';
-  const text = value.trim().replace(/`([^`\r\n]+)`/g, '$1');
-  if (!text || text.length > 120 || /[\r\n]/.test(text)) return '';
-  if (
-    /^(analysis|reasoning|thoughts?|thinking|plan|summary|working|read|edit|write|run|execute|search|fetch|shell|bash|patch|tool|other)[\s.!:…]*$/i.test(
-      text
-    )
-  ) {
-    return '';
-  }
-  return text;
-}
-
-/**
- * Incrementally scan newly completed lines of a streaming thought for a concise
- * Markdown heading or standalone bold line to surface in the live header.
- */
-function scanThoughtCaption(thought, finished) {
-  let caption = '';
-  while (thought.captionOffset < thought.text.length) {
-    const newline = thought.text.indexOf('\n', thought.captionOffset);
-    if (newline < 0 && !finished) break;
-    const end = newline < 0 ? thought.text.length : newline;
-    const line = thought.text.slice(thought.captionOffset, end).replace(/\r$/, '');
-    thought.captionOffset = newline < 0 ? end : end + 1;
-    const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    if (fence) {
-      if (!thought.captionFence) thought.captionFence = fence[1];
-      else if (
-        fence[1][0] === thought.captionFence[0] &&
-        fence[1].length >= thought.captionFence.length &&
-        !fence[2].trim()
-      ) {
-        thought.captionFence = '';
-      }
-      continue;
-    }
-    if (thought.captionFence || /^( {4}|\t)/.test(line)) continue;
-    const heading = /^\s{0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
-    const bold = /^\s*(?:\*\*([^*]+)\*\*|__([^_]+)__):?\s*$/.exec(line);
-    const candidate = shortActivityCaption(heading?.[1] || bold?.[1] || bold?.[2]);
-    if (candidate) thought.caption = caption = candidate;
-  }
-  if (finished && !thought.caption && !/^(?:\s*[#>*_`~]| {4}|\t)/.test(thought.text)) {
-    caption = shortActivityCaption(thought.text);
-  }
-  return caption;
 }
 
 function toolActivityPurpose(activity, kind, labelText, detail) {

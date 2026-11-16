@@ -70,6 +70,29 @@ const assistant = (content, completed) => ({ id: 'msg_answer', type: 'assistant'
   time: { created: 2, ...(completed ? { completed: 3 } : {}) }, content });
 
 (async () => {
+  await require('./thought-captions')();
+  const reasoning = fixture();
+  reasoning.data.history = [user('msg_first'), assistant([{ type: 'reasoning', text: '' }])];
+  const reasoningEvent = (type, extra = {}) => reasoning.client.onEvent({ type, data: {
+    sessionID: 'ses_test', assistantMessageID: 'msg_answer', ordinal: 0, ...extra,
+  } });
+  reasoningEvent('session.reasoning.started');
+  reasoningEvent('session.reasoning.delta', { delta: 'Inspecting hash implementation' });
+  await reasoning.client.reconcile();
+  assert.equal(reasoning.data.snapshot.messages[1].content[0].thought.caption, '');
+  reasoningEvent('session.reasoning.ended', { text: 'Inspecting hash implementation' });
+  await reasoning.client.reconcile();
+  const endedThought = reasoning.data.snapshot.messages[0].content[0].thought;
+  assert.equal(endedThought.completed, true, 'part completion survives the native adapter');
+  assert.equal(endedThought.caption, 'Inspecting hash implementation');
+  assert.equal(reasoning.data.snapshot.messages[0].time.completed, undefined, 'the assistant message is still running');
+  reasoning.client.liveText.clear();
+  reasoning.client.full = true;
+  await reasoning.client.reconcile();
+  assert.deepEqual(reasoning.client.messages.get('msg_answer').content[0].thought, endedThought,
+    'reconnect retains a completed block while durable message text catches up');
+  reasoning.client.dispose();
+
   const config = fixture();
   config.api.listModels = async () => [];
   config.api.getDefaultModel = async () => null;
