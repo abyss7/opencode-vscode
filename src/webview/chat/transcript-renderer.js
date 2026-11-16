@@ -17,6 +17,7 @@
  */
 
 const { el } = require('./dom');
+const { isLayoutHidden } = require('../layout-visibility');
 const {
   estimateTokens,
   formatCompact,
@@ -117,6 +118,7 @@ function createTranscriptRenderer({
   let stickyTarget = null;
   let activeNativeMessageId = null;
   let nativeBeforeChildren = null;
+  let initialRender = null;
 
   const toolCards = new Map();
   const nativeAssistants = new Map();
@@ -131,7 +133,7 @@ function createTranscriptRenderer({
     typeof ResizeObserver === 'function' ? document.createElement('canvas').getContext('2d') : null;
   const thoughtResize = thoughtMeasure
     ? new ResizeObserver((entries) => {
-        for (const { target } of entries) syncThoughtLayout(thoughtLayouts.get(target));
+        syncThoughtLayouts(entries.map(({ target }) => thoughtLayouts.get(target)));
       })
     : null;
 
@@ -196,13 +198,17 @@ function createTranscriptRenderer({
   // --- Sticky prompt overhang ---
 
   function updateStickyVisibility() {
-    if (!stickyPrompt || !stickyTarget || !messagesEl.contains(stickyTarget)) return;
+    if (!messagesEl.isConnected || !stickyPrompt || !stickyTarget || !messagesEl.contains(stickyTarget)) return;
     const above = stickyTarget.getBoundingClientRect().bottom <= messagesEl.getBoundingClientRect().top;
     stickyPrompt.classList.toggle('visible', above);
     stickyPrompt.querySelector('button').tabIndex = above ? 0 : -1;
   }
 
   function updateStickyPrompt() {
+    if (initialRender) {
+      initialRender.sticky = true;
+      return;
+    }
     if (typeof Element === 'undefined') return;
     const target = [...messagesEl.children].reverse().find((node) => node.matches?.('.message.user'));
     if (target === stickyTarget && messagesEl.contains(stickyPrompt)) {
@@ -220,6 +226,9 @@ function createTranscriptRenderer({
       return;
     }
     stickyPrompt = el('div', 'sticky-prompt');
+    // Bulk construction creates this after the native message's end marker.
+    // Preserve the same anchor as the incremental prompt+sticky insertion.
+    if (target.dataset.messageId) stickyPrompt.dataset.anchorId = `${target.dataset.messageId}:1`;
     const button = el('button', '', target.querySelector('.body')?.textContent || 'Latest prompt');
     button.type = 'button';
     button.title = 'Go to latest prompt';
@@ -246,7 +255,7 @@ function createTranscriptRenderer({
     if (!details) return;
     if (live) {
       pendingFolds.delete(details);
-    } else if (!canFold(details)) {
+    } else if (!initialRender && !canFold(details)) {
       deferFold(details, false);
       return;
     }
@@ -311,9 +320,17 @@ function createTranscriptRenderer({
 
   function syncTurnSteps() {
     if (!turnSteps) return;
-    if (turnSteps.details.classList.contains('live')) turnSteps.details.open = true;
+    if (initialRender) {
+      initialRender.steps.add(turnSteps);
+      return;
+    }
+    syncStepSummary(turnSteps);
+  }
+
+  function syncStepSummary(steps) {
+    if (steps.details.classList.contains('live')) steps.details.open = true;
     let totalTokens = 0;
-    for (const child of turnSteps.body.children) {
+    for (const child of steps.body.children) {
       const classes = String(child.className || '').split(/\s+/);
       if (classes.includes('tool-group')) {
         totalTokens += Number(child.dataset.tokens || 0);
@@ -328,13 +345,15 @@ function createTranscriptRenderer({
       }
     }
     renderStepSummary(
-      turnSteps.titleEl,
-      turnSteps.metaEl,
-      turnToolCards(turnSteps.details),
-      countBlockSteps(turnSteps.details)
+      steps.titleEl,
+      steps.metaEl,
+      turnToolCards(steps.details),
+      countBlockSteps(steps.details)
     );
-    turnSteps.tokensEl.textContent = totalTokens ? formatTokens(totalTokens) : '';
-    turnSteps.tokensEl.title = totalTokens ? 'Estimated tokens for this turn' : '';
+    if (steps.details.dataset.exact !== '1') {
+      steps.tokensEl.textContent = totalTokens ? formatTokens(totalTokens) : '';
+      steps.tokensEl.title = totalTokens ? 'Estimated tokens for this turn' : '';
+    }
   }
 
   function finalizeTurnSteps() {
@@ -468,23 +487,47 @@ function createTranscriptRenderer({
   // --- Thoughts ---
 
   function syncThoughtLayout(thought) {
-    if (!thought || !thoughtMeasure || !thought.details.clientWidth) return;
+    if (initialRender) {
+      initialRender.thoughts.add(thought);
+      return;
+    }
+    syncThoughtLayouts([thought]);
+  }
+
+  function measureThoughtLayout(thought) {
+    if (!thought || !thoughtMeasure) return null;
     const text = thought.text.trim();
     const singleLine = text && !/[\r\n]/.test(text);
+    // Multiline thoughts never use compact mode, even while hidden. No geometry
+    // is needed. Hidden single-line thoughts are measured by ResizeObserver on
+    // expansion, when their actual available width becomes known.
+    if (!singleLine) return { thought, compact: false, label: text };
+    if (isLayoutHidden(thought.details)) return null;
+    const width = thought.details.clientWidth;
+    if (!width) return null;
     const heading = singleLine && /^#{1,6}\s+(.+?)(?:\s+#+)?$/.exec(text);
     const bold = singleLine && /^(?:\*\*([^*]+)\*\*|__([^_]+)__)$/.exec(text);
     const label = heading?.[1] || bold?.[1] || bold?.[2] || text;
     thoughtMeasure.font = getComputedStyle(thought.body).font;
-    const compact = Boolean(
-      singleLine && thoughtMeasure.measureText(label).width <= thought.details.clientWidth - 16
-    );
+    return { thought, compact: thoughtMeasure.measureText(label).width <= width - 16, label };
+  }
+
+  function applyThoughtLayout({ thought, compact, label }) {
     if (compact !== thought.compact) {
       if (compact) thought.expanded = thought.details.open;
       thought.details.open = compact || thought.expanded;
       thought.details.classList.toggle('compact', compact);
       thought.compact = compact;
     }
-    thought.body.textContent = compact ? label : thought.text;
+    const text = compact ? label : thought.text;
+    if (thought.body.textContent !== text) thought.body.textContent = text;
+  }
+
+  function syncThoughtLayouts(thoughts) {
+    // All geometry reads precede all DOM writes, including resize notifications
+    // for many thoughts revealed together. Never alternate layout and mutation.
+    const layouts = thoughts.map(measureThoughtLayout).filter(Boolean);
+    for (const layout of layouts) applyThoughtLayout(layout);
   }
 
   function createThought(messageId, turnId) {
@@ -542,7 +585,7 @@ function createTranscriptRenderer({
   function finalizeThought(thought = currentThought) {
     if (!thought) return;
     thought.details.classList.remove('streaming');
-    if (!canFold(thought.details)) deferFold(thought.details, thought.compact);
+    if (!initialRender && !canFold(thought.details)) deferFold(thought.details, thought.compact);
     else thought.details.open = thought.compact;
     thought.expanded = false;
     thought.labelEl.textContent = 'Thoughts';
@@ -709,6 +752,10 @@ function createTranscriptRenderer({
 
   function syncToolGroup(group) {
     if (!group || group.cards.length === 0) return;
+    if (initialRender) {
+      initialRender.groups.add(group);
+      return;
+    }
     const count = group.cards.length;
     if (count === 1) {
       const summary = summarizeTools(group.cards, store.state.cwd || '');
@@ -1456,11 +1503,16 @@ function createTranscriptRenderer({
           record = appendAssistantChunk(op.text, op.key);
           nativeAssistants.set(op.key, record);
         }
+        // A completed new answer is rendered by finalizeAssistant below. Do not
+        // parse its Markdown twice during history restoration.
+        const completingCurrent = op.newlyCompleted && !record.nativeComplete && currentAssistant === record;
         if (record.text !== op.text || record.wrap.hidden) {
           record.text = op.text;
-          record.wrap.hidden = false;
-          record.body.classList.add('md');
-          record.body.innerHTML = renderMarkdown(record.text);
+          if (!completingCurrent) {
+            record.wrap.hidden = false;
+            record.body.classList.add('md');
+            record.body.innerHTML = renderMarkdown(record.text);
+          }
         }
         stampMessage(record.wrap, op.messageId, op.timestamp);
         if (op.newlyCompleted && !record.nativeComplete) {
@@ -1614,8 +1666,36 @@ function createTranscriptRenderer({
     }
   }
 
-  function reconcile(ops) {
-    for (const op of ops) executeOp(op);
+  function reconcile(ops, { initial = false } = {}) {
+    if (!initial || !messagesEl.parentNode) {
+      for (const op of ops) executeOp(op);
+      return;
+    }
+
+    // Keep the container identity (listeners, permission cards and viewport
+    // observers), but build the initial snapshot outside the live document.
+    // The coordinator's existing begin/endMutation remains the sole scroll
+    // transaction. Incremental snapshots never detach an established transcript.
+    const placeholder = document.createComment('initial transcript');
+    const batch = { thoughts: new Set(), groups: new Set(), steps: new Set(), sticky: false };
+    messagesEl.replaceWith(placeholder);
+    initialRender = batch;
+    try {
+      for (const op of ops) executeOp(op);
+      initialRender = null;
+      // Final counters depend on completed tool contents, not intermediate ops.
+      for (const group of batch.groups) {
+        if (messagesEl.contains(group.details)) syncToolGroup(group);
+      }
+      for (const steps of batch.steps) {
+        if (messagesEl.contains(steps.details)) syncStepSummary(steps);
+      }
+      if (batch.sticky) updateStickyPrompt();
+    } finally {
+      initialRender = null;
+      placeholder.replaceWith(messagesEl);
+    }
+    syncThoughtLayouts([...batch.thoughts]);
   }
 
   function resolveActionTarget(targetRef) {

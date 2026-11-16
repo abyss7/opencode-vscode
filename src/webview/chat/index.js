@@ -261,7 +261,7 @@ const { createTranscriptRenderer } = require('./transcript-renderer');
         permissionsView.clearQuestions();
       }
       if (tx.ops.length > 0) {
-        transcriptRenderer.reconcile(tx.ops);
+        transcriptRenderer.reconcile(tx.ops, { initial: tx.initialTranscript });
       }
       if (tx.dirty.attachments) composerView.renderAttachments();
       if (tx.dirty.selection) composerView.renderSelection();

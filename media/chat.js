@@ -635,6 +635,7 @@ ${after}`);
       function createTransaction() {
         return {
           ops: [],
+          initialTranscript: false,
           dirty: {
             header: false,
             composer: false,
@@ -1193,6 +1194,7 @@ ${after}`);
         }
         function ingestTranscriptSnapshot(tx, snapshot) {
           state.nativeTransport = true;
+          tx.initialTranscript = state.replaying && state.nativeMessages.size === 0 && state.turnSeq === 0 && !state.pendingAssistantText && !state.turnHadText && Boolean(snapshot.messages?.length);
           for (const message of snapshot.messages || []) {
             const signature = JSON.stringify(message);
             if (state.nativeMessages.get(message.id) === signature) continue;
@@ -3575,11 +3577,28 @@ ${after}`);
     }
   });
 
+  // src/webview/layout-visibility.js
+  var require_layout_visibility = __commonJS({
+    "src/webview/layout-visibility.js"(exports, module) {
+      "use strict";
+      function isLayoutHidden(node) {
+        for (let child = node; child; child = child.parentElement) {
+          if (child.hidden) return true;
+          const parent = child.parentElement;
+          if (parent?.tagName === "DETAILS" && !parent.open && child !== parent.querySelector(":scope > summary")) return true;
+        }
+        return false;
+      }
+      module.exports = { isLayoutHidden };
+    }
+  });
+
   // src/webview/chat/transcript-renderer.js
   var require_transcript_renderer = __commonJS({
     "src/webview/chat/transcript-renderer.js"(exports, module) {
       "use strict";
       var { el } = require_dom();
+      var { isLayoutHidden } = require_layout_visibility();
       var {
         estimateTokens,
         formatCompact,
@@ -3674,6 +3693,7 @@ ${after}`);
         let stickyTarget = null;
         let activeNativeMessageId = null;
         let nativeBeforeChildren = null;
+        let initialRender = null;
         const toolCards = /* @__PURE__ */ new Map();
         const nativeAssistants = /* @__PURE__ */ new Map();
         const nativeThoughts = /* @__PURE__ */ new Map();
@@ -3683,7 +3703,7 @@ ${after}`);
         const thoughtLayouts = /* @__PURE__ */ new WeakMap();
         const thoughtMeasure = typeof ResizeObserver === "function" ? document.createElement("canvas").getContext("2d") : null;
         const thoughtResize = thoughtMeasure ? new ResizeObserver((entries) => {
-          for (const { target } of entries) syncThoughtLayout(thoughtLayouts.get(target));
+          syncThoughtLayouts(entries.map(({ target }) => thoughtLayouts.get(target)));
         }) : null;
         function assignAcpAnchor(node, prefix = "block") {
           if (!activeNativeMessageId && !node.dataset.anchorId) {
@@ -3733,12 +3753,16 @@ ${after}`);
         }, 1e3);
         messageTimeClock.unref?.();
         function updateStickyVisibility() {
-          if (!stickyPrompt || !stickyTarget || !messagesEl.contains(stickyTarget)) return;
+          if (!messagesEl.isConnected || !stickyPrompt || !stickyTarget || !messagesEl.contains(stickyTarget)) return;
           const above = stickyTarget.getBoundingClientRect().bottom <= messagesEl.getBoundingClientRect().top;
           stickyPrompt.classList.toggle("visible", above);
           stickyPrompt.querySelector("button").tabIndex = above ? 0 : -1;
         }
         function updateStickyPrompt() {
+          if (initialRender) {
+            initialRender.sticky = true;
+            return;
+          }
           if (typeof Element === "undefined") return;
           const target = [...messagesEl.children].reverse().find((node) => node.matches?.(".message.user"));
           if (target === stickyTarget && messagesEl.contains(stickyPrompt)) {
@@ -3756,6 +3780,7 @@ ${after}`);
             return;
           }
           stickyPrompt = el("div", "sticky-prompt");
+          if (target.dataset.messageId) stickyPrompt.dataset.anchorId = `${target.dataset.messageId}:1`;
           const button = el("button", "", target.querySelector(".body")?.textContent || "Latest prompt");
           button.type = "button";
           button.title = "Go to latest prompt";
@@ -3777,7 +3802,7 @@ ${after}`);
           if (!details) return;
           if (live) {
             pendingFolds.delete(details);
-          } else if (!canFold(details)) {
+          } else if (!initialRender && !canFold(details)) {
             deferFold(details, false);
             return;
           }
@@ -3834,9 +3859,16 @@ ${after}`);
         }
         function syncTurnSteps() {
           if (!turnSteps) return;
-          if (turnSteps.details.classList.contains("live")) turnSteps.details.open = true;
+          if (initialRender) {
+            initialRender.steps.add(turnSteps);
+            return;
+          }
+          syncStepSummary(turnSteps);
+        }
+        function syncStepSummary(steps) {
+          if (steps.details.classList.contains("live")) steps.details.open = true;
           let totalTokens = 0;
-          for (const child of turnSteps.body.children) {
+          for (const child of steps.body.children) {
             const classes = String(child.className || "").split(/\s+/);
             if (classes.includes("tool-group")) {
               totalTokens += Number(child.dataset.tokens || 0);
@@ -3846,13 +3878,15 @@ ${after}`);
             }
           }
           renderStepSummary(
-            turnSteps.titleEl,
-            turnSteps.metaEl,
-            turnToolCards(turnSteps.details),
-            countBlockSteps(turnSteps.details)
+            steps.titleEl,
+            steps.metaEl,
+            turnToolCards(steps.details),
+            countBlockSteps(steps.details)
           );
-          turnSteps.tokensEl.textContent = totalTokens ? formatTokens(totalTokens) : "";
-          turnSteps.tokensEl.title = totalTokens ? "Estimated tokens for this turn" : "";
+          if (steps.details.dataset.exact !== "1") {
+            steps.tokensEl.textContent = totalTokens ? formatTokens(totalTokens) : "";
+            steps.tokensEl.title = totalTokens ? "Estimated tokens for this turn" : "";
+          }
         }
         function finalizeTurnSteps() {
           if (!turnSteps) return;
@@ -3968,23 +4002,39 @@ ${after}`);
           tokensEl.title = parts.length ? `Billed tokens for this turn: ${parts.join(" \xB7 ")}` : "Billed tokens for this turn";
         }
         function syncThoughtLayout(thought) {
-          if (!thought || !thoughtMeasure || !thought.details.clientWidth) return;
+          if (initialRender) {
+            initialRender.thoughts.add(thought);
+            return;
+          }
+          syncThoughtLayouts([thought]);
+        }
+        function measureThoughtLayout(thought) {
+          if (!thought || !thoughtMeasure) return null;
           const text = thought.text.trim();
           const singleLine = text && !/[\r\n]/.test(text);
+          if (!singleLine) return { thought, compact: false, label: text };
+          if (isLayoutHidden(thought.details)) return null;
+          const width = thought.details.clientWidth;
+          if (!width) return null;
           const heading = singleLine && /^#{1,6}\s+(.+?)(?:\s+#+)?$/.exec(text);
           const bold = singleLine && /^(?:\*\*([^*]+)\*\*|__([^_]+)__)$/.exec(text);
           const label = heading?.[1] || bold?.[1] || bold?.[2] || text;
           thoughtMeasure.font = getComputedStyle(thought.body).font;
-          const compact = Boolean(
-            singleLine && thoughtMeasure.measureText(label).width <= thought.details.clientWidth - 16
-          );
+          return { thought, compact: thoughtMeasure.measureText(label).width <= width - 16, label };
+        }
+        function applyThoughtLayout({ thought, compact, label }) {
           if (compact !== thought.compact) {
             if (compact) thought.expanded = thought.details.open;
             thought.details.open = compact || thought.expanded;
             thought.details.classList.toggle("compact", compact);
             thought.compact = compact;
           }
-          thought.body.textContent = compact ? label : thought.text;
+          const text = compact ? label : thought.text;
+          if (thought.body.textContent !== text) thought.body.textContent = text;
+        }
+        function syncThoughtLayouts(thoughts) {
+          const layouts = thoughts.map(measureThoughtLayout).filter(Boolean);
+          for (const layout of layouts) applyThoughtLayout(layout);
         }
         function createThought(messageId, turnId) {
           finalizeAssistant();
@@ -4039,7 +4089,7 @@ ${after}`);
         function finalizeThought(thought = currentThought) {
           if (!thought) return;
           thought.details.classList.remove("streaming");
-          if (!canFold(thought.details)) deferFold(thought.details, thought.compact);
+          if (!initialRender && !canFold(thought.details)) deferFold(thought.details, thought.compact);
           else thought.details.open = thought.compact;
           thought.expanded = false;
           thought.labelEl.textContent = "Thoughts";
@@ -4186,6 +4236,10 @@ ${after}`);
         }
         function syncToolGroup(group) {
           if (!group || group.cards.length === 0) return;
+          if (initialRender) {
+            initialRender.groups.add(group);
+            return;
+          }
           const count = group.cards.length;
           if (count === 1) {
             const summary = summarizeTools(group.cards, store.state.cwd || "");
@@ -4842,11 +4896,14 @@ ${after}`);
                 record = appendAssistantChunk(op.text, op.key);
                 nativeAssistants.set(op.key, record);
               }
+              const completingCurrent = op.newlyCompleted && !record.nativeComplete && currentAssistant === record;
               if (record.text !== op.text || record.wrap.hidden) {
                 record.text = op.text;
-                record.wrap.hidden = false;
-                record.body.classList.add("md");
-                record.body.innerHTML = renderMarkdown(record.text);
+                if (!completingCurrent) {
+                  record.wrap.hidden = false;
+                  record.body.classList.add("md");
+                  record.body.innerHTML = renderMarkdown(record.text);
+                }
               }
               stampMessage(record.wrap, op.messageId, op.timestamp);
               if (op.newlyCompleted && !record.nativeComplete) {
@@ -4997,8 +5054,30 @@ ${after}`);
               break;
           }
         }
-        function reconcile(ops) {
-          for (const op of ops) executeOp(op);
+        function reconcile(ops, { initial = false } = {}) {
+          if (!initial || !messagesEl.parentNode) {
+            for (const op of ops) executeOp(op);
+            return;
+          }
+          const placeholder = document.createComment("initial transcript");
+          const batch = { thoughts: /* @__PURE__ */ new Set(), groups: /* @__PURE__ */ new Set(), steps: /* @__PURE__ */ new Set(), sticky: false };
+          messagesEl.replaceWith(placeholder);
+          initialRender = batch;
+          try {
+            for (const op of ops) executeOp(op);
+            initialRender = null;
+            for (const group of batch.groups) {
+              if (messagesEl.contains(group.details)) syncToolGroup(group);
+            }
+            for (const steps of batch.steps) {
+              if (messagesEl.contains(steps.details)) syncStepSummary(steps);
+            }
+            if (batch.sticky) updateStickyPrompt();
+          } finally {
+            initialRender = null;
+            placeholder.replaceWith(messagesEl);
+          }
+          syncThoughtLayouts([...batch.thoughts]);
         }
         function resolveActionTarget(targetRef) {
           if (!targetRef) return null;
@@ -5225,7 +5304,7 @@ ${after}`);
           permissionsView.clearQuestions();
         }
         if (tx.ops.length > 0) {
-          transcriptRenderer.reconcile(tx.ops);
+          transcriptRenderer.reconcile(tx.ops, { initial: tx.initialTranscript });
         }
         if (tx.dirty.attachments) composerView.renderAttachments();
         if (tx.dirty.selection) composerView.renderSelection();

@@ -25,6 +25,7 @@
  */
 
 const { scrollToElement, focusWithoutScroll, registerViewport } = require('../../media/scroll');
+const { isLayoutHidden } = require('./layout-visibility');
 
 const ANCHOR_SELECTOR = 'p, pre, summary, tr, img, .diagram-preview';
 
@@ -81,10 +82,12 @@ function createTranscriptViewport(container, onChange = () => {}) {
   function visibleAnchor() {
     const top = container.getBoundingClientRect().top;
     const root = [...container.children].find((node) => {
+      if (isLayoutHidden(node)) return false;
       const bounds = node.getBoundingClientRect();
       return bounds.height > 0 && bounds.bottom > top;
     });
     const node = (root && [...root.querySelectorAll(ANCHOR_SELECTOR)].find((child) => {
+      if (isLayoutHidden(child)) return false;
       const bounds = child.getBoundingClientRect();
       return bounds.height > 0 && bounds.bottom > top;
     })) || root;
@@ -102,6 +105,7 @@ function createTranscriptViewport(container, onChange = () => {}) {
     const scrollTop = container.scrollTop;
     const entries = [];
     for (const root of container.children) {
+      if (isLayoutHidden(root)) continue;
       const rootBounds = root.getBoundingClientRect();
       if (rootBounds.height <= 0) continue;
       entries.push({
@@ -112,6 +116,7 @@ function createTranscriptViewport(container, onChange = () => {}) {
         docBottom: rootBounds.bottom - containerTop + scrollTop,
       });
       for (const child of root.querySelectorAll(ANCHOR_SELECTOR)) {
+        if (isLayoutHidden(child)) continue;
         const bounds = child.getBoundingClientRect();
         if (bounds.height <= 0) continue;
         entries.push({
@@ -166,16 +171,16 @@ function createTranscriptViewport(container, onChange = () => {}) {
     // If the anchored node is still connected anywhere inside the transcript
     // (even after a `.turn-steps` block split or merged around a standalone task),
     // follow its actual current root container rather than a stale half.
-    if (liveNode && container.contains(liveNode) && liveNode.getBoundingClientRect().height > 0) {
+    if (liveNode && container.contains(liveNode) && !isLayoutHidden(liveNode) && liveNode.getBoundingClientRect().height > 0) {
       const currentRoot = rootOf(liveNode);
       if (currentRoot) return currentRoot;
     }
     if (record.toolCallId && typeof container.querySelector === 'function') {
       const entry = container.querySelector(`.tool-entry[data-tool-call-id="${escapeAttr(record.toolCallId)}"]`);
       const entryRoot = entry && rootOf(entry);
-      if (entryRoot && entryRoot.getBoundingClientRect().height > 0) return entryRoot;
+      if (entryRoot && !isLayoutHidden(entryRoot) && entryRoot.getBoundingClientRect().height > 0) return entryRoot;
     }
-    if (liveRoot?.parentElement === container && liveRoot.getBoundingClientRect().height > 0) {
+    if (liveRoot?.parentElement === container && !isLayoutHidden(liveRoot) && liveRoot.getBoundingClientRect().height > 0) {
       return liveRoot;
     }
     if (record.anchor) {
@@ -196,18 +201,20 @@ function createTranscriptViewport(container, onChange = () => {}) {
    */
   function resolveAnchor(root, record, liveNode) {
     const id = record.identity;
-    if (liveNode && root.contains(liveNode) && liveNode.getBoundingClientRect().height > 0) {
+    if (liveNode && root.contains(liveNode) && !isLayoutHidden(liveNode) && liveNode.getBoundingClientRect().height > 0) {
       return liveNode;
     }
     const candidate = (record.path || []).reduce((node, index) => node?.children?.[index], root);
     const confirms = (node) =>
       node &&
+      !isLayoutHidden(node) &&
       node.getBoundingClientRect().height > 0 &&
       (!id || (node.tagName === id.tag && (node.textContent || '').trim().slice(0, 64) === id.text));
     if (confirms(candidate)) return candidate;
     if (id) {
       const matches = [...root.querySelectorAll(id.tag)].filter(
         (node) =>
+          !isLayoutHidden(node) &&
           node.getBoundingClientRect().height > 0 &&
           (node.textContent || '').trim().slice(0, 64) === id.text
       );

@@ -33,6 +33,7 @@ const STATUS_LABELS = {
 function createTransaction() {
   return {
     ops: [],
+    initialTranscript: false,
     dirty: {
       header: false,
       composer: false,
@@ -650,6 +651,13 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
 
   function ingestTranscriptSnapshot(tx, snapshot) {
     state.nativeTransport = true;
+    // The initial snapshot is already reduced in full before the view sees it.
+    // Let the renderer build that tree without replaying intermediate layouts.
+    // A first native snapshot may also arrive after ACP content: that is an
+    // incremental transport handover, not a fresh view that can be detached.
+    tx.initialTranscript = state.replaying && state.nativeMessages.size === 0 &&
+      state.turnSeq === 0 && !state.pendingAssistantText && !state.turnHadText &&
+      Boolean(snapshot.messages?.length);
     for (const message of snapshot.messages || []) {
       const signature = JSON.stringify(message);
       if (state.nativeMessages.get(message.id) === signature) continue;

@@ -179,4 +179,29 @@ const {
   }
 }
 
+// Initial restoration is a bulk transaction; empty/repeated/live snapshots are not.
+{
+  const store = createChatStore();
+  const snapshot = { type: 'transcript', messages: [
+    { id: 'initial-user', type: 'user', text: 'Restore', time: { created: 1 } },
+  ] };
+  assert.equal(store.ingestHostMessage({ type: 'transcript', messages: [] }).initialTranscript, false);
+  assert.equal(store.ingestHostMessage(snapshot).initialTranscript, true);
+  assert.equal(store.ingestHostMessage(snapshot).initialTranscript, false);
+  store.ingestHostMessage({ type: 'historyReset' });
+  assert.equal(store.ingestHostMessage({ ...snapshot, partial: true }).initialTranscript, true);
+  assert.equal(store.ingestHostMessage(snapshot).initialTranscript, false);
+  store.ingestHostMessage({ type: 'historyReset' });
+  store.ingestHostMessage({ type: 'historyEnd' });
+  assert.equal(store.ingestHostMessage(snapshot).initialTranscript, false);
+  for (const sessionUpdate of ['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk']) {
+    store.ingestHostMessage({ type: 'historyReset' });
+    store.ingestHostMessage({ type: 'update', update: {
+      sessionUpdate, content: { type: 'text', text: 'Already visible ACP content' },
+    } });
+    assert.equal(store.ingestHostMessage(snapshot).initialTranscript, false,
+      'native transport handover preserves the established reader/scroll state');
+  }
+}
+
 console.log('WEBVIEW ARCHITECTURE OK');
