@@ -201,7 +201,7 @@
         const resetLeft = (item) => Number(item.resetsAt) > now ? formatDuration(item.resetsAt - now) : "";
         const line = windows.map((item) => [resetLeft(item), `\u21BB ${Math.round(Number(item.percentage))}%`].filter(Boolean).join(" ")).join(" \xB7 ");
         const rows = windows.map((item) => ({
-          label: item.kind === "weekly" ? "weekly" : "5-hour",
+          label: item.label || (item.kind === "weekly" ? "weekly" : "5-hour"),
           used: Number(item.limit) > 0 ? formatCompact(item.used) : "",
           limit: Number(item.limit) > 0 ? `${formatCompact(item.limit)} ${item.unit}` : "",
           percent: `${Math.round(Number(item.percentage))}% used`,

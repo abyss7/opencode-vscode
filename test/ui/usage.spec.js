@@ -271,3 +271,28 @@ test('GLM Coding Plan windows render as percent and reset pairs', async ({ page,
   await expect(page.locator('#usage-subscription')).toHaveText('GLM Coding Plan · usage ↗');
   expect(await page.locator('#usage-plan-tooltip').textContent()).toBe('');
 });
+
+test('Codex Browser quota uses actual ChatGPT windows without monetary cost', async ({ page, chat }) => {
+  const model = { providerID: 'openai', id: 'gpt-codex' };
+  const now = Date.parse('2026-01-01T12:00:00Z');
+  await chat.send(
+    { type: 'modelLimit', model, billing: {
+      kind: 'subscription', label: 'ChatGPT plan', url: 'https://chatgpt.com/settings/usage',
+    } },
+    { type: 'balance', model, balance: { provider: 'openai', plan: 'prolite', windows: [
+      { kind: 'weekly', label: 'weekly', percentage: 6, resetsAt: now + 4 * 86400000 },
+    ] } },
+    { type: 'costSplit', model, total: 12, rows: [] }
+  );
+  await expect(page.locator('#usage-subscription')).toHaveText('4d 0h ↻ 6%');
+  await expect(page.locator('#usage-cost')).toBeHidden();
+  await page.locator('#usage-subscription').hover();
+  await expect(page.locator('#usage-plan-tooltip')).toHaveText('weekly · 6% used · resets Mon 12:00');
+  await chat.send({ type: 'balance', model, balance: { provider: 'openai', windows: [
+    { kind: 'fiveHour', label: '5-hour', percentage: 22, resetsAt: now + 5400000 },
+    { kind: 'weekly', label: 'weekly', percentage: 6, resetsAt: now + 4 * 86400000 },
+  ] } });
+  await expect(page.locator('#usage-subscription')).toHaveText('1h 30m ↻ 22% · 4d 0h ↻ 6%');
+  await chat.send({ type: 'balance', model, balance: null });
+  await expect(page.locator('#usage-subscription')).toHaveText('ChatGPT plan · usage ↗');
+});

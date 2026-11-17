@@ -184,6 +184,7 @@ const panelBilling = {
     try {
       const balance = await getBalance(ref.providerID, {
         command: this.deps.getConfig().command,
+        cwd: this.cwd,
         force,
       });
       if (this._disposed || this._modelRef !== ref) return;

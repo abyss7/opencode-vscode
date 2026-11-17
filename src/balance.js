@@ -3,6 +3,7 @@
 const https = require('node:https');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const { createHash } = require('node:crypto');
 
 const execFileAsync = promisify(execFile);
 
@@ -148,12 +149,85 @@ function parseZaiPlanUsage(data) {
   };
 }
 
+// ChatGPT exposes percentages, not token/credit quotas. Window durations come
+// from the response: some plans only have a weekly window.
+function parseChatGPTUsage(data) {
+  if (!data || typeof data !== 'object') return null;
+  const windows = [];
+  for (const [slot, item] of Object.entries(data.rate_limit || {})) {
+    if (!['primary_window', 'secondary_window'].includes(slot) || !item) continue;
+    const percentage = item.used_percent;
+    const seconds = item.limit_window_seconds;
+    if (typeof percentage !== 'number' || !Number.isFinite(percentage) ||
+        typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) continue;
+    const kind = seconds === 604800 ? 'weekly' : seconds === 18000 ? 'fiveHour' : slot;
+    windows.push({
+      kind,
+      label: seconds === 604800 ? 'weekly' : seconds === 18000 ? '5-hour' : `${seconds / 3600}-hour`,
+      durationSeconds: seconds,
+      percentage: Math.max(0, Math.min(100, Math.round(percentage))),
+      resetsAt: typeof item.reset_at === 'number' && Number.isFinite(item.reset_at)
+        ? item.reset_at * 1000 : 0,
+    });
+  }
+  if (windows.length === 0) return null;
+  windows.sort((a, b) => a.durationSeconds - b.durationSeconds);
+  return {
+    provider: 'openai',
+    plan: typeof data.plan_type === 'string' ? data.plan_type : '',
+    windows,
+    fetchedAt: Date.now(),
+  };
+}
+
+async function chatGPTRequest(options) {
+  const exec = options.exec || execFileAsync;
+  const { stdout } = await exec(options.command || 'opencode', ['auth', 'export', 'openai'], {
+    cwd: options.cwd,
+    timeout: REQUEST_TIMEOUT_MS,
+    maxBuffer: 2 * 1024 * 1024,
+  });
+  // Never use an inactive Codex account, an API key, or token-sharing auth.
+  const credential = parseCredentialExport(stdout).find((item) => item && item.active === true);
+  const value = credential && credential.value;
+  if (!value || value.type !== 'oauth' || value.methodID !== 'chatgpt-browser' ||
+      typeof value.access !== 'string' || !value.access) return null;
+  let accountID = value.metadata && value.metadata.accountID;
+  if (!accountID) {
+    try {
+      const claims = JSON.parse(Buffer.from(value.access.split('.')[1], 'base64url').toString());
+      accountID = claims['https://api.openai.com/auth']?.chatgpt_account_id;
+    } catch { /* Opaque tokens need account metadata. */ }
+  }
+  if (typeof accountID !== 'string' || !accountID) return null;
+  // No secrets in cache keys or messages. Re-read auth before consulting the
+  // cache so signing out/switching accounts cannot reuse another account's quota.
+  const scope = createHash('sha256').update(JSON.stringify([
+    options.command || 'opencode', options.cwd || '', accountID, value.access,
+  ])).digest('hex');
+  return {
+    key: `openai:${scope}`,
+    fetch: async () => {
+      const request = options.request || requestJsonDefault;
+      const data = await request('https://chatgpt.com/backend-api/wham/usage', {
+        authorization: `Bearer ${value.access}`,
+        'ChatGPT-Account-Id': accountID,
+        accept: 'application/json',
+      });
+      const balance = parseChatGPTUsage(data);
+      if (!balance) throw new Error('ChatGPT response has no usage windows');
+      return balance;
+    },
+  };
+}
+
 async function readCredential(command, provider, options) {
   const env = options.env === undefined ? process.env : options.env;
   const fromEnv = provider.envKey && env ? env[provider.envKey] : '';
   if (typeof fromEnv === 'string' && fromEnv) return fromEnv;
   const exec = options.exec || execFileAsync;
   const { stdout } = await exec(command, ['auth', 'export', provider.credential], {
+    cwd: options.cwd,
     timeout: REQUEST_TIMEOUT_MS,
     maxBuffer: 2 * 1024 * 1024,
   });
@@ -191,17 +265,19 @@ async function fetchProviderBalance(provider, options) {
  */
 async function getBalance(providerID, options = {}) {
   const provider = PROVIDERS[providerID];
-  if (!provider) return null;
-  let entry = cache.get(providerID);
+  const chatGPT = providerID === 'openai' ? await chatGPTRequest(options) : null;
+  if (!provider && !chatGPT) return null;
+  const key = chatGPT ? chatGPT.key : providerID;
+  let entry = cache.get(key);
   if (!entry) {
     entry = { value: null, at: 0, inflight: null };
-    cache.set(providerID, entry);
+    cache.set(key, entry);
   }
   const fresh =
     options.force !== true && entry.at > 0 && Date.now() - entry.at < TTL_MS;
   if (fresh) return entry.value;
   if (entry.inflight) return entry.inflight;
-  entry.inflight = fetchProviderBalance(provider, options).then(
+  entry.inflight = (chatGPT ? chatGPT.fetch() : fetchProviderBalance(provider, options)).then(
     (value) => {
       entry.value = value;
       entry.at = Date.now();
@@ -210,6 +286,10 @@ async function getBalance(providerID, options = {}) {
     },
     (error) => {
       entry.inflight = null;
+      if (chatGPT && (error.statusCode === 401 || error.statusCode === 403)) {
+        cache.delete(key);
+        throw error;
+      }
       if (entry.value) return entry.value;
       throw error;
     }
@@ -226,5 +306,6 @@ module.exports = {
   parseCredentialExport,
   parseDeepSeekBalance,
   parseZaiPlanUsage,
+  parseChatGPTUsage,
   resetBalanceCache,
 };

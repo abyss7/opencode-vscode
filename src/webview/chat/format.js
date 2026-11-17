@@ -235,7 +235,7 @@ function planUsageParts(balance, formatTimestamp, now = Date.now()) {
     .map((item) => [resetLeft(item), `↻ ${Math.round(Number(item.percentage))}%`].filter(Boolean).join(' '))
     .join(' · ');
   const rows = windows.map((item) => ({
-    label: item.kind === 'weekly' ? 'weekly' : '5-hour',
+    label: item.label || (item.kind === 'weekly' ? 'weekly' : '5-hour'),
     used: Number(item.limit) > 0 ? formatCompact(item.used) : '',
     limit: Number(item.limit) > 0 ? `${formatCompact(item.limit)} ${item.unit}` : '',
     percent: `${Math.round(Number(item.percentage))}% used`,

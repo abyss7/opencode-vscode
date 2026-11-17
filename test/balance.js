@@ -6,6 +6,7 @@ const {
   parseCredentialExport,
   parseDeepSeekBalance,
   parseZaiPlanUsage,
+  parseChatGPTUsage,
   resetBalanceCache,
 } = require('../src/balance');
 
@@ -119,6 +120,87 @@ const {
 
   resetBalanceCache();
   assert.strictEqual(await getBalance('unknown'), null);
+
+  const weekly = { used_percent: 6, limit_window_seconds: 604800, reset_at: 1795529041 };
+  const short = { used_percent: 22, limit_window_seconds: 18000, reset_at: 1795000000 };
+  const usage = { plan_type: 'prolite', rate_limit: { primary_window: weekly, secondary_window: null } };
+  const chatgpt = parseChatGPTUsage(usage);
+  assert.strictEqual(chatgpt.plan, 'prolite');
+  assert.strictEqual(chatgpt.windows.length, 1, 'do not invent a five-hour window');
+  assert.deepStrictEqual(chatgpt.windows[0], {
+    kind: 'weekly', label: 'weekly', durationSeconds: 604800, percentage: 6, resetsAt: 1795529041000,
+  });
+  assert.deepStrictEqual(parseChatGPTUsage({
+    rate_limit: { primary_window: weekly, secondary_window: short },
+  }).windows.map((item) => item.kind), ['fiveHour', 'weekly']);
+  assert.strictEqual(parseChatGPTUsage(null), null);
+  assert.strictEqual(parseChatGPTUsage({ rate_limit: { primary_window: {} } }), null);
+  assert.strictEqual(parseChatGPTUsage({ rate_limit: { primary_window: {
+    used_percent: null, limit_window_seconds: 18000,
+  } } }), null);
+  assert.strictEqual(parseChatGPTUsage({ rate_limit: { primary_window: {
+    ...short, used_percent: 140,
+  } } }).windows[0].percentage, 100);
+
+  let auth = {
+    type: 'oauth', methodID: 'chatgpt-browser', access: 'test-token',
+    metadata: { accountID: 'account-a' },
+  };
+  let quotaCalls = 0;
+  let quotaError = null;
+  const quotaOptions = {
+    command: 'custom-opencode', cwd: '/workspace', env: { OPENAI_API_KEY: 'not-codex' },
+    exec: async (command, args, opts) => {
+      assert.strictEqual(command, 'custom-opencode');
+      assert.deepStrictEqual(args, ['auth', 'export', 'openai']);
+      assert.strictEqual(opts.cwd, '/workspace');
+      return { stdout: JSON.stringify([
+        { active: false, value: { ...auth, access: 'inactive' } },
+        { active: true, value: auth },
+      ]) };
+    },
+    request: async (url, headers) => {
+      quotaCalls += 1;
+      assert.strictEqual(url, 'https://chatgpt.com/backend-api/wham/usage');
+      assert.strictEqual(headers.authorization, `Bearer ${auth.access}`);
+      assert.strictEqual(headers['ChatGPT-Account-Id'], auth.metadata.accountID);
+      if (quotaError) throw quotaError;
+      return usage;
+    },
+  };
+  resetBalanceCache();
+  const [quotaA, quotaB] = await Promise.all([
+    getBalance('openai', quotaOptions), getBalance('openai', quotaOptions),
+  ]);
+  assert.strictEqual(quotaA, quotaB);
+  assert.strictEqual(quotaCalls, 1, 'concurrent panels share quota request');
+  await getBalance('openai', quotaOptions);
+  assert.strictEqual(quotaCalls, 1, 'quota is cached for one minute');
+  auth = { ...auth, metadata: { accountID: 'account-b' } };
+  await getBalance('openai', quotaOptions);
+  assert.strictEqual(quotaCalls, 2, 'account switch cannot reuse cached quota');
+  quotaError = new Error('offline');
+  assert.strictEqual((await getBalance('openai', { ...quotaOptions, force: true })).provider, 'openai');
+  quotaError.statusCode = 401;
+  await assert.rejects(getBalance('openai', { ...quotaOptions, force: true }), /offline/);
+  await assert.rejects(getBalance('openai', quotaOptions), /offline/, 'rejected auth clears cached quota');
+  quotaError = null;
+  const callsBeforeUnsupported = quotaCalls;
+  for (const value of [
+    { type: 'key', key: 'api-key' },
+    { ...auth, methodID: 'chatgpt-token-sharing' },
+    { ...auth, access: '' },
+    { ...auth, metadata: {} },
+  ]) {
+    const saved = auth;
+    auth = value;
+    assert.strictEqual(await getBalance('openai', quotaOptions), null);
+    auth = saved;
+  }
+  assert.strictEqual(await getBalance('openai', {
+    ...quotaOptions, exec: async () => ({ stdout: JSON.stringify([{ active: false, value: auth }]) }),
+  }), null);
+  assert.strictEqual(quotaCalls, callsBeforeUnsupported, 'unsupported auth never queries ChatGPT');
 
   let execCalls = 0;
   let requestCalls = 0;
