@@ -209,7 +209,7 @@ function fixture(store = new Map()) {
   assert.deepEqual(orphan.closes, [orphanTab], 'only close after explicit confirmation');
   assert.equal(orphan.panels[0].sessionId, 'ses_orphan', 'reconnect the original session, not a new one');
   assert.deepEqual(orphan.opens.map((entry) => entry.uri), [orphanUri, orphanUri]);
-  assert.match(orphan.warnings[0][0], /unsent draft/);
+  assert.match(orphan.warnings[0][0], /Saved draft text will be restored, but unsent attachments may be lost/);
 
   const declined = fixture();
   const declinedTab = { input: { viewType: 'opencode.sessionEditor', uri: orphanUri } };

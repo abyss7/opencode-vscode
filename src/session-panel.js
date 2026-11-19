@@ -42,6 +42,9 @@ class SessionPanel {
     this.deps = options.deps;
     this.sessionId = options.sessionId || null;
     this.newSessionId = options.newSessionId;
+    // A newly opened tab already has a reserved ID, even before server creation.
+    this._draftSessionId = this.sessionId || this.newSessionId;
+    this._draft = this.deps.drafts?.read(this._draftSessionId) || '';
     this.cwd = options.cwd;
     this._archived = Boolean(options.archived);
     this._archiveFinalizing = Boolean(options.archiveFinalizing);
@@ -112,7 +115,7 @@ class SessionPanel {
   }
 
   get deleteIfEmptyOnClose() {
-    return Boolean(this._disposed && this.newSessionId && !this._preserveSession && !this._promptSubmitted);
+    return Boolean(this._disposed && this.newSessionId && !this._preserveSession && !this._promptSubmitted && !this._draft);
   }
 
   reveal() {
@@ -227,6 +230,7 @@ class SessionPanel {
     if (this._disposed || !message || typeof message.type !== 'string') return;
     switch (message.type) {
       case 'ready':
+        this._post({ type: 'restoreDraft', text: this._draft });
         this._post({ type: 'sessionInfo', title: this._sessionTitle, archived: this._archived });
         this._resendSubagents();
         // Metadata may have resolved before this webview was listening. The
@@ -242,6 +246,11 @@ class SessionPanel {
           this._refreshUsageFromHistory();
           this._refreshBalance(true);
         } else this._start();
+        break;
+      case 'saveDraft':
+        if (typeof message.text !== 'string') break;
+        this._draft = message.text;
+        this.deps.drafts?.save(this._draftSessionId, this._draft);
         break;
       case 'prompt':
         this._prompt(

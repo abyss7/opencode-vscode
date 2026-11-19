@@ -16,6 +16,7 @@ const { SessionsProvider } = require('./sessions-view');
 const { SessionFolders } = require('./session-folders');
 const { SessionPanel } = require('./session-panel');
 const { SessionEditors } = require('./session-editor');
+const { SessionDrafts } = require('./session-drafts');
 const { PlanDocuments } = require('./plan-documents');
 const { SessionContinuation } = require('./session-continuation');
 const { OpenCodeSync } = require('./opencode-sync');
@@ -49,6 +50,11 @@ function activate(context) {
   };
 
   const api = new OpenCodeApi({ command: getConfig().command, log });
+  const drafts = new SessionDrafts(
+    context.globalStorageUri?.fsPath
+      ? path.join(context.globalStorageUri.fsPath, 'composer-drafts') : null,
+    log
+  );
   const continuations = new SessionContinuation(
     context.globalStorageUri?.fsPath
       ? path.join(context.globalStorageUri.fsPath, 'continuations')
@@ -205,6 +211,7 @@ function activate(context) {
   const deps = {
     extensionUri: context.extensionUri,
     workspaceState: context.workspaceState,
+    drafts,
     api,
     log,
     continuations,
@@ -282,6 +289,7 @@ function activate(context) {
     provider,
     panels,
     editors,
+    drafts,
     getCwd,
     defaultAgent,
     refreshSessions,

@@ -2325,6 +2325,24 @@ ${after}`);
       }) {
         let modelPicker = null;
         let permissionPicker = null;
+        let draftInitialized = false;
+        let draftText = "";
+        function saveDraft() {
+          draftInitialized = true;
+          if (draftText === inputEl.value) return;
+          draftText = inputEl.value;
+          postMessage({ type: "saveDraft", text: draftText });
+        }
+        function restoreDraft(text) {
+          if (draftInitialized || typeof text !== "string") return;
+          draftInitialized = true;
+          draftText = text;
+          if (!text) return;
+          inputEl.value = text;
+          inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+          resizeInput();
+          updateComposer();
+        }
         function updateComposer() {
           const { state } = store;
           if (composerEl) composerEl.hidden = state.archived;
@@ -2345,6 +2363,7 @@ ${after}`);
         }
         function clearInput() {
           inputEl.value = "";
+          saveDraft();
           resizeInput();
         }
         function unseenImageNotice() {
@@ -2497,16 +2516,18 @@ ${after}`);
           if (!item) return;
           const suffix = inputEl.value.slice(query.end);
           const insert = /^\s/.test(suffix) ? item.insert.trimEnd() : item.insert;
-          inputEl.value = inputEl.value.slice(0, query.start) + insert + suffix;
-          closeSlashMenu();
-          resizeInput();
-          updateComposer();
+          const before = inputEl.value;
           focusLocal(inputEl, composerControls);
-          const position = query.start + insert.length;
-          try {
+          inputEl.setSelectionRange(query.start, query.end);
+          if (!document.execCommand?.("insertText", false, insert)) {
+            inputEl.value = before.slice(0, query.start) + insert + suffix;
+            const position = query.start + insert.length;
             inputEl.setSelectionRange(position, position);
-          } catch {
+            saveDraft();
+            resizeInput();
+            updateComposer();
           }
+          closeSlashMenu();
         }
         function appendFixedAgent(option) {
           if (!agentLabelEl) return;
@@ -2812,6 +2833,7 @@ ${after}`);
           }
         }
         inputEl.addEventListener("input", () => {
+          saveDraft();
           resizeInput();
           updateComposer();
           store.state.slashIndex = 0;
@@ -2847,6 +2869,14 @@ ${after}`);
           addImageFiles(files);
         });
         inputEl.addEventListener("keydown", (event) => {
+          if (event.isComposing) return;
+          const key = event.key.toLowerCase();
+          if ((event.ctrlKey || event.metaKey) && !event.altKey && (key === "z" || key === "y")) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.execCommand(key === "y" || event.shiftKey ? "redo" : "undo");
+            return;
+          }
           if (store.state.slashOpen) {
             if (event.key === "ArrowDown") {
               event.preventDefault();
@@ -2888,6 +2918,7 @@ ${after}`);
           updateComposer,
           resizeInput,
           clearInput,
+          restoreDraft,
           renderAttachments,
           renderSelection,
           selectContext,
@@ -5294,12 +5325,13 @@ ${after}`);
       onSend: (rawText) => {
         const makeId = () => `msg_${crypto.randomUUID().replaceAll("-", "")}`;
         const { tx, outbound, clearedInput } = store.prepareSend(rawText, makeId);
-        if (clearedInput) composerView.clearInput();
         commitTransaction(tx);
-        if (outbound) {
-          vscode.postMessage(outbound);
-          composerView.focusComposerInput();
+        if (outbound) vscode.postMessage(outbound);
+        if (clearedInput) {
+          composerView.clearInput();
+          composerView.updateComposer();
         }
+        if (outbound) composerView.focusComposerInput();
       },
       onStop: () => {
         const { tx, outbound } = store.prepareStop();
@@ -5401,6 +5433,10 @@ ${after}`);
       focusLocal(focusTarget);
     });
     window.addEventListener("message", (event) => {
+      if (event.data?.type === "restoreDraft") {
+        composerView.restoreDraft(event.data.text);
+        return;
+      }
       const tx = store.ingestHostMessage(event.data);
       commitTransaction(tx);
     });

@@ -47,6 +47,7 @@ function createCommandHandlers({
   provider,
   panels,
   editors,
+  drafts,
   getCwd,
   defaultAgent,
   refreshSessions,
@@ -158,6 +159,7 @@ function createCommandHandlers({
 
     try {
       await api.deleteSession(session.id);
+      drafts?.save(session.id, '');
       log(`Deleted session: ${session.id}`);
       await refreshSessions();
     } catch (error) {

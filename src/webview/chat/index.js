@@ -222,12 +222,14 @@ const { createTranscriptRenderer } = require('./transcript-renderer');
     onSend: (rawText) => {
       const makeId = () => `msg_${crypto.randomUUID().replaceAll('-', '')}`;
       const { tx, outbound, clearedInput } = store.prepareSend(rawText, makeId);
-      if (clearedInput) composerView.clearInput();
       commitTransaction(tx);
-      if (outbound) {
-        vscode.postMessage(outbound);
-        composerView.focusComposerInput();
+      if (outbound) vscode.postMessage(outbound);
+      if (clearedInput) {
+        // Deliver the submission before invalidating its on-disk draft.
+        composerView.clearInput();
+        composerView.updateComposer();
       }
+      if (outbound) composerView.focusComposerInput();
     },
     onStop: () => {
       const { tx, outbound } = store.prepareStop();
@@ -354,6 +356,10 @@ const { createTranscriptRenderer } = require('./transcript-renderer');
 
   // Window message & focus wiring
   window.addEventListener('message', (event) => {
+    if (event.data?.type === 'restoreDraft') {
+      composerView.restoreDraft(event.data.text);
+      return;
+    }
     const tx = store.ingestHostMessage(event.data);
     commitTransaction(tx);
   });

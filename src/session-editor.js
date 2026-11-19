@@ -99,7 +99,7 @@ class SessionEditors {
       this.orphanNotified = id;
       const reconnect = 'Reconnect tab';
       const choice = await this.vscode.window.showWarningMessage(
-        'This OpenCode tab is no longer connected. Reconnecting closes its old view; any unsent draft in that view may be lost.',
+        'This OpenCode tab is no longer connected. Reconnecting closes its old view. Saved draft text will be restored, but unsent attachments may be lost.',
         { modal: true }, reconnect
       );
       if (choice !== reconnect || !stillActive()) return;

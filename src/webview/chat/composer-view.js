@@ -37,6 +37,27 @@ function createComposerView({
 }) {
   let modelPicker = null;
   let permissionPicker = null;
+  let draftInitialized = false;
+  let draftText = '';
+
+  function saveDraft() {
+    draftInitialized = true;
+    if (draftText === inputEl.value) return;
+    draftText = inputEl.value;
+    postMessage({ type: 'saveDraft', text: draftText });
+  }
+
+  function restoreDraft(text) {
+    // A delayed or repeated handshake must not replace local edits.
+    if (draftInitialized || typeof text !== 'string') return;
+    draftInitialized = true;
+    draftText = text;
+    if (!text) return;
+    inputEl.value = text;
+    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+    resizeInput();
+    updateComposer();
+  }
 
   function updateComposer() {
     const { state } = store;
@@ -71,6 +92,7 @@ function createComposerView({
 
   function clearInput() {
     inputEl.value = '';
+    saveDraft();
     resizeInput();
   }
 
@@ -236,17 +258,20 @@ function createComposerView({
     if (!item) return;
     const suffix = inputEl.value.slice(query.end);
     const insert = /^\s/.test(suffix) ? item.insert.trimEnd() : item.insert;
-    inputEl.value = inputEl.value.slice(0, query.start) + insert + suffix;
-    closeSlashMenu();
-    resizeInput();
-    updateComposer();
+    const before = inputEl.value;
     focusLocal(inputEl, composerControls);
-    const position = query.start + insert.length;
-    try {
+    inputEl.setSelectionRange(query.start, query.end);
+    // Unlike assigning .value or setRangeText, insertText joins the textarea's
+    // native undo history as an edit, including the replaced text and selection.
+    if (!document.execCommand?.('insertText', false, insert)) {
+      inputEl.value = before.slice(0, query.start) + insert + suffix;
+      const position = query.start + insert.length;
       inputEl.setSelectionRange(position, position);
-    } catch {
-      // Older webviews may not support selection ranges.
+      saveDraft();
+      resizeInput();
+      updateComposer();
     }
+    closeSlashMenu();
   }
 
   function appendFixedAgent(option) {
@@ -580,6 +605,7 @@ function createComposerView({
 
   // Event listeners for composer interaction
   inputEl.addEventListener('input', () => {
+    saveDraft();
     resizeInput();
     updateComposer();
     store.state.slashIndex = 0;
@@ -618,6 +644,16 @@ function createComposerView({
   });
 
   inputEl.addEventListener('keydown', (event) => {
+    if (event.isComposing) return;
+    const key = event.key.toLowerCase();
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && (key === 'z' || key === 'y')) {
+      // VS Code forwards these keys to the workbench and suppresses the browser
+      // default. Keep the shortcut local and run the browser's editing command.
+      event.preventDefault();
+      event.stopPropagation();
+      document.execCommand(key === 'y' || event.shiftKey ? 'redo' : 'undo');
+      return;
+    }
     if (store.state.slashOpen) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
@@ -661,6 +697,7 @@ function createComposerView({
     updateComposer,
     resizeInput,
     clearInput,
+    restoreDraft,
     renderAttachments,
     renderSelection,
     selectContext,

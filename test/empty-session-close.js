@@ -1,7 +1,11 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const Module = require('node:module');
+const os = require('node:os');
+const path = require('node:path');
+const { SessionDrafts } = require('../src/session-drafts');
 const load = Module._load;
 Module._load = function (request) {
   if (request === 'vscode') return {};
@@ -22,6 +26,25 @@ function panel() {
   assert.equal(empty.deleteIfEmptyOnClose, false, 'an open tab is retained');
   empty._disposed = true;
   assert.equal(empty.deleteIfEmptyOnClose, true);
+
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-drafts-'));
+  try {
+    const drafted = panel();
+    drafted._draftSessionId = drafted.newSessionId;
+    drafted.deps.drafts = new SessionDrafts(directory);
+    const text = '  черновик\n\nс пробелами  ';
+    drafted._onMessage({ type: 'saveDraft', text });
+    drafted._disposed = true;
+    assert.equal(drafted.deleteIfEmptyOnClose, false, 'drafts keep otherwise empty sessions alive');
+
+    const restored = new SessionDrafts(directory);
+    assert.equal(restored.read('ses_new'), text, 'a fresh store restores the exact text without a shutdown hook');
+    assert.equal(restored.read('ses_other'), '', 'drafts are isolated by session');
+    restored.save('ses_new', '');
+    assert.equal(new SessionDrafts(directory).read('ses_new'), '', 'cleared drafts stay cleared');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 
   const existing = panel();
   existing.newSessionId = undefined;
