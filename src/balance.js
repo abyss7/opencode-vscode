@@ -29,11 +29,22 @@ const PROVIDERS = {
 
 const cache = new Map();
 
+// Slow or IPv6-broken networks defeat Node's happy-eyeballs default: each
+// address attempt gets 250ms, so a >250ms IPv4 handshake plus dead AAAA
+// records surface as ETIMEDOUT even though the host is reachable. Give every
+// attempt a budget comparable to the overall request timeout instead.
+const CONNECT_ATTEMPT_TIMEOUT_MS = 2500;
+
 function requestJsonDefault(url, headers) {
   return new Promise((resolve, reject) => {
     const req = https.request(
       url,
-      { method: 'GET', headers, timeout: REQUEST_TIMEOUT_MS },
+      {
+        method: 'GET',
+        headers,
+        timeout: REQUEST_TIMEOUT_MS,
+        autoSelectFamilyAttemptTimeout: CONNECT_ATTEMPT_TIMEOUT_MS,
+      },
       (res) => {
         let raw = '';
         res.setEncoding('utf8');

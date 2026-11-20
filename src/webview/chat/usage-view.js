@@ -175,7 +175,9 @@ function createUsageView({
     if (subscription && billing.label && usageSubscriptionEl) {
       const plan = planUsageParts(state.balance, (ts) => timeFormat.formatTimestamp(ts));
       usageSubscriptionEl.firstChild.textContent = plan.line || `${billing.label} · `;
-      planTooltipEl.textContent = plan.tooltip;
+      // A missing balance (network failure, API change) must still explain the
+      // hover target instead of showing an empty tooltip box.
+      planTooltipEl.textContent = plan.tooltip || `${billing.label} usage unavailable`;
       positionPlan();
       usageLinkEl.href = billing.url;
       usageLinkEl.hidden = Boolean(plan.line);

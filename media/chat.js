@@ -2244,7 +2244,7 @@ ${after}`);
           if (subscription && billing.label && usageSubscriptionEl) {
             const plan = planUsageParts(state.balance, (ts) => timeFormat.formatTimestamp(ts));
             usageSubscriptionEl.firstChild.textContent = plan.line || `${billing.label} \xB7 `;
-            planTooltipEl.textContent = plan.tooltip;
+            planTooltipEl.textContent = plan.tooltip || `${billing.label} usage unavailable`;
             positionPlan();
             usageLinkEl.href = billing.url;
             usageLinkEl.hidden = Boolean(plan.line);
