@@ -292,6 +292,16 @@ class PlanDocuments {
       case 'export':
         this._export(message).catch((error) => this.log(`Plan export failed: ${error.message}`));
         break;
+      case 'navigateEditor':
+        // Mirrors the default Ctrl+PageDown/PageUp workbench bindings; the
+        // webview claims the keys so the preload cannot double-dispatch or
+        // drop them (microsoft/vscode#241801, #347573).
+        this.vscode.commands
+          .executeCommand(message.direction === 'previous'
+            ? 'workbench.action.previousEditor'
+            : 'workbench.action.nextEditor')
+          .then(undefined, (error) => this.log(`Editor navigation failed: ${error.message}`));
+        break;
       default:
         this.log(`Unknown plan panel message: ${message.type}`);
     }

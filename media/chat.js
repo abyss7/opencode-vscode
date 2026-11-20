@@ -5389,6 +5389,14 @@ ${after}`);
       const tx = store.ingestHostMessage(event.data);
       commitTransaction(tx);
     });
+    window.addEventListener("keydown", (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      const direction = event.key === "PageDown" ? "next" : event.key === "PageUp" ? "previous" : null;
+      if (!direction) return;
+      event.preventDefault();
+      event.stopPropagation();
+      vscode.postMessage({ type: "navigateEditor", direction });
+    }, true);
     window.addEventListener("focus", () => {
       const active = document.activeElement;
       if (active && active !== document.body && active !== document.documentElement) return;

@@ -358,6 +358,24 @@ const { createTranscriptRenderer } = require('./transcript-renderer');
     commitTransaction(tx);
   });
 
+  // Editor tab cycling from a focused webview is racy: the VS Code webview
+  // preload re-posts every keydown that reaches `window` (bubble phase) to the
+  // workbench keybinding service, so Ctrl+PageDown can dispatch nextEditor
+  // twice (microsoft/vscode#241801) or be dropped for a lazily restored tab
+  // (microsoft/vscode#347573). Claim the default editor-cycling combos in the
+  // capture phase, before the preload can forward them, and ask the host to
+  // run the command exactly once per press (see `navigateEditor` in
+  // session-panel.js). Combos with Alt/Shift stay untouched: they belong to
+  // other workbench bindings (move editor, editor-in-group chords).
+  window.addEventListener('keydown', (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    const direction = event.key === 'PageDown' ? 'next' : event.key === 'PageUp' ? 'previous' : null;
+    if (!direction) return;
+    event.preventDefault();
+    event.stopPropagation();
+    vscode.postMessage({ type: 'navigateEditor', direction });
+  }, true);
+
   window.addEventListener('focus', () => {
     const active = document.activeElement;
     if (active && active !== document.body && active !== document.documentElement) return;

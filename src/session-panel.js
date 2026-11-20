@@ -315,9 +315,28 @@ class SessionPanel {
       case 'checkFiles':
         this._checkFiles(Array.isArray(message.files) ? message.files : []);
         break;
+      case 'navigateEditor':
+        this._navigateEditor(message.direction);
+        break;
       default:
         this.deps.log(`Unknown webview message: ${message.type}`);
     }
+  }
+
+  /**
+   * Cycles editors on behalf of the webview. The webview claims
+   * Ctrl+PageDown/PageUp before the preload forwards the keydown to the
+   * keybinding service, where a focus transition can double-dispatch the
+   * command (microsoft/vscode#241801) or drop it entirely
+   * (microsoft/vscode#347573). This path performs exactly one step per press,
+   * mirroring the default workbench bindings for those keys.
+   */
+  _navigateEditor(direction) {
+    const command = direction === 'previous'
+      ? 'workbench.action.previousEditor'
+      : 'workbench.action.nextEditor';
+    vscode.commands.executeCommand(command).then(undefined, (error) =>
+      this.deps.log(`Editor navigation failed: ${error.message}`));
   }
 
   async _start() {

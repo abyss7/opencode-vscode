@@ -298,5 +298,20 @@
     }
   });
 
+  // The VS Code webview preload forwards every keydown that reaches `window`
+  // (bubble phase) to the workbench keybinding service, so editor cycling with
+  // Ctrl+PageDown from a focused webview can dispatch the command twice
+  // (microsoft/vscode#241801) or drop it (microsoft/vscode#347573). Claim the
+  // default cycling combos in the capture phase and let the host run the
+  // command exactly once (see `navigateEditor` in plan-documents.js).
+  window.addEventListener('keydown', (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    const direction = event.key === 'PageDown' ? 'next' : event.key === 'PageUp' ? 'previous' : null;
+    if (!direction) return;
+    event.preventDefault();
+    event.stopPropagation();
+    vscode.postMessage({ type: 'navigateEditor', direction });
+  }, true);
+
   vscode.postMessage({ type: 'ready' });
 })();
