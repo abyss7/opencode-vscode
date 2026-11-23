@@ -1625,6 +1625,12 @@ function createTranscriptRenderer({
         finalizeToolGroup();
         settleLiveSteps();
         break;
+      case 'turnOutcome':
+        // The server's idle marker for a turn that did not finish cleanly.
+        // It follows nativeIdle, so the notice lands after the settled turn.
+        if (op.outcome === 'failed') renderError(op.text);
+        else renderInfo(op.text);
+        break;
       case 'upsertTool':
         upsertTool(op.update, op.turnId);
         break;
@@ -1704,15 +1710,19 @@ function createTranscriptRenderer({
         settleLiveSteps();
         if (op.usage && singleBlock) applyBilledUsage(op.usage, singleBlock);
         const hadText = op.hadText || finalizedText;
-        if (op.fresh && !hadText) {
-          const steps = blocks.reduce((sum, item) => sum + countBlockSteps(item), 0);
-          if (steps > 0) {
-            renderInfo(`No text answer in this turn — ${steps} step${steps === 1 ? '' : 's'} listed above.`);
-          } else {
-            renderInfo(noTextAnswer(op.stopReason));
+        // A failed or interrupted turn was already explained by its idle
+        // marker; only an ending without one needs a generic notice.
+        if (op.fresh && !op.outcome) {
+          if (!hadText) {
+            const steps = blocks.reduce((sum, item) => sum + countBlockSteps(item), 0);
+            if (steps > 0) {
+              renderInfo(`No text answer in this turn — ${steps} step${steps === 1 ? '' : 's'} listed above.`);
+            } else {
+              renderInfo(noTextAnswer(op.stopReason));
+            }
+          } else if (op.stopReason === 'cancelled') {
+            renderInfo('Stopped by user.');
           }
-        } else if (op.fresh && op.stopReason === 'cancelled') {
-          renderInfo('Stopped by user.');
         }
         break;
       }

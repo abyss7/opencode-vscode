@@ -18,4 +18,12 @@ function sessionActivity(session, pending = []) {
 
 const UNCONFIRMED_MESSAGE = 'Execution unconfirmed — this session may be suspended or running in another OpenCode process.';
 
-module.exports = { sessionActivity, pendingActivity, UNCONFIRMED_MESSAGE };
+// The stop reason the webview expects for a turn the server closed with the
+// given outcome. It only matters when no idle marker reached the transcript.
+function turnStopReason(outcome) {
+  if (outcome === 'failed') return 'error';
+  if (outcome === 'interrupted') return 'cancelled';
+  return 'end_turn';
+}
+
+module.exports = { sessionActivity, pendingActivity, turnStopReason, UNCONFIRMED_MESSAGE };

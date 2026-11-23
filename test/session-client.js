@@ -177,6 +177,41 @@ const assistant = (content, completed) => ({ id: 'msg_answer', type: 'assistant'
   assert.equal(new Map(data.snapshot.states).get('msg_next'), 'failed');
   assert.equal(data.reported, 'idle');
 
+  // The idle marker that closed a turn is reported once, with its verdict.
+  const quota = { type: 'provider.quota', status: 429,
+    message: 'Usage limit reached for 5 hour. Your limit will reset at 2026-11-23 21:22:54' };
+  const endings = [];
+  const verdict = fixture();
+  verdict.client.on('activity', (activity, turn) => endings.push({ activity, turn }));
+  verdict.data.history = [user('msg_old'),
+    { id: 'msg_prev', type: 'idle', outcome: 'succeeded', time: { created: 2 } }, user('msg_limited')];
+  await verdict.client.reconcile();
+  assert.equal(endings.at(-1).turn, null, 'the marker that closed an earlier turn is not a new ending');
+  await verdict.client.reconcile();
+  assert.equal(endings.at(-1).turn, null, 'an unchanged marker is never reported');
+  verdict.data.history.push({ id: 'msg_limited_idle', type: 'idle', outcome: 'failed', error: quota, time: { created: 6 } });
+  verdict.data.activity = 'idle';
+  await verdict.client.reconcile();
+  assert.deepEqual(endings.at(-1), { activity: 'idle', turn: {
+    id: 'msg_limited_idle', outcome: 'failed', error: quota, superseded: false } });
+  await verdict.client.reconcile();
+  assert.equal(endings.at(-1).turn, null, 'the same ending is not reported twice');
+  verdict.data.history.push(user('msg_after'), { id: 'msg_after_idle', type: 'idle', outcome: 'interrupted', time: { created: 8 } },
+    user('msg_last'));
+  await verdict.client.reconcile();
+  assert.deepEqual(endings.at(-1).turn, { id: 'msg_after_idle', outcome: 'interrupted', error: null, superseded: true },
+    'a prompt already admitted after the marker marks the ending as superseded');
+
+  const fresh = fixture();
+  const firstEndings = [];
+  fresh.client.on('activity', (activity, turn) => firstEndings.push(turn));
+  fresh.data.history = [user('msg_first')];
+  await fresh.client.reconcile();
+  fresh.data.history.push({ id: 'msg_first_idle', type: 'idle', outcome: 'succeeded', time: { created: 3 } });
+  await fresh.client.reconcile();
+  assert.deepEqual(firstEndings, [null, { id: 'msg_first_idle', outcome: 'succeeded', error: null, superseded: false }],
+    'the first turn of a new session is reported when its marker appears');
+
   const passive = fixture();
   passive.data.activity = 'idle';
   passive.data.inbox = [{ id: 'msg_notice', type: 'synthetic', payload: {

@@ -582,6 +582,15 @@ ${after}`);
             return stopReason ? `No answer from the model (stop reason: ${stopReason}).` : "No answer from the model.";
         }
       }
+      function turnOutcomeNotice(outcome, error) {
+        if (outcome === "failed") {
+          const raw = typeof error === "string" ? error : error && error.message;
+          const message = typeof raw === "string" ? raw.trim() : "";
+          return { outcome, text: message ? `Turn failed: ${message}` : "The turn failed." };
+        }
+        if (outcome === "interrupted") return { outcome, text: "Turn interrupted." };
+        return null;
+      }
       function nativeImages(files) {
         return (files || []).flatMap((file) => {
           const uri = file.uri || (/^image\/(png|jpeg|gif|webp)$/.test(file.mime || "") && typeof file.data === "string" ? `data:${file.mime};base64,${file.data}` : "");
@@ -608,6 +617,7 @@ ${after}`);
         toolActivityPurpose,
         describeToolAction,
         noTextAnswer,
+        turnOutcomeNotice,
         nativeImages
       };
     }
@@ -620,7 +630,8 @@ ${after}`);
       var { prefixLine } = require_format();
       var {
         toolTitle,
-        nativeImages
+        nativeImages,
+        turnOutcomeNotice
       } = require_tool_metadata();
       var { updateThoughtBlock, acceptsSummary, sameThought, thoughtCaption } = require_thought_caption();
       var STATUS_LABELS = {
@@ -685,6 +696,7 @@ ${after}`);
           turnId: null,
           turnHadText: false,
           turnEnded: false,
+          turnOutcome: null,
           pendingAssistantText: "",
           pendingAssistantId: null,
           thoughtBlocks: /* @__PURE__ */ new Map(),
@@ -797,6 +809,7 @@ ${after}`);
           state.turnId = `turn-${state.turnSeq}`;
           state.turnHadText = false;
           state.turnEnded = false;
+          state.turnOutcome = null;
           state.pendingAssistantText = "";
           state.pendingAssistantId = null;
           state.pendingThoughtId = null;
@@ -857,6 +870,7 @@ ${after}`);
           state.turnSeq = 0;
           state.turnHadText = false;
           state.turnEnded = false;
+          state.turnOutcome = null;
           state.currentAction = null;
           state.liveToolId = null;
           state.liveStartedAt = null;
@@ -1296,6 +1310,8 @@ ${after}`);
               state.thoughtTurnId = null;
               state.activityThought = "";
               tx.ops.push({ type: "nativeIdle" });
+              state.turnOutcome = turnOutcomeNotice(message.outcome, message.error);
+              if (state.turnOutcome) tx.ops.push({ type: "turnOutcome", ...state.turnOutcome });
               tx.dirty.header = true;
             }
             tx.ops.push({ type: "endNativeMessage", messageId: message.id });
@@ -1599,7 +1615,9 @@ ${after}`);
                 hadText,
                 turnId: state.turnId,
                 usage: message.usage || null,
-                stopReason: message.stopReason
+                stopReason: message.stopReason,
+                // Set when the turn's idle marker already explained how it ended.
+                outcome: state.turnOutcome ? state.turnOutcome.outcome : null
               });
               setStatus(tx, "ready");
               tx.scrollIntent ||= { type: "follow" };
@@ -5038,6 +5056,10 @@ ${after}`);
               finalizeToolGroup();
               settleLiveSteps();
               break;
+            case "turnOutcome":
+              if (op.outcome === "failed") renderError(op.text);
+              else renderInfo(op.text);
+              break;
             case "upsertTool":
               upsertTool(op.update, op.turnId);
               break;
@@ -5115,15 +5137,17 @@ ${after}`);
               settleLiveSteps();
               if (op.usage && singleBlock) applyBilledUsage(op.usage, singleBlock);
               const hadText = op.hadText || finalizedText;
-              if (op.fresh && !hadText) {
-                const steps = blocks.reduce((sum, item) => sum + countBlockSteps(item), 0);
-                if (steps > 0) {
-                  renderInfo(`No text answer in this turn \u2014 ${steps} step${steps === 1 ? "" : "s"} listed above.`);
-                } else {
-                  renderInfo(noTextAnswer(op.stopReason));
+              if (op.fresh && !op.outcome) {
+                if (!hadText) {
+                  const steps = blocks.reduce((sum, item) => sum + countBlockSteps(item), 0);
+                  if (steps > 0) {
+                    renderInfo(`No text answer in this turn \u2014 ${steps} step${steps === 1 ? "" : "s"} listed above.`);
+                  } else {
+                    renderInfo(noTextAnswer(op.stopReason));
+                  }
+                } else if (op.stopReason === "cancelled") {
+                  renderInfo("Stopped by user.");
                 }
-              } else if (op.fresh && op.stopReason === "cancelled") {
-                renderInfo("Stopped by user.");
               }
               break;
             }

@@ -15,7 +15,7 @@
  */
 
 const vscode = require('vscode');
-const { sessionActivity, UNCONFIRMED_MESSAGE } = require('./session-activity');
+const { sessionActivity, turnStopReason, UNCONFIRMED_MESSAGE } = require('./session-activity');
 const { CONTINUE_TEXT } = require('./session-continuation');
 const { SessionClient, toolUpdate } = require('./session-client');
 const { normalizeAgentOptions } = require('./agent-label');
@@ -59,6 +59,8 @@ class SessionPanel {
     this._disposed = false;
     this._cleanedUp = false;
     this._busy = false;
+    // Outcome of the turn that just ended, as named by its idle marker.
+    this._turnOutcome = '';
     this._queuedCount = 0;
     this._sessionTitle = null;
     this._modelRef = null;
@@ -131,6 +133,8 @@ class SessionPanel {
     else if (this._archiveFinalizing) kind = 'working';
     else if (this._archived) kind = 'archived';
     else if (kind === 'idle' && this._backgroundRunning) kind = 'background';
+    // A turn that ended in failure while the tab was unseen is not "done".
+    else if (kind === 'failed') kind = 'attention';
     if (this._disposed || this._iconKind === kind) return;
     this._iconKind = kind;
     const iconFile = ICON_FILES[kind];
@@ -151,7 +155,8 @@ class SessionPanel {
     if (this._disposed) return;
     const panel = (event && event.webviewPanel) || this.panel;
     if (!panel || !panel.active) return;
-    if (this._baseIconKind === 'done') this._setIcon('idle');
+    // "done" and "failed" both mean "a turn ended unseen"; viewing clears it.
+    if (this._baseIconKind === 'done' || this._baseIconKind === 'failed') this._setIcon('idle');
     this._focusIfActive();
   }
 
@@ -190,6 +195,7 @@ class SessionPanel {
     this._turnRevision = (this._turnRevision || 0) + 1;
     this._externalTurn = external;
     this._busy = true;
+    this._turnOutcome = '';
     this._serverActivity = 'running';
     if (!external && !this._client?.shared) this.deps.api?.setSessionRunning?.(this.sessionId, this, true);
     this._setIcon('working');
@@ -208,8 +214,8 @@ class SessionPanel {
     this._busy = false;
     this.deps.api?.setSessionRunning?.(this.sessionId, this, false);
     this._serverActivity = state === 'unconfirmed' ? 'unconfirmed' : 'idle';
-    const done = state === 'ready' && this.panel.active !== true;
-    this._setIcon(done ? 'done' : 'idle');
+    const unseen = state === 'ready' && this.panel.active !== true;
+    this._setIcon(unseen ? (this._turnOutcome === 'failed' ? 'failed' : 'done') : 'idle');
     this._post({ type: 'status', state,
       ...(state === 'unconfirmed' ? { message: UNCONFIRMED_MESSAGE } : {}) });
   }
@@ -369,7 +375,7 @@ class SessionPanel {
     }));
     client.on('submission', (submission) => this._post({ type: 'submission', ...submission }));
     client.on('thoughtCaption', (summary) => this._post({ type: 'thoughtCaption', summary }));
-    client.on('activity', (activity) => this._onServerActivity(activity));
+    client.on('activity', (activity, turn) => this._onServerActivity(activity, turn));
     client.on('background', (runs) => {
       const running = runs.some((run) => run.status === 'running' || run.status === 'stopping');
       const changed = this._backgroundRunning !== running;
@@ -584,20 +590,27 @@ class SessionPanel {
     }
   }
 
-  _onServerActivity(activity) {
+  /**
+   * `turn` describes the idle marker that closed a turn in this snapshot (its
+   * server `outcome`, and `superseded` when the next prompt was already
+   * admitted); it is absent for every other activity update.
+   */
+  _onServerActivity(activity, turn = null) {
     if (this._disposed) return;
     const previous = this._serverActivity;
     this._serverActivity = activity;
     if (activity === 'running') {
       this._busy = true;
+      this._turnOutcome = '';
       this._setIcon('working');
       this._post({ type: 'status', state: 'busy' });
     } else {
       const finished = this._busy;
-      if (finished && (activity === 'idle' || activity === 'queued')) {
-        this._post({ type: 'turnEnd', stopReason: 'end_turn' });
+      if (finished && (activity === 'idle' || activity === 'queued') && !turn?.superseded) {
+        this._post({ type: 'turnEnd', stopReason: turnStopReason(turn && turn.outcome) });
       }
       if (finished) {
+        this._turnOutcome = turn ? turn.outcome : '';
         this._finishTurn(activity === 'unconfirmed' ? 'unconfirmed' : 'ready');
         this._afterTurn();
       }

@@ -89,5 +89,22 @@ function createPanel() {
   panel.deps.getConfig = () => ({ autoApprovePermissions: 'allowAll' });
   await panel._onPermission(permission);
   assert.match(panel.panel.iconPath.light, /opencode-light.svg$/, 'auto-approval needs no attention');
+
+  // A turn that failed while the tab was unseen asks for attention, not "done".
+  panel._startTurn();
+  panel._afterTurn = () => {};
+  panel.panel.active = false;
+  panel._onServerActivity('idle', { id: 'msg_idle', outcome: 'failed', error: { message: 'Usage limit reached' } });
+  assert.match(panel.panel.iconPath, /opencode-attention.svg$/, 'an unseen failed turn is flagged');
+  panel.panel.active = true;
+  panel._onViewState();
+  assert.match(panel.panel.iconPath.light, /opencode-light.svg$/, 'viewing the failure clears the flag');
+  panel._onServerActivity('running');
+  panel._onServerActivity('idle', { id: 'msg_idle_stopped', outcome: 'interrupted' });
+  assert.match(panel.panel.iconPath.light, /opencode-light.svg$/, 'a turn that ends in the open tab leaves no flag');
+  panel._onServerActivity('running');
+  panel.panel.active = false;
+  panel._onServerActivity('idle', { id: 'msg_idle_stopped', outcome: 'interrupted' });
+  assert.match(panel.panel.iconPath, /opencode-done.svg$/, 'an interrupted turn is still an ended turn');
   console.log('Attention tests passed');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -301,6 +301,21 @@ function noTextAnswer(stopReason) {
   }
 }
 
+/**
+ * How a turn ended, read from the `idle` message the server appends after it.
+ * Only an ending that differs from a finished answer is worth a marker, so
+ * `succeeded` and unknown outcomes produce none.
+ */
+function turnOutcomeNotice(outcome, error) {
+  if (outcome === 'failed') {
+    const raw = typeof error === 'string' ? error : error && error.message;
+    const message = typeof raw === 'string' ? raw.trim() : '';
+    return { outcome, text: message ? `Turn failed: ${message}` : 'The turn failed.' };
+  }
+  if (outcome === 'interrupted') return { outcome, text: 'Turn interrupted.' };
+  return null;
+}
+
 function nativeImages(files) {
   return (files || []).flatMap((file) => {
     const uri =
@@ -334,5 +349,6 @@ module.exports = {
   toolActivityPurpose,
   describeToolAction,
   noTextAnswer,
+  turnOutcomeNotice,
   nativeImages,
 };

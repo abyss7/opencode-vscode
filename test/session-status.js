@@ -11,7 +11,7 @@ const { SessionPanel } = require('../src/session-panel');
 const { isBusy } = require('../src/sessions-view');
 Module._load = originalLoad;
 const { OpenCodeApi } = require('../src/api');
-const { sessionActivity } = require('../src/session-activity');
+const { sessionActivity, turnStopReason } = require('../src/session-activity');
 const { CONTINUE_TEXT } = require('../src/session-continuation');
 
 function fixture() {
@@ -149,6 +149,25 @@ function fixture() {
   assert.equal(icons.at(-1), 'done');
   waiting.panel._onServerActivity('idle');
   assert.equal(icons.at(-1), 'done', 'repeated idle snapshots preserve the unread completion icon');
+
+  // The idle marker of the finished turn supplies the stop reason the webview expects.
+  const verdict = fixture();
+  assert.equal(turnStopReason('failed'), 'error');
+  assert.equal(turnStopReason('interrupted'), 'cancelled');
+  assert.equal(turnStopReason('succeeded'), 'end_turn');
+  assert.equal(turnStopReason(''), 'end_turn', 'an unseen marker is a plain turn end');
+  verdict.panel._onServerActivity('running');
+  verdict.panel._onServerActivity('idle', { id: 'msg_idle', outcome: 'failed', error: { message: 'Usage limit reached' } });
+  assert.deepEqual(verdict.messages.filter((message) => message.type === 'turnEnd'),
+    [{ type: 'turnEnd', stopReason: 'error' }], 'a failed turn ends with the error stop reason');
+  assert.equal(verdict.panel._turnOutcome, 'failed');
+  verdict.panel._onServerActivity('running');
+  assert.equal(verdict.panel._turnOutcome, '', 'a new turn starts without the previous verdict');
+  verdict.panel._onServerActivity('queued', { id: 'msg_stopped', outcome: 'interrupted', superseded: true });
+  assert.equal(verdict.messages.filter((message) => message.type === 'turnEnd').length, 1,
+    'a turn whose next prompt was already admitted is closed by its marker alone');
+  assert.equal(verdict.panel._busy, false, 'the host still settles the finished turn');
+  assert.equal(verdict.messages.at(-1).state, 'queued');
 
   const recovery = fixture();
   const token = { sessionID: 'session', turn: 'interrupted' };

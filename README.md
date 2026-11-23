@@ -57,8 +57,11 @@ editor tab connected to the shared OpenCode server.
   above the conversation while its full text remains in the transcript.
 - Sending a message reveals it even when you were reading earlier output, and the
   response stays in view.
-- The tab icon is orange while the session works and green when an answer is waiting; it returns
-  to the default icon as soon as you open the tab.
+- The tab icon is orange while the session works, green when an answer is waiting and red when a
+  turn ended in an error; it returns to the default icon as soon as you open the tab.
+- A turn the server did not finish ends with a notice in the transcript: the provider's error
+  for a failed turn (for example the usage limit and when it resets), or `Turn interrupted.`
+  after a stop. The notice is rebuilt from the session history, so it survives a reload.
 - Token estimates are shown for every intermediate operation and for the whole turn.
 - A collapsible **Sub-agents** strip at the top of the chat shows how many sub-agents are
   running, what each one is currently doing, and an estimated token count per sub-agent.

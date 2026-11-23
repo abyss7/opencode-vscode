@@ -70,6 +70,9 @@ class SessionClient extends EventEmitter {
     this.connected = false;
     this.full = true;
     this.revision = 0;
+    // Id of the idle marker that closed the latest finished turn, `null` when
+    // the history has none; undefined until the first complete snapshot.
+    this.turnMarker = undefined;
   }
 
   async request(method, suffix, body, sessionId = this.sessionId) {
@@ -321,8 +324,32 @@ class SessionClient extends EventEmitter {
     if (this.closed) return;
     if (revision !== this.revision) { this.again = true; return; }
     if (info?.title) this.emit('title', info.title);
-    this.emit('activity', sessionActivity(info, pending));
+    this.emit('activity', sessionActivity(info, pending), this.endedTurn(messages));
     this.emit('connection', this.connected);
+  }
+
+  /**
+   * The turn that ended since the previous complete snapshot. The server
+   * closes every turn with an `idle` message naming its outcome, so the
+   * trailing marker is that turn's verdict. The marker already present when
+   * this tab attached closed an earlier turn and is never reported.
+   */
+  endedTurn(messages) {
+    let index = messages.length - 1;
+    while (index >= 0 && messages[index].type !== 'idle') index--;
+    const marker = index >= 0 ? messages[index] : null;
+    const known = this.turnMarker;
+    this.turnMarker = marker ? marker.id : null;
+    if (known === undefined || !marker || marker.id === known) return null;
+    return {
+      id: marker.id,
+      outcome: marker.outcome || '',
+      error: marker.error || null,
+      // A prompt already admitted after the marker opens the next turn. Its
+      // transcript is closed by the marker itself, so the host must not end
+      // the new turn together with the old one.
+      superseded: messages.slice(index + 1).some((message) => message.type === 'user'),
+    };
   }
 
   /**

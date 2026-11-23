@@ -204,4 +204,50 @@ const {
   }
 }
 
+// A turn the server did not finish cleanly is marked by its idle marker
+{
+  const { turnOutcomeNotice } = require('../src/webview/chat/tool-metadata');
+  const quota = { type: 'provider.quota', status: 429,
+    message: 'Usage limit reached for 5 hour. Your limit will reset at 2026-11-23 21:22:54' };
+  assert.deepEqual(turnOutcomeNotice('failed', quota), { outcome: 'failed',
+    text: 'Turn failed: Usage limit reached for 5 hour. Your limit will reset at 2026-11-23 21:22:54' });
+  assert.deepEqual(turnOutcomeNotice('failed', 'Connection reset'), { outcome: 'failed', text: 'Turn failed: Connection reset' });
+  assert.deepEqual(turnOutcomeNotice('failed', { type: 'unknown' }), { outcome: 'failed', text: 'The turn failed.' });
+  assert.deepEqual(turnOutcomeNotice('interrupted'), { outcome: 'interrupted', text: 'Turn interrupted.' });
+  assert.equal(turnOutcomeNotice('succeeded'), null, 'a finished turn needs no marker');
+  assert.equal(turnOutcomeNotice(undefined), null, 'a marker without an outcome is silent');
+
+  const store = createChatStore();
+  store.ingestHostMessage({ type: 'session', sessionId: 'ses_arch', cwd: '/workspace' });
+  store.ingestHostMessage({ type: 'status', state: 'busy' });
+  const snapshot = (messages, states = []) =>
+    store.ingestHostMessage({ type: 'transcript', messages, inbox: [], states });
+  const marker = { id: 'msg_idle', type: 'idle', outcome: 'failed', error: quota, time: { created: 6 } };
+  const streaming = snapshot([
+    { id: 'msg_ask', type: 'user', text: 'Продолжай', time: { created: 1 } },
+    { id: 'msg_step', type: 'assistant', time: { created: 2, streamed: 3 },
+      content: [{ type: 'text', text: 'Ставлю обе базы в начало:' }] },
+  ], [['msg_ask', 'running']]);
+  assert.equal(streaming.ops.some((op) => op.type === 'turnOutcome'), false, 'a running turn has no verdict yet');
+  const ended = snapshot([
+    { id: 'msg_failed', type: 'assistant', time: { created: 5, completed: 6 }, content: [], finish: 'error', error: quota },
+    marker,
+  ], [['msg_ask', 'failed']]);
+  const kinds = ended.ops.map((op) => op.type);
+  assert.ok(kinds.indexOf('nativeIdle') < kinds.indexOf('turnOutcome'), 'the notice follows the settled turn');
+  assert.deepEqual(ended.ops.find((op) => op.type === 'turnOutcome'), { type: 'turnOutcome', outcome: 'failed',
+    text: 'Turn failed: Usage limit reached for 5 hour. Your limit will reset at 2026-11-23 21:22:54' });
+  const hostEnd = store.ingestHostMessage({ type: 'turnEnd', stopReason: 'error' })
+    .ops.find((op) => op.type === 'turnEnd');
+  assert.equal(hostEnd.outcome, 'failed', 'the host turn end yields to the marker that already explained the ending');
+  assert.equal(snapshot([marker]).ops.filter((op) => op.type === 'turnOutcome').length, 0, 'an unchanged marker is silent');
+  snapshot([
+    { id: 'msg_next', type: 'user', text: 'Дальше', time: { created: 7 } },
+    { id: 'msg_answer', type: 'assistant', time: { created: 8, completed: 9 }, content: [{ type: 'text', text: 'Готово.' }] },
+    { id: 'msg_idle_ok', type: 'idle', outcome: 'succeeded', time: { created: 9 } },
+  ], [['msg_ask', 'failed'], ['msg_next', 'completed']]);
+  assert.equal(store.state.turnOutcome, null, 'the next turn starts without the previous verdict');
+  assert.equal(store.ingestHostMessage({ type: 'turnEnd' }).ops.find((op) => op.type === 'turnEnd').outcome, null);
+}
+
 console.log('WEBVIEW ARCHITECTURE OK');

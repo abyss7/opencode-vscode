@@ -17,6 +17,7 @@ const { prefixLine } = require('./format');
 const {
   toolTitle,
   nativeImages,
+  turnOutcomeNotice,
 } = require('./tool-metadata');
 const { updateThoughtBlock, acceptsSummary, sameThought, thoughtCaption } = require('../../thought-caption');
 
@@ -87,6 +88,7 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
     turnId: null,
     turnHadText: false,
     turnEnded: false,
+    turnOutcome: null,
     pendingAssistantText: '',
     pendingAssistantId: null,
     thoughtBlocks: new Map(),
@@ -214,6 +216,7 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
     state.turnId = `turn-${state.turnSeq}`;
     state.turnHadText = false;
     state.turnEnded = false;
+    state.turnOutcome = null;
     state.pendingAssistantText = '';
     state.pendingAssistantId = null;
     state.pendingThoughtId = null;
@@ -290,6 +293,7 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
     state.turnSeq = 0;
     state.turnHadText = false;
     state.turnEnded = false;
+    state.turnOutcome = null;
     state.currentAction = null;
     state.liveToolId = null;
     state.liveStartedAt = null;
@@ -759,6 +763,11 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
         state.thoughtTurnId = null;
         state.activityThought = '';
         tx.ops.push({ type: 'nativeIdle' });
+        // The marker names how the server closed the turn. A failed or
+        // interrupted turn must not read as a finished answer, whether the
+        // ending arrives live or is restored from history.
+        state.turnOutcome = turnOutcomeNotice(message.outcome, message.error);
+        if (state.turnOutcome) tx.ops.push({ type: 'turnOutcome', ...state.turnOutcome });
         tx.dirty.header = true;
       }
 
@@ -1099,6 +1108,8 @@ function createChatStore({ initialViewport = null, initialSubmissions = [] } = {
           turnId: state.turnId,
           usage: message.usage || null,
           stopReason: message.stopReason,
+          // Set when the turn's idle marker already explained how it ended.
+          outcome: state.turnOutcome ? state.turnOutcome.outcome : null,
         });
         setStatus(tx, 'ready');
         tx.scrollIntent ||= { type: 'follow' };
