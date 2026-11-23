@@ -13,6 +13,7 @@ const artifacts = require('./artifacts');
 const reading = require('./reading');
 const { scrollToElement, focusWithoutScroll, createTranscriptViewport } = require('./scroll');
 const { visiblePrompt } = require('../client-context');
+const { answerMarkdown } = require('./answer-markdown');
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false })
   .use(footnote)
@@ -142,7 +143,7 @@ function render(source, options = {}) {
 }
 
 module.exports = {
-  render, highlight, hydrate: visuals.hydrate, visiblePrompt,
+  render, highlight, hydrate: visuals.hydrate, visiblePrompt, answerMarkdown,
   renderToolResult: toolResults.render, createArtifacts: artifacts.create,
   outline: reading.outline, scrollToElement, focusWithoutScroll, createTranscriptViewport,
 };

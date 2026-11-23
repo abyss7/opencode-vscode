@@ -109,6 +109,7 @@ function createTranscriptRenderer({
 }) {
   let anchorSeq = 0;
   let currentAssistant = null;
+  let latestAnswer = null;
   let currentThought = null;
   let lastUser = null;
   let toolGroup = null;
@@ -687,6 +688,42 @@ function createTranscriptRenderer({
     return assistant;
   }
 
+  function addAnswerActions(assistant) {
+    latestAnswer?.classList.remove('latest-answer');
+    latestAnswer = assistant.wrap;
+    latestAnswer.classList.add('latest-answer');
+    const actions = el('div', 'answer-actions');
+    const button = el('button', 'answer-copy');
+    button.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path/></svg>';
+    const icon = button.querySelector('path');
+    const copyPath = 'M5.5 5.5h8v8h-8z M10.5 3V2.5h-8v8H3';
+    icon.setAttribute('d', copyPath);
+    const label = 'Copy Markdown without images and diagrams';
+    button.type = 'button';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    let reset;
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(richText.answerMarkdown(assistant.text));
+        icon.setAttribute('d', 'm2.5 8 3.5 3.5 7.5-8');
+        button.title = 'Copied';
+      } catch {
+        icon.setAttribute('d', 'M8 2.5v7 M8 12.5v.5');
+        button.title = 'Could not copy to clipboard';
+      }
+      button.setAttribute('aria-label', button.title);
+      clearTimeout(reset);
+      reset = setTimeout(() => {
+        icon.setAttribute('d', copyPath);
+        button.title = label;
+        button.setAttribute('aria-label', label);
+      }, 1000);
+    });
+    actions.appendChild(button);
+    assistant.wrap.appendChild(actions);
+  }
+
   function finalizeAssistant() {
     const assistant = currentAssistant;
     if (!assistant) return false;
@@ -702,6 +739,7 @@ function createTranscriptRenderer({
       richText.outline(assistant.body);
       richText.hydrate(assistant.body, () => onAsyncLayout?.());
       artifacts.ingest(assistant.body);
+      if (assistant.nativeComplete !== false) addAnswerActions(assistant);
       for (const block of assistant.body.querySelectorAll('.diagram')) {
         artifacts.offer(
           {
@@ -1469,6 +1507,7 @@ function createTranscriptRenderer({
     if (planProgressEl) planProgressEl.hidden = true;
     artifacts.reset();
     currentAssistant = null;
+    latestAnswer = null;
     currentThought = null;
     lastUser = null;
     toolGroup = null;
@@ -1524,6 +1563,7 @@ function createTranscriptRenderer({
         let record = nativeAssistants.get(op.key);
         if (!record) {
           record = appendAssistantChunk(op.text, op.key);
+          record.nativeComplete = false;
           nativeAssistants.set(op.key, record);
         }
         // A completed new answer is rendered by finalizeAssistant below. Do not
@@ -1545,6 +1585,7 @@ function createTranscriptRenderer({
           } else {
             richText.hydrate(record.body, () => onAsyncLayout?.());
             artifacts.ingest(record.body);
+            if (record.text.trim()) addAnswerActions(record);
           }
         }
         break;

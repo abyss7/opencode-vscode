@@ -811,6 +811,10 @@
     "markdown-it": "15.0.3",
     "markdown-it-footnote": "4.0.0",
     "markdown-it-task-lists": "2.1.1",
-    "mermaid": "12.3.0"
+    "mdast-util-from-markdown": "2.0.2",
+    "mdast-util-gfm-footnote": "2.1.0",
+    "mermaid": "12.3.0",
+    "micromark-extension-gfm-footnote": "2.1.0",
+    "micromark-extension-math": "3.1.0"
   }
 }

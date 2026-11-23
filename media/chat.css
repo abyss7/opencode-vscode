@@ -493,6 +493,37 @@ select {
 .message.assistant {
   align-items: flex-start;
 }
+.answer-actions {
+  display: inline-flex;
+  border-radius: 4px;
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-textCodeBlock-background));
+  opacity: 0;
+  pointer-events: none;
+}
+.assistant:is(.latest-answer, :hover, :focus-within) > .answer-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.answer-copy {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  width: 26px;
+  height: 24px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+}
+.answer-copy > svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.answer-copy:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+}
 .message.assistant .body {
   min-width: 0;
   width: 100%;
