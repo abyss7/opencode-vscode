@@ -96,6 +96,35 @@ function fixture() {
   assert.equal(runs.find((run) => run.id === 'sh_wrong').status, 'unknown');
   assert.match(runs.find((run) => run.id === 'sh_wrong').error, /belong/);
 
+  // A window reload restarts the host with no live metadata, and the server
+  // persists a still-running background part without shellID. The shell
+  // registry rebinds it by session ownership and command text.
+  const live = (id, command) => ({ type: 'tool', id, name: 'shell', state: {
+    status: 'running', input: { command, timeout: 3300000 }, metadata: {} } });
+  f.data.shells.set('sh_recon', { id: 'sh_recon', status: 'running', metadata: { sessionID: 'parent' },
+    time: { started: 42 }, command: 'timeout 3000 verify' });
+  f.data.shells.set('sh_orphan', { id: 'sh_orphan', status: 'running', metadata: { sessionID: 'parent' },
+    time: { started: 43 }, command: 'unmatched command' });
+  const reloaded = new BackgroundRuns(f.api);
+  runs = await reloaded.refresh('parent', '/work', history(live('recon', 'timeout 3000 verify')));
+  assert.equal(runs.length, 1, 'only the command-matching shell is rebound');
+  assert.equal(runs[0].id, 'sh_recon');
+  assert.equal(runs[0].toolCallId, 'recon');
+  assert.equal(runs[0].status, 'running');
+  assert.equal(runs[0].output, 'captured output');
+  runs = await reloaded.refresh('parent', '/work', history(live('recon2', 'echo foreground; sleep 1')));
+  assert.ok(!runs.some((run) => run.toolCallId === 'recon2'),
+    'an open part without a registry shell stays an ordinary command');
+
+  // The sidebar regains its background icon the same way: registry shells are
+  // rebound to open parts of other sessions during discovery.
+  const side = fixture();
+  side.data.shells.set('sh_side', { id: 'sh_side', status: 'running', metadata: { sessionID: 'side' },
+    time: { started: 5 }, command: 'side job' });
+  side.data.history.set('side', history(live('side', 'side job')));
+  assert.deepEqual([...await side.service.discover('/work')], ['side'],
+    'discovery rebinds registry shells to open parts after a reload');
+
   // A GET started before Stop must not revive the deleted process afterward.
   const race = fixture(); race.add('sh_race');
   const raceHistory = history(part('race', 'sh_race'));

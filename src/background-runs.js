@@ -64,8 +64,71 @@ class BackgroundRuns {
     return read;
   }
 
+  /**
+   * Binds registry shells to still-open tool parts of one session by command
+   * text. Shared by `reconnect` (open-session recovery after a window
+   * reload) and `discover` (sidebar icons), which use different shell lists
+   * but the same matching rules.
+   */
+  bindOpenParts(shells, sessionID, messages, runs) {
+    const open = new Map();
+    for (const message of messages) {
+      if (message.type !== 'assistant') continue;
+      for (const part of message.content || []) {
+        if (
+          part.type === 'tool' &&
+          part.state?.status === 'running' &&
+          typeof part.state.input?.command === 'string' &&
+          !runs.has(part.id)
+        ) {
+          open.set(part.id, part.state.input.command);
+        }
+      }
+    }
+    if (!open.size) return;
+    const known = new Set([...runs.values()].map((run) => run.id));
+    for (const shell of shells || []) {
+      if (shell?.status !== 'running' || shell.metadata?.sessionID !== sessionID || known.has(shell.id)) continue;
+      for (const [toolCallId, command] of open) {
+        if (command !== shell.command) continue;
+        open.delete(toolCallId);
+        runs.set(toolCallId, { id: shell.id, toolCallId, status: shell.status, time: shell.time });
+        known.add(shell.id);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Restores background identity for still-open tool parts after an extension
+   * host restart (window reload). The server keeps such parts `running` in the
+   * history but persists no shellID there — the id exists only in live
+   * progress events, which a fresh host has not seen. The `/api/shell`
+   * registry is the authoritative list of running shells: bind each shell
+   * owned by this session to the still-open tool part with the same command.
+   */
+  async reconnect(sessionID, directory, messages, runs) {
+    let open = false;
+    for (const message of messages) {
+      if (message.type !== 'assistant') continue;
+      for (const part of message.content || []) {
+        if (part.type === 'tool' && part.state?.status === 'running' && !runs.has(part.id)) open = true;
+      }
+    }
+    if (!open) return;
+    let shells;
+    try {
+      const query = new URLSearchParams({ 'location[directory]': directory });
+      shells = unwrap(await this.api._request('GET', `/api/shell?${query}`));
+    } catch {
+      return; // The registry is a recovery aid, never a hard dependency.
+    }
+    this.bindOpenParts(shells, sessionID, messages, runs);
+  }
+
   async refresh(sessionID, directory, messages) {
     const runs = this.observe(sessionID, messages);
+    await this.reconnect(sessionID, directory, messages, runs);
     await Promise.all([...runs.values()].filter((run) => run.status === 'unknown' || run.status === 'running')
       .map((run) => this.read(sessionID, directory, run)));
     return [...runs.values()].map((run) => ({ ...run }));
@@ -79,7 +142,10 @@ class BackgroundRuns {
     await Promise.all([...owners].map(async (id) => {
       const known = new Set([...(this.sessions.get(id)?.values() || [])].map((run) => run.id));
       if (shells.some((shell) => shell.metadata?.sessionID === id && !known.has(shell.id))) {
-        this.observe(id, await this.api.listAllMessages(id, { limit: Infinity }));
+        const messages = await this.api.listAllMessages(id, { limit: Infinity });
+        // Reloading the window also clears the sidebar's view of background
+        // work: rebind registry shells to open parts before deciding.
+        this.bindOpenParts(shells, id, messages, this.observe(id, messages));
       }
     }));
     // The running-only list is authoritative for this snapshot; do not count
