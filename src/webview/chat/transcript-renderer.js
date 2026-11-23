@@ -272,6 +272,7 @@ function createTranscriptRenderer({
       if (messagesEl.contains(block)) {
         block.classList.remove('live');
         block.open = open;
+        settleStandaloneTasks(block);
       }
     }
   }
@@ -359,14 +360,19 @@ function createTranscriptRenderer({
   function finalizeTurnSteps() {
     if (!turnSteps) return;
     syncTurnSteps();
-    setStepsLive(turnSteps.details, false);
+    const block = turnSteps.details;
+    // Drop the live-tail reference before folding: lifting a still-running
+    // background command out must not re-open a tail for a settled turn.
     turnSteps = null;
+    setStepsLive(block, false);
+    settleStandaloneTasks(block);
   }
 
   function settleLiveSteps() {
     if (turnSteps) finalizeTurnSteps();
     for (const block of messagesEl.querySelectorAll('.turn-steps.live')) {
       setStepsLive(block, false);
+      settleStandaloneTasks(block);
     }
   }
 
@@ -735,12 +741,16 @@ function createTranscriptRenderer({
     const body = el('div', 'body');
     details.appendChild(summary);
     details.appendChild(body);
-    if (background) {
+    const liveTail = Boolean(turnSteps && turnSteps.details.classList.contains('live'));
+    if (background && !liveTail) {
       finalizeToolGroup();
       finalizeTurnSteps();
       assignAcpAnchor(details, 'tool');
       messagesEl.appendChild(details);
     } else {
+      // Inside the streaming tail a background command keeps the ordinary
+      // template: it neither folds the rows before it nor splits the rows
+      // after it. It is lifted out only once Steps actually collapse.
       beginIntermediate(turnId).body.appendChild(details);
     }
     details.dataset.turn = turnId || store.state.turnId || '';
@@ -810,10 +820,23 @@ function createTranscriptRenderer({
     block.querySelector('summary > .tokens').textContent = tokens ? formatTokens(tokens) : '';
   }
 
-  function separateStandalone(card) {
+  function settleStandaloneTasks(block) {
+    if (!block || !messagesEl.contains(block) || block.classList.contains('live')) return;
+    for (const entry of block.querySelectorAll('.tool-entry')) {
+      const card = toolCards.get(entry.dataset.toolCallId);
+      if (card && (card.background || card.progressVisible)) {
+        separateStandalone(card, Boolean(card.background));
+      }
+    }
+  }
+
+  function separateStandalone(card, whenSettled = false) {
     const group = card.group.details;
     const block = group.closest?.('.turn-steps');
     if (!block) return;
+    // A background command that belongs to the streaming tail stays inline
+    // with the rows around it; `whenSettled` lifts it out of folded Steps only.
+    if (whenSettled && block.classList.contains('live')) return;
     group.dataset.turn = block.dataset.turn;
     assignAcpAnchor(group, 'standalone');
     let after;
@@ -933,7 +956,7 @@ function createTranscriptRenderer({
       group.progressCount.textContent = count;
       group.progressEl.title = `${value.label || 'Command progress'}: ${count}`;
     }
-    if (card.background || visible) separateStandalone(card);
+    if (card.background || visible) separateStandalone(card, Boolean(card.background));
     else if (wasStandalone) restoreStandaloneSteps(card, changed);
   }
 
@@ -945,7 +968,7 @@ function createTranscriptRenderer({
     const status = run?.status || (card.activity.status === 'failed' ? 'failed' : 'unknown');
     const finished = !['unknown', 'running', 'stopping'].includes(status);
     card.background = !finished;
-    if (!finished) separateStandalone(card);
+    if (!finished) separateStandalone(card, true);
     if (!finished && !card.stopBackground) {
       const button = el('button', 'btn danger icon-btn background-stop');
       button.type = 'button';

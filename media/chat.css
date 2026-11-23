@@ -769,6 +769,7 @@ button.delivery-indicator:focus-visible {
   min-height: 20px;
   padding: 0;
   border-radius: 4px;
+  margin: -2.5px 0;
 }
 .btn.icon-btn.background-stop svg {
   width: 12px;

@@ -16,6 +16,12 @@ test('active background cards stay in place and completed commands rejoin ordina
   await chat.send({ type: 'status', state: 'busy' });
   await tool(chat, 'before'); await tool(chat, 'one', true); await tool(chat, 'between'); await tool(chat, 'two', true); await tool(chat, 'after');
   await runs(chat, ['one'], ['two']);
+  // While the turn streams, background commands keep the ordinary template:
+  // one live Steps block, no folded rows, no standalone splits around them.
+  await expect(page.locator('.turn-steps')).toHaveCount(1);
+  await expect(page.locator('.turn-steps.live')).toHaveCount(1);
+  await expect(page.locator('.turn-steps .background-task')).toHaveCount(2);
+  await expect(page.locator('#messages > .background-task')).toHaveCount(0);
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
   await expect(page.locator('.turn-steps .background-task')).toHaveCount(0);
   await expect(page.locator('#messages > .background-task')).toHaveCount(2);
@@ -44,33 +50,55 @@ test('active background cards stay in place and completed commands rejoin ordina
   await expect(card(page, 'one').getByRole('button', { name: 'Stop background task' })).toBeHidden();
 });
 
-test('late background handoff splits Steps without reordering later tools', async ({ page, chat }) => {
+test('late background handoff stays inline while live, then lifts out of folded Steps', async ({ page, chat }) => {
   await chat.send({ type: 'status', state: 'busy' });
   await tool(chat, 'before'); await tool(chat, 'handoff'); await tool(chat, 'after');
   await chat.update({ sessionUpdate: 'tool_call_update', toolCallId: 'handoff',
     background: { id: 'sh_handoff', toolCallId: 'handoff' }, status: 'completed' });
   await runs(chat, ['handoff']);
   await tool(chat, 'last');
+  // One live Steps block keeps streaming raw: the background command neither
+  // folds the rows before it nor splits the rows after it.
+  await expect(page.locator('.turn-steps')).toHaveCount(1);
+  await expect(page.locator('.turn-steps.live')).toHaveCount(1);
+  await expect(page.locator('.turn-steps .background-task')).toHaveCount(1);
+  await expect(page.locator('#messages > .background-task')).toHaveCount(0);
+  await expect(card(page, 'handoff').locator('summary > .status')).toHaveText('in background');
+  await expect(card(page, 'handoff').getByRole('button', { name: 'Stop background task' })).toBeVisible();
   expect(await page.locator('.tool-entry').evaluateAll((nodes) => nodes.map((node) => node.dataset.toolCallId)))
     .toEqual(['before', 'handoff', 'after', 'last']);
-  await expect(page.locator('#messages > .background-task')).toHaveCount(1);
+  // Same template as the neighbouring commands: shared margins and strip height.
+  const rhythms = await page.locator('.turn-steps.live > .body > .tool-group').evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const style = getComputedStyle(node);
+      const height = node.querySelector('summary').getBoundingClientRect().height;
+      return `${style.marginTop}|${style.marginBottom}|${Math.round(height * 10) / 10}`;
+    }));
+  expect(rhythms).toHaveLength(4);
+  expect(new Set(rhythms).size).toBe(1);
+  // Settling the turn folds the ordinary rows and lifts the running command out.
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
   await expect(page.locator('.turn-steps')).toHaveCount(2);
   await expect(page.locator('.turn-steps .background-task')).toHaveCount(0);
+  await expect(page.locator('#messages > .background-task')).toHaveCount(1);
+  expect(await page.locator('.tool-entry').evaluateAll((nodes) => nodes.map((node) => node.dataset.toolCallId)))
+    .toEqual(['before', 'handoff', 'after', 'last']);
 });
 
-test('a background split never bounces the running turn into its chevron', async ({ page, chat }) => {
+test('a live background command never bounces the running turn into its chevron', async ({ page, chat }) => {
   await chat.send({ type: 'status', state: 'busy' });
   await tool(chat, 'before'); await tool(chat, 'handoff'); await tool(chat, 'after');
   await chat.update({ sessionUpdate: 'tool_call_update', toolCallId: 'handoff',
     background: { id: 'sh_handoff', toolCallId: 'handoff' }, status: 'completed' });
   await runs(chat, ['handoff']);
-  // Both halves of the split keep streaming raw: no chevron appears mid-turn.
-  await expect(page.locator('.turn-steps.live')).toHaveCount(2);
-  await expect(page.locator('.turn-steps.live').first()).toHaveAttribute('open', '');
+  // The tail keeps streaming raw around the inline background command:
+  // no chevron appears mid-turn.
+  await expect(page.locator('.turn-steps.live')).toHaveCount(1);
+  await expect(page.locator('.turn-steps.live')).toHaveAttribute('open', '');
   for (const chevron of await page.locator('.turn-steps > summary').all()) {
     await expect(chevron).toBeHidden();
   }
-  // The background command finishing rejoins the halves without folding them.
+  // The background command finishing stays inline without folding anything.
   await runs(chat, ['handoff', 'exited']);
   await expect(page.locator('.turn-steps')).toHaveCount(1);
   await expect(page.locator('.turn-steps.live')).toHaveCount(1);
@@ -78,6 +106,47 @@ test('a background split never bounces the running turn into its chevron', async
   await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
   await expect(page.locator('.turn-steps.live')).toHaveCount(0);
   await expect(page.locator('.turn-steps')).not.toHaveAttribute('open', '');
+  await expect(page.locator('.turn-steps')).toHaveCount(1);
+});
+
+test('a parked reader keeps the background command inline until the deferred fold applies', async ({ page, chat }) => {
+  await chat.send({ type: 'status', state: 'busy' });
+  await chat.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: Array.from({ length: 4 }, (_, i) => `## Section ${i + 1}\n\nParked history paragraph ${i + 1}. `.repeat(60) + '\n\n').join('') } });
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await chat.update({ sessionUpdate: 'user_message_chunk', messageId: 'u2', content: { type: 'text', text: 'Run in background' } });
+  for (let i = 1; i <= 12; i++) {
+    if (i === 6) {
+      await tool(chat, 'bg', true);
+      await runs(chat, ['bg']);
+    } else {
+      await chat.update({ sessionUpdate: 'tool_call', toolCallId: `t${i}`, kind: 'read', title: `Read file ${i}`, status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: 'Result line '.repeat(60) } }] });
+    }
+  }
+  await page.waitForTimeout(150);
+  // Park the reader on the history answer above the streaming tail.
+  await page.evaluate(() => {
+    const m = document.querySelector('#messages');
+    const anchor = [...m.querySelectorAll('.md p')].at(-2);
+    anchor.dataset.testAnchor = 'parked';
+    m.scrollTop += anchor.getBoundingClientRect().top - m.getBoundingClientRect().top - 60;
+    m.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+  });
+  await chat.send({ type: 'turnEnd', stopReason: 'end_turn' });
+  await page.waitForTimeout(250);
+  // The fold is deferred for the parked reader, so the background command has
+  // not been lifted out of the still-open block yet.
+  await expect(page.locator('#messages > .background-task')).toHaveCount(0);
+  await expect(page.locator('.turn-steps .background-task')).toHaveCount(1);
+  // Returning to the bottom applies the deferred fold and lifts the command out.
+  await page.evaluate(() => {
+    const m = document.querySelector('#messages');
+    m.scrollTop = m.scrollHeight - m.clientHeight;
+    m.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }));
+  });
+  await page.waitForTimeout(250);
+  await expect(page.locator('.turn-steps .background-task')).toHaveCount(0);
+  await expect(page.locator('#messages > .background-task')).toHaveCount(1);
 });
 
 test('whole-turn statistics do not group standalone background work back into Steps', async ({ page, chat }) => {

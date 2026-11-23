@@ -3818,6 +3818,7 @@ ${after}`);
             if (messagesEl.contains(block)) {
               block.classList.remove("live");
               block.open = open;
+              settleStandaloneTasks(block);
             }
           }
         }
@@ -3891,13 +3892,16 @@ ${after}`);
         function finalizeTurnSteps() {
           if (!turnSteps) return;
           syncTurnSteps();
-          setStepsLive(turnSteps.details, false);
+          const block = turnSteps.details;
           turnSteps = null;
+          setStepsLive(block, false);
+          settleStandaloneTasks(block);
         }
         function settleLiveSteps() {
           if (turnSteps) finalizeTurnSteps();
           for (const block of messagesEl.querySelectorAll(".turn-steps.live")) {
             setStepsLive(block, false);
+            settleStandaloneTasks(block);
           }
         }
         function beginIntermediate(turnId) {
@@ -4220,7 +4224,8 @@ ${after}`);
           const body = el("div", "body");
           details.appendChild(summary);
           details.appendChild(body);
-          if (background) {
+          const liveTail = Boolean(turnSteps && turnSteps.details.classList.contains("live"));
+          if (background && !liveTail) {
             finalizeToolGroup();
             finalizeTurnSteps();
             assignAcpAnchor(details, "tool");
@@ -4290,10 +4295,20 @@ ${after}`);
           const tokens = [...body.children].reduce((sum, child) => sum + Number(child.dataset.tokens || 0), 0);
           block.querySelector("summary > .tokens").textContent = tokens ? formatTokens(tokens) : "";
         }
-        function separateStandalone(card) {
+        function settleStandaloneTasks(block) {
+          if (!block || !messagesEl.contains(block) || block.classList.contains("live")) return;
+          for (const entry of block.querySelectorAll(".tool-entry")) {
+            const card = toolCards.get(entry.dataset.toolCallId);
+            if (card && (card.background || card.progressVisible)) {
+              separateStandalone(card, Boolean(card.background));
+            }
+          }
+        }
+        function separateStandalone(card, whenSettled = false) {
           const group = card.group.details;
           const block = group.closest?.(".turn-steps");
           if (!block) return;
+          if (whenSettled && block.classList.contains("live")) return;
           group.dataset.turn = block.dataset.turn;
           assignAcpAnchor(group, "standalone");
           let after;
@@ -4397,7 +4412,7 @@ ${after}`);
             group.progressCount.textContent = count;
             group.progressEl.title = `${value.label || "Command progress"}: ${count}`;
           }
-          if (card.background || visible) separateStandalone(card);
+          if (card.background || visible) separateStandalone(card, Boolean(card.background));
           else if (wasStandalone) restoreStandaloneSteps(card, changed);
         }
         function syncBackgroundCard(card) {
@@ -4408,7 +4423,7 @@ ${after}`);
           const status = run?.status || (card.activity.status === "failed" ? "failed" : "unknown");
           const finished = !["unknown", "running", "stopping"].includes(status);
           card.background = !finished;
-          if (!finished) separateStandalone(card);
+          if (!finished) separateStandalone(card, true);
           if (!finished && !card.stopBackground) {
             const button = el("button", "btn danger icon-btn background-stop");
             button.type = "button";

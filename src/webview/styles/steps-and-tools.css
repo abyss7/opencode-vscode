@@ -27,7 +27,11 @@
 #messages > .standalone-task { margin: 10px 0; }
 .tool-group.background-task > summary > .background-stop { grid-column: 6; grid-row: 1; align-self: center; }
 .tool-group .status.background-state[data-running="true"] { color: var(--oc-completed); }
-.btn.icon-btn.background-stop { width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 4px; }
+/* The Stop button keeps its 20×20 hit area but overlaps the strip's vertical
+   padding, so its ~15px grid contribution never stretches the row: a
+   background command is exactly as tall as every other command row, both in
+   the wide grid and in the narrow wrap-under rearrangement. */
+.btn.icon-btn.background-stop { width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 4px; margin: -2.5px 0; }
 .btn.icon-btn.background-stop svg { width: 12px; height: 12px; }
 .background-stop:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 .background-stop:disabled { opacity: .6; cursor: default; }

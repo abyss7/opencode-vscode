@@ -160,7 +160,7 @@ flowchart TD
 | `.turn-steps` (+ `.live`) | контейнер шагов хода | kind «N steps», name=метрики, tokens | live-режим без шеврона; рейл-линия у раскрытого тела; авто-сворачивание только через `canFold` |
 | `.tool-group` (+ `.single`) | вызов инструмента / группа | kind («Execute», «Read 2 files»), name (mono), tokens, status | жирная метка; hover подсветка пути; варианты ниже |
 | `.tool-group.progress-task` | команда с прогрессом | + `.command-progress` в слоте detail (name скрыт) | inline прогресс-бар и счётчик `847 / 1,203` |
-| `.tool-group.background-task` (+ `.standalone-task`) | фоновая команда | + `.background-stop` в слоте action | кнопка Stop, статус `in background` с общей пульсацией, живёт вне `.turn-steps` |
+| `.tool-group.background-task` (+ `.standalone-task`) | фоновая команда | + `.background-stop` в слоте action | кнопка Stop, статус `in background` с общей пульсацией; в live-хвосте — обычная строка среди соседних (не сворачивает и не разрывает Steps), из свёрнутых Steps выделяется, пока выполняется, завершённая возвращается в Steps |
 | `.thought` (+ `.streaming`, `.compact`) | рассуждение модели | kind («Thinking…»/«Thoughts»), tokens | тихий курсив, «чистый текст»; `.compact` — однострочность без полоски вовсе; многоточие стрима |
 | `.plan` | план хода | kind «PLAN», tokens | карточка с рамкой, uppercase-mono метка, прогресс в шапке вьюхи |
 | `.permission-file` | файл в карточке разрешения | action-чип (слот kind), path (слот detail) | живёт внутри карточки `.permission`, не в корне транскрипта |
