@@ -383,6 +383,14 @@ const visibleAssistant = ids.messages
   .querySelectorAll('.message.assistant')
   .filter((node) => node.hidden === false);
 assert.ok(visibleAssistant.length > 0, 'completed answer must become visible');
+// Every completed answer carries its copy action. Its icon is written as whole
+// markup, so this harness needs no HTML parser to see it.
+const copyActions = ids.messages.querySelectorAll('.answer-copy');
+assert.strictEqual(copyActions.length, 2, 'one copy action per completed answer');
+for (const button of copyActions) {
+  assert.strictEqual(button.title, 'Copy Markdown without images and diagrams');
+  assert.ok(button.innerHTML.includes('<path d="M5.5 5.5h8v8h-8z M10.5 3V2.5h-8v8H3"/>'), 'the copy icon is set as markup');
+}
 send({ type: 'turnEnd', stopReason: 'end_turn' });
 
 const users = ids.messages.querySelectorAll('.message').filter((node) => node.classList.contains('user'));

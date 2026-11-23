@@ -3675,6 +3675,14 @@ ${after}`);
         cancelled: "Cancelled",
         unknown: "Delivery unconfirmed"
       };
+      var ANSWER_ICONS = {
+        copy: "M5.5 5.5h8v8h-8z M10.5 3V2.5h-8v8H3",
+        copied: "m2.5 8 3.5 3.5 7.5-8",
+        failed: "M8 2.5v7 M8 12.5v.5"
+      };
+      function answerIcon(state) {
+        return `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="${ANSWER_ICONS[state]}"/></svg>`;
+      }
       function isAssistantMessage(node) {
         const classes = String(node.className || "").split(/\s+/);
         return classes.includes("message") && classes.includes("assistant");
@@ -4231,28 +4239,26 @@ ${after}`);
           latestAnswer.classList.add("latest-answer");
           const actions = el("div", "answer-actions");
           const button = el("button", "answer-copy");
-          button.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path/></svg>';
-          const icon = button.querySelector("path");
-          const copyPath = "M5.5 5.5h8v8h-8z M10.5 3V2.5h-8v8H3";
-          icon.setAttribute("d", copyPath);
+          button.innerHTML = answerIcon("copy");
           const label = "Copy Markdown without images and diagrams";
           button.type = "button";
           button.title = label;
           button.setAttribute("aria-label", label);
           let reset;
           button.addEventListener("click", async () => {
+            let icon = "failed";
             try {
               await navigator.clipboard.writeText(richText.answerMarkdown(assistant.text));
-              icon.setAttribute("d", "m2.5 8 3.5 3.5 7.5-8");
+              icon = "copied";
               button.title = "Copied";
             } catch {
-              icon.setAttribute("d", "M8 2.5v7 M8 12.5v.5");
               button.title = "Could not copy to clipboard";
             }
+            button.innerHTML = answerIcon(icon);
             button.setAttribute("aria-label", button.title);
             clearTimeout(reset);
             reset = setTimeout(() => {
-              icon.setAttribute("d", copyPath);
+              button.innerHTML = answerIcon("copy");
               button.title = label;
               button.setAttribute("aria-label", label);
             }, 1e3);
