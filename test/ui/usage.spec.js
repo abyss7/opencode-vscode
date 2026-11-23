@@ -265,11 +265,12 @@ test('GLM Coding Plan windows render as percent and reset pairs', async ({ page,
   await expect(page.locator('#usage-cost')).toBeHidden();
   await expect(page.locator('#usage-reset')).toBeHidden();
 
-  // A failed plan fetch falls back to the label line with the usage link.
+  // A failed plan fetch falls back to the label line with the usage link, and
+  // the tooltip says the usage is unavailable instead of showing an empty box.
   await page.locator('#usage-subscription').hover();
   await chat.send({ type: 'balance', model, balance: null });
   await expect(page.locator('#usage-subscription')).toHaveText('GLM Coding Plan · usage ↗');
-  expect(await page.locator('#usage-plan-tooltip').textContent()).toBe('');
+  expect(await page.locator('#usage-plan-tooltip').textContent()).toBe('GLM Coding Plan usage unavailable');
 });
 
 test('Codex Browser quota uses actual ChatGPT windows without monetary cost', async ({ page, chat }) => {
